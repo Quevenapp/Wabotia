@@ -959,6 +959,59 @@ const serviceTables: readonly EngineTable[] = BASE_ENGINE_TABLES
  * com o padrão e as exceções por serviço do catálogo. O que é do emitente
  * (inscrição municipal, série da DPS, regime especial, certificado) fica no cofre. */
 const C_SERVICE_SETTINGS = `${SERVICE_PREFIX}settings`;
+/** Categoria de despesa (do primeiro nível) que entra em Custos no DRE gerencial:
+ * o grupo de DRE gravado nela continua Despesas Operacionais (o CHECK do
+ * oráculo não tem custos); esta linha só a separa no DRE. */
+const C_DRE_COST = "erp_finance__dre_cost";
+/** Pagamento da equipe: a conta a pagar (salário, comissão, adiantamento ou
+ * vale) e a pessoa dela (funcionário do cadastro ou vendedor), com o período a
+ * que se refere e, na comissão, a base e o percentual conferidos. */
+const C_TEAM_PAYMENT = "erp_finance__team_payment";
+const DATE10 = (c: string) => `${c} GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}'`;
+const REPORT_TABLES: readonly EngineTable[] = [
+  {
+    table: C_DRE_COST,
+    ddl: [
+      `CREATE TABLE "${C_DRE_COST}" (
+  "category_id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_DRE_COST}_category_fkey" FOREIGN KEY (category_id) REFERENCES "erp_finance__category" (id)
+) STRICT`,
+    ],
+    since: 21, owner: "erp-relatorios", structural: "relatorios-dre-equipe",
+  },
+  {
+    table: C_TEAM_PAYMENT,
+    ddl: [
+      `CREATE TABLE "${C_TEAM_PAYMENT}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "title_id" TEXT NOT NULL,
+  "person_kind" TEXT NOT NULL,
+  "employee_id" TEXT,
+  "seller_id" TEXT,
+  "pay_kind" TEXT NOT NULL,
+  "period_from" TEXT NOT NULL,
+  "period_to" TEXT NOT NULL,
+  "base_cents" INTEGER,
+  "rate" TEXT,
+  "actor" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_TEAM_PAYMENT}_title_key" UNIQUE (title_id),
+  CONSTRAINT "${C_TEAM_PAYMENT}_title_fkey" FOREIGN KEY (title_id) REFERENCES "erp_finance__title" (id),
+  CONSTRAINT "${C_TEAM_PAYMENT}_employee_fkey" FOREIGN KEY (employee_id) REFERENCES "erp_catalog__employee" (id),
+  CONSTRAINT "${C_TEAM_PAYMENT}_seller_fkey" FOREIGN KEY (seller_id) REFERENCES "erp_catalog__seller" (id),
+  CONSTRAINT "${C_TEAM_PAYMENT}_person_check" CHECK ((person_kind = 'employee' AND employee_id IS NOT NULL AND seller_id IS NULL) OR (person_kind = 'seller' AND seller_id IS NOT NULL AND employee_id IS NULL)),
+  CONSTRAINT "${C_TEAM_PAYMENT}_pay_kind_check" CHECK (pay_kind IN ('salario','comissao','adiantamento','vale') AND (pay_kind <> 'comissao' OR person_kind = 'seller')),
+  CONSTRAINT "${C_TEAM_PAYMENT}_period_check" CHECK (${DATE10("period_from")} AND ${DATE10("period_to")} AND period_from <= period_to),
+  CONSTRAINT "${C_TEAM_PAYMENT}_base_check" CHECK ((base_cents IS NULL OR base_cents >= 0) AND (rate IS NULL OR rate GLOB '[0-9]*.[0-9][0-9][0-9][0-9]'))
+) STRICT`,
+      `CREATE INDEX "${C_TEAM_PAYMENT}_period_idx" ON "${C_TEAM_PAYMENT}" (period_from, period_to)`,
+    ],
+    since: 21, owner: "erp-relatorios", structural: "relatorios-dre-equipe",
+  },
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1009,6 +1062,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     ],
     since: 16, owner: "os5-fiscal", structural: "nota-servico-os",
   },
+  // Versão 21: o DRE gerencial e o pagamento da equipe (src/erp/domains/finance/rpc/erp_finance_dre.ts e erp_finance_team.ts).
+  ...REPORT_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

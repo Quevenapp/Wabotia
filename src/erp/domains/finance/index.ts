@@ -25,3 +25,7 @@ import "./rpc/erp_finance_title_page_v2.ts";
 import "./rpc/erp_finance_list.ts";
 export {};
 import "./rpc/erp_document_finance.ts";
+// Relatórios do ERP: DRE gerencial, gráficos do Financeiro e pagamento da equipe.
+import "./rpc/erp_finance_dre.ts";
+import "./rpc/erp_finance_charts.ts";
+import "./rpc/erp_finance_team.ts";

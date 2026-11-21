@@ -42,6 +42,8 @@ const extra: Readonly<Record<string, PortedTarget>> = {
   "/estoque-empresa": { ...rule("estoque", products), readPermission: "suprimentos.controle_estoque" },
   "/empresa-configuracoes": rule("sistema"),
   "/manutencao-efeitos": rule("sistema"),
+  // Relatórios do ERP: cada relatório da tela confere a parte dele.
+  "/relatorios-graficos": rule("sistema"),
   "/estoque-abertura": rule("estoque", admin),
   "/cobranca-empresa": rule("cobranca", finance),
   "/cobranca-operacional": rule("cobranca", finance),
@@ -103,7 +105,7 @@ const imports: Readonly<Record<string, ErpPart>> = {
   contatos: "cadastro", "pedidos-compra": "compras", "movimentacoes-estoque": "estoque",
   "fornecedores-produtos": "catalogo", "notas-fiscais": "fiscal", "contas-receber": "financeiro", vendas: "vendas",
 };
-const financeAreas = ["receivable", "payable", "accounts", "categories", "borderos", "contas-financeiras", "ficha", "conciliacao", "recorrentes", "importacao", "comissoes", "controle-caixa", "faturamento-agrupado", "relatorios", "remessas", "retornos", "comissoes-relatorio"];
+const financeAreas = ["receivable", "payable", "accounts", "categories", "borderos", "contas-financeiras", "ficha", "conciliacao", "recorrentes", "importacao", "comissoes", "controle-caixa", "faturamento-agrupado", "relatorios", "remessas", "retornos", "comissoes-relatorio", "dre", "equipe"];
 const businessPanels = ["mensal", "diario", "pedidos-venda", "vendas-vendedor", "venda-canal", "previsao-estoque", "margem-pedido", "novos-recorrentes", "atividade-carteira", "curva-abc", "metas"];
 
 export function portedTarget(to: string): PortedTarget | null {

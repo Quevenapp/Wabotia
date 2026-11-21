@@ -18,3 +18,5 @@ import "./rpc/erp_preferences_import_batch.ts";
 import "./rpc/erp_home_overview.ts";
 import "./rpc/erp_attachment_files.ts";
 import "./rpc/erp_home_business_panel.ts";
+// Relatórios do ERP: vendas por período, vendedor e produto.
+import "./rpc/erp_report_sales_chart.ts";

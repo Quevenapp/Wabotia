@@ -15,6 +15,8 @@ import NativeListLayout from './NativeListLayout';
 import { AppliedChips, RowMenu, ToolButton, type RowMenuItem } from './OriginList';
 import { BatchDialog } from './BatchDialog';
 import { Icon } from './Icon';
+// Relatórios do ERP: a categoria de despesa do primeiro nível pode ir para Custos no DRE gerencial (src/erp/relatorios).
+import { loadDreCosts, saveDreCost } from '../lib/erp-reports';
 import './real-finance.css';
 import './finance-title-drawer.css';
 import './finance-registry.css';
@@ -55,8 +57,19 @@ function Drawer({ title, onClose, children, footer, busy }: { title: string; onC
 }
 
 /** Gaveta "Nova categoria" e "Editar categoria de Receita/Despesa". */
-function CategoryDrawer({ kind, items, node, parent, send, mayWrite, onClose, onSaved }: { kind: FinanceKind; items: readonly CategoryNode[]; node: CategoryNode | null; parent: string | null; send: Send; mayWrite: () => boolean; onClose: () => void; onSaved: (text: string) => void }) {
-  const [values, setValues] = useState({ type: node ? (node.parent_id ? 'sub' : 'main') : parent ? 'sub' : 'main', name: node?.name ?? '', parent: node?.parent_id ?? parent ?? '', dre: (node?.dre_group ?? 'none') as DreGroup });
+const COSTS = 'costs';
+function CategoryDrawer({ kind, items, node, parent, send, mayWrite, onClose, onSaved, costs }: { kind: FinanceKind; items: readonly CategoryNode[]; node: CategoryNode | null; parent: string | null; send: Send; mayWrite: () => boolean; onClose: () => void; onSaved: (text: string) => void; costs: ReadonlySet<string> | null }) {
+  const wasCost = !!node && !!costs?.has(node.id);
+  const [values, setValues] = useState({ type: node ? (node.parent_id ? 'sub' : 'main') : parent ? 'sub' : 'main', name: node?.name ?? '', parent: node?.parent_id ?? parent ?? '', dre: (wasCost ? COSTS : node?.dre_group ?? 'none') as DreGroup | typeof COSTS });
+  const [costError, setCostError] = useState('');
+  // Custos no DRE: grava Despesas Operacionais na categoria e a marca à parte (a gravação da categoria vem antes).
+  const afterSave = async (value: unknown, text: string) => {
+    const id = node?.id ?? ((value as { record?: { id?: string } } | null)?.record?.id), cost = values.dre === COSTS;
+    if (kind === 'payable' && id && (node ? !node.parent_id : values.type === 'main') && cost !== wasCost && costs) {
+      try { await saveDreCost(id, cost); } catch (failure) { setCostError(`A categoria foi salva, mas a marcação de Custos no DRE não: ${(failure as Error).message}`); return; }
+    }
+    onSaved(text);
+  };
   const command = useCommand(send, mayWrite), guard = useUnsavedForm(values, command.busy || command.uncertain);
   const parents = items.filter(item => item.depth < maxDepth(kind) && item.active);
   const sub = values.type === 'sub', title = node ? `Editar categoria de ${kind === 'receivable' ? 'Receita' : 'Despesa'}` : 'Nova categoria';
@@ -64,17 +77,19 @@ function CategoryDrawer({ kind, items, node, parent, send, mayWrite, onClose, on
     const name = values.name.trim(); if (!name) throw new Error('Informe o nome da categoria.'); if (name.length > 100) throw new Error('O nome tem no máximo 100 caracteres.');
     if (!node && sub && !values.parent) throw new Error('Selecione a categoria pai.');
     const main = node ? !node.parent_id : !sub;
-    const data: Record<string, unknown> = node ? { id: node.id, expected_version: node.version, name, ...(main ? { dre_group: values.dre } : {}) } : { kind, name, ...(sub ? { parent_id: values.parent } : { dre_group: values.dre }) };
+    const dre = values.dre === COSTS ? 'operating_expenses' : values.dre;
+    const data: Record<string, unknown> = node ? { id: node.id, expected_version: node.version, name, ...(main ? { dre_group: dre } : {}) } : { kind, name, ...(sub ? { parent_id: values.parent } : { dre_group: dre }) };
     return { id: crypto.randomUUID(), path: `/v1/financeiro/actions/${node ? 'category_update' : 'category_create'}`, body: { data } };
-  }, () => onSaved(node ? `Categoria “${values.name.trim()}” atualizada.` : `Categoria “${values.name.trim()}” incluída.`));
+  }, value => void afterSave(value, node ? `Categoria “${values.name.trim()}” atualizada.` : `Categoria “${values.name.trim()}” incluída.`));
   const createLabel = `Criar ${sub ? 'subcategoria' : 'categoria'} de ${kindWord(kind)}`;
   return <Drawer title={title} busy={command.busy} onClose={() => guard.confirmLeave(onClose)} footer={<><button type="button" className="text-button" disabled={command.busy} onClick={() => guard.confirmLeave(onClose)}>Cancelar</button><button type="button" className="primary-button" disabled={command.busy} onClick={save}>{command.busy ? 'Salvando…' : command.uncertain ? 'Conferir resultado' : node ? 'Salvar alterações' : createLabel}</button></>}>
     <form className="finance-drawer-form" onSubmit={event => { event.preventDefault(); save(); }}><fieldset className="finance-drawer-fields" disabled={command.busy || command.uncertain}><legend className="real-sr-only">{title}</legend>
       {!node && <fieldset className="finance-option-filter finance-drawer-wide"><legend>Tipo</legend>{([['main', 'Categoria principal'], ['sub', 'Subcategoria']] as const).map(([value, label]) => <label key={value} htmlFor={`category-type-${value}`}><input id={`category-type-${value}`} type="radio" name="category-type" checked={values.type === value} disabled={value === 'sub' && !parents.length} onChange={() => setValues(previous => ({ ...previous, type: value }))} />{label}</label>)}</fieldset>}
       <Field label={sub ? 'Nome da subcategoria *' : 'Nome da categoria *'}>{id => <input id={id} required maxLength={100} value={values.name} onChange={event => { const name = event.target.value; setValues(previous => ({ ...previous, name })); }} />}</Field>
       {!node && sub && <Field label="Categoria pai *">{id => <select id={id} required value={values.parent} onChange={event => { const value = event.target.value; setValues(previous => ({ ...previous, parent: value })); }}><option value="">Selecione</option>{parents.map(item => <option key={item.id} value={item.id}>{categoryPathName(items, item.id)}</option>)}</select>}</Field>}
-      {(node ? !node.parent_id : !sub) && <Field label="Grupo de DRE">{id => <select id={id} value={values.dre} onChange={event => { const dre = event.target.value as DreGroup; setValues(previous => ({ ...previous, dre })); }}>{DRE_GROUPS[kind].map(group => <option key={group.value} value={group.value}>{group.label}</option>)}</select>}</Field>}
-    </fieldset>{command.error && <p className="real-alert" role="alert">{command.error}</p>}</form>
+      {(node ? !node.parent_id : !sub) && <Field label="Grupo de DRE">{id => <select id={id} value={values.dre} onChange={event => { const dre = event.target.value as DreGroup; setValues(previous => ({ ...previous, dre })); }}>{DRE_GROUPS[kind].map(group => <option key={group.value} value={group.value}>{group.label}</option>)}{kind === 'payable' && costs && <option value={COSTS}>Custos (mercadorias e serviços vendidos)</option>}</select>}</Field>}
+      {values.dre === COSTS && <p className="real-help finance-drawer-wide">No DRE gerencial esta categoria aparece em Custos; nas outras telas ela fica como Despesas Operacionais.</p>}
+    </fieldset>{command.error && <p className="real-alert" role="alert">{command.error}</p>}{costError && <p className="real-alert" role="alert">{costError}</p>}</form>
   </Drawer>;
 }
 
@@ -191,6 +206,9 @@ export default function FinanceCategoryTree({ controller }: { controller: Access
   const send: Send = command => { if (!mayWrite()) return Promise.reject(new AccessError(403)); return controller.finance(command.path, { method: 'POST', body: { command_id: command.id, data: structuredClone(command.body.data) } } as never); };
   const tab = (next: FinanceKind) => { if (next === kind) return; const target = new URLSearchParams({ area: 'categories' }); if (next === 'payable') target.set('tipo', 'despesas'); navigate(`${location.pathname}?${target}`); };
   const saved = (text: string) => { if (!mayRead()) return; setPanel(null); setNotice(text); setReload(value => value + 1); };
+  // Custos no DRE (relatórios do ERP): null fora do painel da área ou se a leitura falhar; a opção some.
+  const [costs, setCosts] = useState<ReadonlySet<string> | null>(null);
+  useEffect(() => { const control = new AbortController(); void loadDreCosts(control.signal).then(set => { if (!control.signal.aborted) setCosts(set); }).catch(() => setCosts(null)); return () => control.abort(); }, [reload]);
   const open = (next: Panel) => { setMenu(null); if (!mayWrite() || running) return; setNotice(''); setPanel({ ...next, key: routeKey }); };
   const panelVisible = panel && panel.key === routeKey ? panel : null;
   // Sistema › Usuários › Permissões › Finanças (SQL 246): the server refuses without the key; the screen does not offer it.
@@ -265,12 +283,12 @@ export default function FinanceCategoryTree({ controller }: { controller: Access
             {writable && <td className="checkbox-cell"><input type="checkbox" aria-label={`Selecionar ${node.name}`} checked={selected.includes(node.id)} onChange={event => toggleSelect(node.id, event.target.checked)} /></td>}
             <td><span className="finance-category-cell" style={{ paddingLeft: `${(row.level - 1) * 22}px` }}>{row.hasChildren && !search ? <button type="button" className="finance-tree-toggle" aria-label={`${expanded.has(node.id) ? 'Recolher' : 'Expandir'} ${node.name}`} aria-expanded={expanded.has(node.id)} onClick={() => toggleExpand(node.id)}><Icon name={expanded.has(node.id) ? 'chevron-down' : 'chevron-right'} size={10} /></button> : <span className="finance-tree-spacer" />}
               <span className="finance-category-name">{node.name}</span>{!node.active && <span className={badgeClass('Inativo')}>Inativo</span>}{node.defaults.map(key => <span key={key} className="finance-pill">{defaultPill(key)}</span>)}
-              {node.dre_group && node.dre_group !== 'none' && <small className="real-help"> · {DRE_GROUPS[kind].find(group => group.value === node.dre_group)?.label}</small>}</span></td>
+              {node.dre_group && node.dre_group !== 'none' && <small className="real-help"> · {costs?.has(node.id) ? 'Custos (no DRE)' : DRE_GROUPS[kind].find(group => group.value === node.dre_group)?.label}</small>}</span></td>
             <td className="row-actions">{entries.length > 0 && <RowMenu label={node.name} items={entries} open={menu === node.id} onToggle={() => setMenu(menu === node.id ? null : node.id)} />}</td></tr>; })}
       </tbody></table>{!items.length && <div className="empty-state"><h2>Nenhuma categoria de {plural(kind)}</h2><p>{writable ? `Inclua uma categoria de ${plural(kind)} ou importe a planilha.` : 'As categorias aparecem aqui quando cadastradas.'}</p></div>}</div>}
     </NativeListLayout></form>
-    {panelVisible?.kind === 'create' && <CategoryDrawer kind={kind} items={items} node={null} parent={panelVisible.parent} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}
-    {panelVisible?.kind === 'edit' && <CategoryDrawer kind={kind} items={items} node={panelVisible.node} parent={null} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}
+    {panelVisible?.kind === 'create' && <CategoryDrawer kind={kind} items={items} node={null} parent={panelVisible.parent} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} costs={costs} />}
+    {panelVisible?.kind === 'edit' && <CategoryDrawer kind={kind} items={items} node={panelVisible.node} parent={null} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} costs={costs} />}
     {panelVisible?.kind === 'dre' && trees && <DreDrawer trees={trees} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}
     {panelVisible?.kind === 'move' && <MoveDrawer kind={kind} items={items} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}
     {panelVisible?.kind === 'import' && <ImportDrawer kind={kind} items={items} send={send} mayWrite={mayWrite} onClose={() => setPanel(null)} onSaved={saved} />}

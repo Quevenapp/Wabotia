@@ -12,6 +12,7 @@ import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/blin
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 import { ERP_CHARGE_OPERATIONS, ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erpConversaParams } from "../../erp/conversa/contract.ts";
+import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "../../erp/relatorios/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -104,6 +105,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Cobrança de conta a receber (gerar e confirmar a sugestão de baixa) fica no assunto Financeiro.
   ...[...ERP_CHARGE_OPERATIONS, ...ERP_CONVERSA_OPERATIONS].filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: op.group ?? "conversa", description: op.description, params: erpConversaParams(op) })),
+  // Relatórios do ERP: DRE, gráficos e lotes vencendo são leitura comum; lançar pagamento da equipe é sensível.
+  ...ERP_REPORT_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: op.group, description: op.description, params: erpReportParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -116,6 +120,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path.startsWith(`${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`)) return erpRequirement("erp-financeiro").all;
   if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;
+  const report = op.path.startsWith(`${ERP_RELATORIOS_ROUTE}/`) ? ERP_REPORT_OPERATIONS.find(item => item.method === op.method && item.path === op.path) : undefined;
+  if (report) return erpRequirement(...report.parts).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

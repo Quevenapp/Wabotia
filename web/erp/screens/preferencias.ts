@@ -2,3 +2,4 @@
 export { default as CompanySettings } from "../app/components/CompanySettings";
 export { default as CompanyPreferences } from "../app/components/CompanyPreferences";
 export { default as RealHome } from "../app/components/RealHome";
+export { default as ReportCharts } from "../app/components/ReportCharts";

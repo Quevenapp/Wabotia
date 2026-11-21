@@ -14,6 +14,8 @@ import FinanceGroupedBilling from './FinanceGroupedBilling';
 import FinanceReports from './FinanceReports';
 import FinanceRemittances from './FinanceRemittances';
 import FinanceReturns from './FinanceReturns';
+import FinanceDre from './FinanceDre';
+import FinanceTeamPayments from './FinanceTeamPayments';
 
 /** Financeiro screens of the Origin parity (Contas Financeiras, Categorias, Caixas e bancos, Ficha financeira, …), one per ?area=. */
 export default function FinanceScreens({ controller, area }: { controller: AccessController; area: FinanceScreen }) {
@@ -30,5 +32,7 @@ export default function FinanceScreens({ controller, area }: { controller: Acces
   if (area === 'relatorios') return <FinanceReports controller={controller} />;
   if (area === 'remessas') return <FinanceRemittances controller={controller} />;
   if (area === 'retornos') return <FinanceReturns controller={controller} />;
+  if (area === 'dre') return <FinanceDre />;
+  if (area === 'equipe') return <FinanceTeamPayments />;
   return <FinanceCategoryTree controller={controller} />;
 }

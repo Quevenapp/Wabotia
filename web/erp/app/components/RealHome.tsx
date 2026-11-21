@@ -18,6 +18,8 @@ import {HomeChartCards} from './HomeChartCards';
 import {HomeFavorites} from './HomeFavorites';
 import {HomeProfileCard} from './CompanyChrome';
 import {HomeExpiring} from './HomeExpiring';
+// Relatórios do ERP: aviso de lotes vencendo no início.
+import {HomeValidityAlert} from './HomeValidityAlert';
 import {Icon} from './Icon';
 import './real-home.css';
 import { blockEnabled, entityEnabled, targetEnabled, ERP_BLOCK_LABELS } from '../../blocks';
@@ -117,6 +119,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
       {/* Wabotia: só a base ligada: um estado vazio amigável no lugar dos indicadores das partes desligadas. */}
       {!(['erp-produtos','erp-vendas','erp-compras','erp-estoque','erp-financeiro','erp-fiscal'] as const).some(blockEnabled)&&<p className="home-alert" role="note"><Icon name="circle-info" size={16}/><span>Com só {ERP_BLOCK_LABELS.erp} ligado, este painel mostra os atalhos e os cadastros. Os indicadores de vendas, estoque, financeiro e notas aparecem aqui quando esses módulos forem ligados em Gestão → Módulos.</span></p>}
       <HomeExpiring controller={controller as Parameters<typeof HomeExpiring>[0]['controller']} role={role}/>
+      <HomeValidityAlert role={role}/>
 
       <section className="home-daily" aria-labelledby="home-daily-title">
         <header className="home-daily-head"><h2 id="home-daily-title">Resumo diário</h2>

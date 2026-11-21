@@ -98,7 +98,10 @@ const RPC_GROUPS = {
     erp_finance_reconciliation_dismiss erp_finance_reconciliation_execute erp_finance_reconciliation_page erp_finance_recurrence_execute erp_finance_recurrence_get
     erp_finance_recurrence_page erp_finance_report erp_finance_statement_page erp_finance_title_detail erp_finance_title_execute
     erp_finance_title_page erp_finance_title_page_v2 erp_finance_transfer_command erp_finance_transfer_get erp_finance_transfer_list
-    erp_finance_transfer_post`,
+    erp_finance_transfer_post erp_finance_dre erp_finance_dre_cost_set erp_finance_chart erp_finance_team_people erp_finance_team_report
+    erp_finance_team_pay`,
+  // Comissão do vendedor pelas vendas faturadas (relatórios do ERP): Financeiro e Vendas.
+  finance_sales: `erp_finance_team_commission`,
   fiscal: `erp_catalog_invoice_list_tagged erp_catalog_invoice_tags erp_catalog_invoice_tags_save erp_fiscal_invoice_contact_source erp_fiscal_invoice_context
     erp_fiscal_invoice_get erp_fiscal_invoice_item_history erp_fiscal_invoice_key_lookup erp_fiscal_invoice_list erp_fiscal_invoice_payment_methods
     erp_fiscal_invoice_pricing_record erp_fiscal_invoice_pricing_states erp_fiscal_invoice_product_groups erp_fiscal_invoice_returned erp_fiscal_invoice_xml_get
@@ -130,7 +133,7 @@ const RPC_GROUPS = {
     erp_purchase_receipts_reverse_preview erp_stock_purchase_receive erp_stock_purchase_receive_preview erp_stock_purchase_reverse_all erp_stock_purchase_suggestion
     erp_stock_report_purchase_orders`,
   report: `erp_preferences_report_run erp_preferences_report_save`,
-  sales: `erp_home_business_panel erp_home_top_products erp_catalog_contact_timeline`,
+  sales: `erp_home_business_panel erp_home_top_products erp_catalog_contact_timeline erp_report_sales_chart`,
   sales_stock: `erp_stock_product_reservations erp_stock_reservation_apply erp_stock_reservation_command erp_stock_reservation_get erp_stock_reservation_preview`,
   situation: `erp_preferences_situation_save erp_preferences_situations erp_preferences_transition_save erp_preferences_transitions_delete`,
   stock: `erp_stock_mirror_product_summary erp_stock_availability erp_stock_balances erp_stock_composition_components erp_stock_composition_export erp_stock_composition_get
@@ -145,7 +148,7 @@ const RPC_GROUPS = {
     erp_stock_report_balances_at erp_stock_report_below_min erp_stock_report_financial erp_stock_report_idle erp_stock_report_movements
     erp_stock_report_product erp_stock_report_top erp_stock_report_transfers erp_stock_reverse erp_stock_source_lots
     erp_stock_suppliers erp_stock_totals erp_stock_transfer_batch erp_stock_transfer_positions erp_stock_warehouse_options
-    erp_stock_warehouse_save erp_stock_warehouse_set_default erp_stock_warehouses`,
+    erp_stock_warehouse_save erp_stock_warehouse_set_default erp_stock_warehouses erp_stock_chart erp_stock_lots_expiring`,
   taxonomy: `erp_catalog_taxonomy_delete erp_catalog_taxonomy_list erp_catalog_taxonomy_save`,
 } as const;
 export type ErpRpcRule = keyof typeof RPC_GROUPS;
@@ -185,7 +188,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],
-  sales_stock: ["erp-vendas", "erp-estoque"], fiscal_stock: ["erp-fiscal", "erp-estoque"], fiscal_finance: ["erp-fiscal", "erp-financeiro"],
+  sales_stock: ["erp-vendas", "erp-estoque"], finance_sales: ["erp-financeiro", "erp-vendas"], fiscal_stock: ["erp-fiscal", "erp-estoque"], fiscal_finance: ["erp-fiscal", "erp-financeiro"],
 };
 /** Requisitos da chamada, resolvidos no mesmo SQLite da operação. */
 export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): ErpRequirement | "externo" | null {

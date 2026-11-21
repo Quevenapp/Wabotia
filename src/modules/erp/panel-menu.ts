@@ -83,7 +83,16 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     label: "Metas",
     target: { kind: "ported", to: "/meu-negocio?painel=metas" },
     permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },  // Relatórios do ERP: relatórios em gráfico (cada um aparece com a parte dele ligada).
+  {
+    id: "erp.report-charts", module: "erp", part: "sistema",
+    shownWithAny: ["erp-vendas", "erp-financeiro", "erp-estoque"],
+    ...ERP_MENU_GROUPS.resultados, order: 75,
+    label: "Relatórios em gráfico",
+    target: { kind: "ported", to: "/relatorios-graficos" },
+    permission: { kind: "erp" },
   },
+
   {
     id: "erp.products", module: "erp-produtos", part: "catalogo",
     primary: true,
@@ -362,6 +371,21 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/financeiro-empresa?area=faturamento-agrupado" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
+  // Relatórios do ERP: DRE gerencial e pagamento da equipe (Financeiro); relatórios em gráfico (cada um com a parte dele).
+  {
+    id: "erp.dre", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 431,
+    label: "DRE gerencial",
+    target: { kind: "ported", to: "/financeiro-empresa?area=dre" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.team-payments", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 432,
+    label: "Pagamento da equipe",
+    target: { kind: "ported", to: "/financeiro-empresa?area=equipe" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
   {
     id: "erp.financial-reports", module: "erp-financeiro", part: "financeiro",
     ...ERP_MENU_GROUPS.financeiro, order: 430,
@@ -421,6 +445,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
     legacyItems["erp.customers-dashboard"],
     legacyItems["erp.abc-curve"],
     legacyItems["erp.goals"],
+    { ...legacyItems["erp.report-charts"], homeShortcut: false },
   ] }] },
   { name: 'Cadastros', columns: [
     { title: 'Cadastros', items: [
@@ -481,6 +506,10 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],
+    ] },
+    { title: 'Relatórios e equipe', items: [
+      { ...legacyItems["erp.dre"], homeShortcut: false },
+      { ...legacyItems["erp.team-payments"], homeShortcut: false },
     ] },
   ], footer: legacyItems["erp.financial-reports"] },
   { name: 'Sistema', columns: [

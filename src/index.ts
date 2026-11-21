@@ -1260,6 +1260,12 @@ const erpConversa = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-conversa", erpConversa);
 app.all("/api/v1/profiles/:profile/erp-conversa/*", erpConversa);
+// Relatórios do ERP (DRE, gráficos, lotes vencendo e pagamento da equipe):
+// pessoa com papel no ERP e as partes da operação ligadas (src/erp/relatorios/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-relatorios/*", async (c: any) => {
+  const { erpRelatoriosRoute } = await import("./erp/relatorios/routes");
+  return erpRelatoriosRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
