@@ -1385,6 +1385,14 @@ app.all("/api/v1/profiles/:profile/erp-conciliacao/*", async (c: any) => {
   const { erpConciliacaoRoute } = await import("./erp/conciliacao/routes");
   return erpConciliacaoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Régua de cobrança e contas recorrentes automáticas do ERP (o que sai hoje,
+// o que saiu e o que falhou; ligar é do administrador): parte Financeiro (src/erp/regua/routes.ts).
+const erpRegua = async (c: any) => {
+  const { erpReguaRoute } = await import("./erp/regua/routes");
+  return erpReguaRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-regua", erpRegua);
+app.all("/api/v1/profiles/:profile/erp-regua/*", erpRegua);
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");

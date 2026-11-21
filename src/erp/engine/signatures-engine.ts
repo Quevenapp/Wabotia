@@ -153,6 +153,14 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_contract_attachment_remove: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
   erp_contract_bling_list: [["p_user_id", "u"], ["p_args", "j"]],
   erp_contract_bling_adopt: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  // Régua de cobrança e recorrência automática (structural.ts, regua-cobranca;
+  // src/erp/domains/finance/rpc/erp_finance_dunning.ts): consultas e a rodada
+  // com p_args (a configuração do D1 vem nele); gravações com p_data.
+  erp_finance_dunning_overview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_dunning_round: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_finance_dunning_report: [["p_user_id", "u"], ["p_data", "j"]],
+  erp_finance_recurrence_auto_list: [["p_user_id", "u"], ["p_args", "j", null]],
+  erp_finance_recurrence_auto_set: [["p_user_id", "u"], ["p_data", "j"]],
   // Lojas e filiais (structural.ts, lojas; src/erp/domains/stores/rpc.ts):
   // consultas e a loja em uso com p_args; gravações do cadastro com p_command_id.
   erp_store_overview: [["p_user_id", "u"], ["p_args", "j"]],

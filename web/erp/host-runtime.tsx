@@ -16,6 +16,7 @@ import { createContratosPort } from "./contratos-api";
 import { createExpedicaoPort } from "./expedicao-api";
 import { createLojasPort } from "./lojas-api";
 import { createConciliacaoPort } from "./conciliacao-api";
+import { createReguaPort } from "./regua-api";
 import { setErpBlocks, installErpTargetAccess } from "./blocks";
 import { setActionPendingNotice, setMotorReal } from "./motor";
 import { toast } from "../ui";
@@ -304,6 +305,29 @@ export function acquireErpHost(context: ErpHostContext) {
           return response;
         },
       });
+      // Financeiro › Régua de cobrança e as contas recorrentes automáticas: mesma área, sessão e partes do painel; a demonstração não grava.
+      const regua = createReguaPort(context.profile, {
+        access: () => {
+          const c = entry.valid && entry.owners.size ? current() : null;
+          const state = controller?.getSnapshot();
+          const modules: Readonly<Record<string, boolean>> = c?.management.modules ?? {};
+          return {
+            ready: !!c && available() && state?.phase === "ready" && state.membership?.user_id === actor,
+            role: state?.membership?.role ?? null,
+            admin: state?.membership?.role === "admin",
+            demo: !!simulation,
+            parts: { finance: modules["erp-financeiro"] === true },
+          };
+        },
+        fetch: async (input, init) => {
+          const response = await scoped(() => globalThis.fetch(input, init));
+          if (response.status === 401 && !init?.signal?.aborted) {
+            const onExpired = current().onExpired;
+            entry.invalidate(); onExpired();
+          }
+          return response;
+        },
+      });
       const simulate = simulation?.createSimulatedApi({ actor, readOnly: context.demo });
       const fetchPort = createFetchPort({ apiUrl, actor,
         simulate: simulate ? (path, init) => path === "/v1/sistema/permissoes" && init.method === "GET"
@@ -345,6 +369,7 @@ export function acquireErpHost(context: ErpHostContext) {
         lojas,
         conciliacao,
         contratos,
+        regua,
       };
       const access = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
       controller = access;

@@ -127,7 +127,8 @@ const RPC_GROUPS = {
     erp_finance_recurrence_page erp_finance_report erp_finance_statement_page erp_finance_title_detail erp_finance_title_execute
     erp_finance_title_page erp_finance_title_page_v2 erp_finance_transfer_command erp_finance_transfer_get erp_finance_transfer_list
     erp_finance_transfer_post erp_finance_dre erp_finance_dre_cost_set erp_finance_chart erp_finance_team_people erp_finance_team_report
-    erp_finance_team_pay`,
+    erp_finance_team_pay erp_finance_dunning_overview erp_finance_dunning_round erp_finance_dunning_report
+    erp_finance_recurrence_auto_list erp_finance_recurrence_auto_set`,
   // Comissão do vendedor pelas vendas faturadas (relatórios do ERP): Financeiro e Vendas.
   finance_sales: `erp_finance_team_commission`,
   fiscal: `erp_catalog_invoice_list_tagged erp_catalog_invoice_tags erp_catalog_invoice_tags_save erp_fiscal_invoice_contact_source erp_fiscal_invoice_context

@@ -159,8 +159,10 @@ describe("agendador do ERP no objeto", () => {
       lastAlarm: s.storage.sql.exec("SELECT value FROM erp_meta WHERE key='last_alarm'").toArray()[0]?.value,
     }));
     // A rotina dos contratos fica registrada e pula com a parte Contratos desligada (padrão).
+    // A das recorrências automáticas também, com o Financeiro desligado (só o ERP foi ligado).
     expect(state.routines).toEqual([
       { id: "contracts.daily", last_status: "skipped" },
+      { id: "finance.recurring", last_status: "skipped" },
       { id: "platform.schedule", last_status: "ok" },
       { id: "retention", last_status: "ok" },
     ]);
@@ -414,6 +416,7 @@ describe("agendador do ERP no objeto", () => {
     }));
     expect(after.routines).toEqual([
       { id: "contracts.daily", last_status: "skipped" },
+      { id: "finance.recurring", last_status: "skipped" },
       { id: "platform.schedule", last_status: "ok" },
       { id: "retention", last_status: "ok" },
     ]);

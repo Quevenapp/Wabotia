@@ -27,6 +27,7 @@ import { ERP_CONCILIACAO_PART, ERP_CONCILIACAO_ROUTE, ERP_RECONCILIATION_OPERATI
 import { ERP_CONTRACT_OPERATIONS, ERP_CONTRATOS_PART, ERP_CONTRATOS_ROUTE, erpContractParams } from "../../erp/contratos/contract.ts";
 import { ERP_TERMINAL_OPERATIONS, ERP_TERMINAL_PART, ERP_TERMINAL_ROUTE, erpTerminalParams } from "../../erp/terminal/contract.ts";
 import { ERP_COMPANY_OPERATIONS, ERP_EMPRESAS_PART, ERP_EMPRESAS_ROUTE, erpCompanyParams } from "../../erp/multiempresa/contract.ts";
+import { ERP_REGUA_OPERATIONS, ERP_REGUA_PART, ERP_REGUA_ROUTE, erpReguaParams } from "../../erp/regua/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -180,6 +181,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Várias empresas: ver as empresas e o consolidado é leitura comum; a prévia da cópia (nomes de clientes) e copiar cadastros são sensíveis.
   ...ERP_COMPANY_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "multiempresa", description: op.description, params: erpCompanyParams(op) })),
+  // Régua de cobrança (assunto Financeiro): consultar a régua e as recorrências automáticas é leitura;
+  // ligar, desligar e mudar a régua e marcar a recorrência como automática ficam fora (só o administrador, pela tela).
+  ...ERP_REGUA_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "financeiro", description: op.description, params: erpReguaParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -211,6 +216,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path.startsWith(`${ERP_TERMINAL_ROUTE}/`)) return erpRequirement(ERP_TERMINAL_PART).all;
   // Conciliação: a parte Financeiro.
   if (op.path.startsWith(`${ERP_CONCILIACAO_ROUTE}/`)) return erpRequirement(ERP_CONCILIACAO_PART).all;
+  // Régua de cobrança: a parte Financeiro.
+  if (op.path === ERP_REGUA_ROUTE || op.path.startsWith(`${ERP_REGUA_ROUTE}/`)) return erpRequirement(ERP_REGUA_PART).all;
   // Contratos de serviço: a parte Contratos, com o Financeiro.
   if (op.path === ERP_CONTRATOS_ROUTE || op.path.startsWith(`${ERP_CONTRATOS_ROUTE}/`)) return erpRequirement(ERP_CONTRATOS_PART).all;
   // Várias empresas: a Base do ERP (a cópia confere a parte de cada cadastro nas duas empresas).

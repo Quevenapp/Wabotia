@@ -77,8 +77,9 @@ describe("catálogo da casa de gestão", () => {
     // + 2 da conciliação: Conciliação bancária e Conciliação de cartões (Financeiro).
     // + 1 dos contratos de serviço: Contratos (Financeiro).
     // + 1 do SPED e SINTEGRA (Fiscal).
-    expect(linked).toHaveLength(62);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(63);
+    // + 2 da régua de cobrança: Contas recorrentes e Régua de cobrança (Financeiro).
+    expect(linked).toHaveLength(64);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(65);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
