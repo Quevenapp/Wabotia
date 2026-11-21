@@ -42,11 +42,15 @@ import {
   sendQuote,
   trackText,
   updateOrder,
-  reopenQuote,
   validateQuoteLink,
   completeQuoteLink,
 } from "./store";
-import { createOrderCharge, orderPaymentUpdated, paymentsView, recordManualReceipt } from "./commercial/receipts";
+import { createOrderCharge, orderPaymentUpdated, paymentsView, recordManualReceipt, reverseOrderReceipt, reverseOsReceipt } from "./commercial/receipts";
+import { registerReceiptReverser } from "../../integrations/ports";
+import { reopenOrderQuote, reopenPreview } from "./reopen";
+import { markChecklist, orderChecklist } from "./checklist";
+import { erpLegacyPreview, importErpLegacy, orderLinks } from "./erp-legacy";
+import { requireMoveReason } from "./stages";
 
 import { validateWorkTypes, validateVocabulary, validateWorkTypeChanges, validateServiceObjectTypes, validateOs2AiAccess } from "./validation";
 import { customOpenForm, openingAnswers } from "./forms";
@@ -299,6 +303,12 @@ onRead(
   },
 );
 
+// OS6: ordem de serviço antiga do ERP: prévia e "Trazer para a ordem de serviço", uma por vez.
+onRead("os", "service-orders/erp-legacy/:document_id", (ctx, actor, { params }) => erpLegacyPreview(ctx, actor, params.document_id));
+onRoute("os", { method: "POST", path: "service-orders/erp-legacy/:document_id/import", op: "os.erp_legacy.import" });
+onCommand("os", "os.erp_legacy.import", async (ctx, actor, data) =>
+  orderViewForActor(ctx, actor, await importErpLegacy(ctx, actor, String(data.document_id ?? ""), data)));
+
 onRead("os", "service-orders/:id", async (ctx, actor, { params, query }) => {
   ctx.access(actor, "conversations:read");
   const { row: order, type } = await authorizedOrder(ctx, actor, params.id);
@@ -306,7 +316,10 @@ onRead("os", "service-orders/:id", async (ctx, actor, { params, query }) => {
     query.history === "none" ? undefined : await orderHistory(ctx, order.id));
   // Compatibilidade: metadados autorizados do snapshot; valores apenas na rota privada.
   if (await mayReadSensitive(ctx, actor)) view.fields = type.fields;
-  return view;
+  // OS6: checklist por etapa e ligações (reaberta, trazida do ERP), só quando existem.
+  const checklist = orderChecklist(order);
+  const links = await orderLinks(ctx, order.id);
+  return { ...view, ...(checklist.length ? { checklist } : {}), ...(links.length ? { links } : {}) };
 });
 
 onRoute("os", { method: "POST", path: "service-orders", op: "os.create" });
@@ -365,6 +378,8 @@ onCommand("os", "os.status", async (ctx, actor, data, { requestId }) => {
   const notify = await ctx.mayNotify(actor, order.conversation_id ?? null);
   const replay = await replayOrderMutation(ctx, actor, data.id, key, notify);
   if (replay) return orderViewForActor(ctx, actor, replay.row);
+  // OS6: cancelar e voltar etapa pedem motivo (pessoas e bots).
+  requireMoveReason(actor, order, { status: data.status, note: data.note });
   const changed = await changeStatus(ctx, order, data.status, actor.id, data.note, {
     notify, mutationKey: key,
   });
@@ -391,15 +406,20 @@ onCommand("os", "os.quote.save", async (ctx, actor, data, { requestId }) => {
 });
 
 // OS3: reabrir o orçamento aprovado, com motivo no histórico.
+// OS6: a leitura mostra o que existe no ERP; com documento no ERP, undo_erp
+// confirma a compensação (a ordem é cancelada e o orçamento segue numa nova).
+onRead("os", "service-orders/:id/quote/reopen", (ctx, actor, { params }) => reopenPreview(ctx, actor, params.id));
 onRoute("os", { method: "POST", path: "service-orders/:id/quote/reopen", op: "os.quote.reopen" });
 onCommand("os", "os.quote.reopen", async (ctx, actor, data, { requestId }) => {
   requireCommercialWriter(actor);
   ctx.access(actor, "conversations:write");
-  const { row: order } = await authorizedOrder(ctx, actor, data.id, { write: true });
+  await authorizedOrder(ctx, actor, data.id, { write: true });
   const key = motorMutationKey(actor, "os.quote.reopen", requestId);
-  const replay = await replayOrderMutation(ctx, actor, data.id, key, false);
-  if (replay) return orderViewForActor(ctx, actor, replay.row);
-  return orderViewForActor(ctx, actor, await reopenQuote(ctx, order, data, actor.id, key));
+  if (data.undo_erp !== true) {
+    const replay = await replayOrderMutation(ctx, actor, data.id, key, false);
+    if (replay) return orderViewForActor(ctx, actor, replay.row);
+  }
+  return orderViewForActor(ctx, actor, await reopenOrderQuote(ctx, actor, data.id, data, key));
 });
 
 // OS3: cobrança e recebimento (docs/ORDEM-DE-SERVICO.md, "Cobrança e recebimento").
@@ -407,6 +427,20 @@ onRead("os", "service-orders/:id/payments", (ctx, actor, { params }) => payments
 onRoute("os", { method: "POST", path: "service-orders/:id/receipts", op: "os.receipt.create" });
 onCommand("os", "os.receipt.create", (ctx, actor, data, { requestId }) =>
   recordManualReceipt(ctx, actor, data.id, data, requestId));
+// OS6: estorno de um recebimento feito pela ordem, com motivo.
+onRoute("os", { method: "POST", path: "service-orders/:id/receipts/reverse", op: "os.receipt.reverse" });
+onCommand("os", "os.receipt.reverse", (ctx, actor, data, { requestId }) =>
+  reverseOrderReceipt(ctx, actor, data.id, data, requestId));
+registerReceiptReverser("os", reverseOsReceipt);
+
+// OS6: checklist da etapa atual (marcar e desmarcar, com foto quando pedida).
+onRoute("os", { method: "POST", path: "service-orders/:id/checklist", op: "os.checklist.mark" });
+onCommand("os", "os.checklist.mark", async (ctx, actor, data, { requestId }) => {
+  const key = motorMutationKey(actor, "os.checklist.mark", requestId);
+  const replay = await replayOrderMutation(ctx, actor, data.id, key, false);
+  if (replay) return orderViewForActor(ctx, actor, replay.row);
+  return orderViewForActor(ctx, actor, await markChecklist(ctx, actor, data.id, data, key));
+});
 onRoute("os", { method: "POST", path: "service-orders/:id/charges", op: "os.charge.create" });
 onCommand("os", "os.charge.create", (ctx, actor, data, { requestId }) =>
   createOrderCharge(ctx, actor, data.id, data, requestId));

@@ -1,13 +1,14 @@
-import { ApiError, json, now } from "../../types";
+import { ApiError, json, now, type Actor } from "../../types";
 import type { ModuleContext } from "../api";
 import type { PendingStageApproval } from "./contracts";
-import { endOfDayAfter, type OsStatus } from "./model";
+import { endOfDayAfter, isStatus, needsMoveReason, type OsStatus } from "./model";
 import { checkVersion, commitOrderMutation } from "./mutations";
 import { builtinWorkType, effectiveStage, snapshotType } from "./work-types";
 import { changeStatus, customMessage, notify, conversationOf } from "./store";
 import { replayWorkWrite, workWriteReceipt } from "./commercial/mutations";
 import { prepareOrderRulesMutation } from "./os2-ports";
 import { requireInvoiceToDeliver } from "./fiscal/notes";
+import { requireChecklist } from "./checklist";
 
 function stageNote(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -16,6 +17,31 @@ function stageNote(value: unknown): string {
   return value.trim();
 }
 export const stageError = (code = "invalid_transition") => new ApiError(409, code, "Ação indisponível nesta etapa. Atualize o trabalho.");
+/** Aplicação autorizada (chave de API, módulo) muda sem motivo; pessoas e bots, não. */
+const application = (actor: Actor) => actor.kind !== "user" || !!actor.credential || !!actor.module;
+/**
+ * OS6: cancelar e voltar etapa pedem motivo em todas as telas e pelo bot; o
+ * motivo vai para o histórico. Vale para POST /status e POST /stage.
+ */
+export function requireMoveReason(actor: Actor, row: any, data: { status?: unknown; transition_id?: unknown; note?: unknown }) {
+  if (application(actor)) return;
+  // Só transições que existem: a inválida segue para o erro próprio (invalid_transition).
+  const type = snapshotType(row) ?? builtinWorkType();
+  const manual = type.transitions.filter(t => t.kind === "manual" && t.from === effectiveStage(row));
+  let to: OsStatus | undefined;
+  if (data.status !== undefined) {
+    const status = isStatus(data.status) ? data.status : undefined;
+    if (status && manual.some(t => type.stages.find(s => s.id === t.to)?.base_status === status)) to = status;
+  } else {
+    const transition = manual.find(t => t.id === data.transition_id);
+    if (transition) to = type.stages.find(s => s.id === transition.to)?.base_status;
+  }
+  if (!to || !needsMoveReason(row.status, to)) return;
+  if (typeof data.note === "string" && data.note.trim()) return;
+  throw new ApiError(422, "reason_required", to === "cancelled"
+    ? "Informe o motivo do cancelamento. Ele fica no histórico da ordem."
+    : "Informe o motivo para voltar a etapa. Ele fica no histórico da ordem.");
+}
 export function cancelApproval(row: any) {
   const pending = json(row.stage_approval_json, null) as PendingStageApproval | null;
   return pending?.state === "pending" ? JSON.stringify({ ...pending, state: "cancelled", decided_at: now() }) : row.stage_approval_json ?? null;
@@ -30,6 +56,7 @@ export async function customStatus(ctx: ModuleContext, row: any, status: OsStatu
   const choices = type.transitions.filter(t => t.from === effectiveStage(row) && type.stages.find(s => s.id === t.to)?.base_status === status);
   if (!choices.length) throw stageError();
   if (choices.length !== 1 || status === row.status || choices[0].kind !== "manual") throw stageError("stage_required");
+  requireChecklist(row, choices[0].to);
   return customMove(ctx, row, status, actor, {}, "status", { ...options, stage: choices[0].to });
 }
 export async function customMove(ctx: ModuleContext, row: any, to: OsStatus, actor: string, extra: Record<string, any>, kind: "status" | "quote", options: { notify?: boolean; mutationKey?: string; stage?: string; note?: string; writeIntent?: unknown }) {
@@ -78,6 +105,7 @@ export async function changeStage(ctx: ModuleContext, row: any, data: any, actor
   const transition = type.transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
   if (!transition) throw stageError();
   if (transition.kind !== "manual") throw stageError("approval_required");
+  requireChecklist(row, transition.to);
   return customMove(ctx, row, type.stages.find(s => s.id === transition.to)!.base_status, actor, {}, "status", { ...options, stage: transition.to, note: stageNote(data.note), writeIntent: intent });
 }
 export async function requestStageApproval(ctx: ModuleContext, row: any, data: any, actor: string, key?: string) {
@@ -86,6 +114,7 @@ export async function requestStageApproval(ctx: ModuleContext, row: any, data: a
   const transition = type?.transitions.find(t => t.id === data.transition_id && t.from === effectiveStage(row));
   if (!transition || transition.kind !== "customer_approval") throw stageError();
   const target = type!.stages.find(s => s.id === transition.to)!;
+  requireChecklist(row, target.id);
   await prepareOrderRulesMutation(ctx, { row, type: type!, sets: { stage: target.id, status: target.base_status }, actor, preview: true });
   const old = json(row.stage_approval_json, null) as PendingStageApproval | null;
   if (old?.state === "pending" && old.expires_at > now()) throw stageError("approval_pending");

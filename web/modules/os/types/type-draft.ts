@@ -170,6 +170,18 @@ export function validateTypeDraft(
   ids(type.fields, "Campo", 32);
   ids(type.stages, "Etapa", 32);
   ids(type.transitions, "Transição", 32);
+  // OS6: checklist por etapa, as mesmas regras do servidor.
+  for (const stage of type.stages) {
+    const items = stage.checklist ?? [];
+    ids(items, `Checklist de ${stage.label || stage.id}`, 32);
+    if (items.length > 20) errors.push(`${stage.label || stage.id}: até 20 itens no checklist.`);
+    if (items.some((item) => !item.label.trim() || [...item.label.trim()].length > 120))
+      errors.push(`${stage.label || stage.id}: escreva cada item do checklist com até 120 caracteres.`);
+    if (items.length && ["delivered", "cancelled"].includes(stage.base_status))
+      errors.push(`${stage.label || stage.id}: etapa encerrada não tem checklist.`);
+    if (items.some((item) => item.photo_required) && !type.features.documents)
+      errors.push(`${stage.label || stage.id}: para pedir foto no checklist, ligue Documentos nos recursos do modelo.`);
+  }
   if (type.id === "service_order")
     errors.push("O identificador service_order é reservado.");
   if (

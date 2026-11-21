@@ -46,6 +46,7 @@ import type { Order } from "./work-contracts";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./work/WorkQuoteCommercial";
 import { OrderContractPanel, OrderSchedulePanel } from "./maintenance/OrderPanels";
 import { WorkInvoicesPanel } from "./fiscal/WorkInvoicesPanel";
+import { WorkLinks } from "./work/WorkChecklistPanel";
 
 const StatusPill = ({ status }: { status: string }) => (
   <Pill tone={statusTones[status] || "muted"}>
@@ -322,6 +323,8 @@ export function OrderDetail({
             </>
           )}
         </dl>
+        {/* OS6: ordem reaberta numa nova (ou trazida do ERP). */}
+        <WorkLinks order={order as Order} />
         {/* OS4: contrato que cobre a ordem e execução agendada. */}
         <OrderContractPanel order={order as Order} onChanged={() => { void resource.reload(); onChanged(); }} />
         <OrderSchedulePanel order={order as Order} onChanged={onChanged} />

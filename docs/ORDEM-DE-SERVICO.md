@@ -127,8 +127,16 @@ a tela pede **quem respondeu, quando e por onde** (e o motivo da recusa).
 - **Orçamento aprovado fica travado.** Para mudar, **Reabrir orçamento** e
   informe o motivo (fica no histórico); a aprovação deixa de valer e o
   orçamento é enviado e aprovado de novo. Só antes de iniciar o serviço. Se o
-  orçamento aprovado já gerou o documento de venda no ERP, o ERP não o volta
-  para análise: cancele a ordem com motivo e abra outra.
+  orçamento aprovado já gerou o documento no ERP, a tela de **Reabrir
+  orçamento** mostra antes o que existe no ERP (documento, contas a receber,
+  baixa de estoque, notas, recebido). O ERP não volta um documento aprovado
+  para análise; confirmando **Desfazer no ERP e reabrir**, a ordem é
+  cancelada com o motivo (o pedido não faturado e as contas em aberto no ERP
+  são cancelados pela fila da fase 3) e o orçamento continua numa **ordem
+  nova**, em análise, ligada à antiga. Também vale com o serviço em execução.
+  Com nota autorizada, conta paga, recebimento registrado, Pix/link em aberto
+  ou envio para o ERP com pendência, não reabre e diz o que fazer antes
+  (cancelar a nota, estornar o recebimento).
 - Na linha oficial o orçamento chega como lista com **Aprovar** e **Recusar**;
   na linha QR, com "1. Aprovar / 2. Recusar". O cliente também pode escrever
   `APROVAR 12` ou `RECUSAR 12` (número da ordem). Com um menu aberto depois
@@ -153,11 +161,40 @@ ordem (não há outro lançamento): com a conta a receber já criada (primeira
 execução com Financeiro), no mesmo instante; registrado antes dela, segue
 junto da execução. Com o Financeiro desligado, fica só na ordem.
 
+**Estornar** (ao lado de cada recebimento registrado à mão) desfaz o
+recebimento com motivo no histórico: o valor volta ao saldo a receber e, com
+a conta a receber no ERP, o estorno da baixa segue pela mesma fila. Com o
+Financeiro ligado, só administrador ou papel Financeiro no ERP estorna, com o
+segundo fator. Recebimento que veio da Cobrança se devolve pelo provedor.
+
 ## Cancelar e voltar etapa
 
-**Cancelar ordem**, voltar de *Pronta* para *Em execução* (retrabalho) e voltar
-para *Em análise* pedem o **motivo** antes de enviar. O motivo fica no
-histórico e vai ao ERP quando a ordem já tem parte comercial.
+**Cancelar ordem** e **voltar etapa** (ir para um estado anterior, como de
+*Pronta* para *Em execução* ou de volta para *Em análise*) pedem o **motivo**
+em todas as telas e também pelo bot. O motivo fica no histórico e vai ao ERP
+quando a ordem já tem parte comercial. Aplicações com chave de API não são
+obrigadas a mandar motivo.
+
+## Checklist por etapa
+
+No modelo (Etapas), cada etapa pode ter itens de checklist: texto,
+**obrigatório** ou não e **com foto obrigatória** ou não (a foto é anexada em
+Documentos, que precisa estar ligado no modelo). Na ordem, o bloco
+**Checklist** marca os itens da etapa atual; a etapa só avança com os
+obrigatórios marcados. Cancelar e voltar etapa não esperam o checklist. Cada
+marcação fica no histórico e o checklist sai na impressão da ordem. Marcando
+"Mostrar ao cliente o resumo do checklist", o acompanhamento pelo WhatsApp
+mostra quantos itens da etapa já foram feitos.
+
+## Ordens antigas do ERP
+
+Com o módulo ligado, a ordem de serviço criada antes no ERP fica só leitura.
+Na lista do ERP (Documentos anteriores à integração), **Trazer para a ordem de
+serviço** abre a prévia no módulo: cliente, itens e situação. Confirmando,
+nasce uma ordem nova com os itens como orçamento em análise e a situação do
+ERP no histórico; as duas ficam ligadas e a antiga fica marcada como trazida
+(uma vez só). Ordens finalizadas ou canceladas no ERP ficam só para consulta.
+Nada muda no ERP.
 
 ## Imprimir
 

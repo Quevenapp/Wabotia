@@ -56,6 +56,7 @@ import { hash as commercialHash } from "../../integrations/keys";
 import { prepareObjectOpening, reauthorizeObjectOpening, prepareOrderRulesMutation, planOrderFieldIndex, queryOrdersByField, publicObjectLabel, projectObjectSnapshot, projectObjectForActor, projectObjectPage } from "./os2-ports";
 import type { WorkOrderRow } from "./public";
 import { ORDER_SCHEDULED_AT_SQL } from "./maintenance/model";
+import { checklistCustomerSummary } from "./checklist";
 
 export type OrderSource = "agent" | "panel" | "customer" | "api";
 
@@ -1382,7 +1383,7 @@ export async function reopenQuote(ctx: ModuleContext, order: any, data: any, act
   const integration = await readWorkIntegration(ctx, order);
   const document = integration.linked || integration.events.some(e => JSON.parse(e.payload_json).eligible?.document);
   if (document)
-    throw new ApiError(409, "quote_reopen_blocked", "Este orçamento aprovado já gerou o documento de venda no ERP, que não volta para análise. Para mudar o combinado, cancele esta ordem (com motivo) e abra uma nova.");
+    throw new ApiError(409, "quote_reopen_blocked", "Este orçamento aprovado já gerou documento no ERP, que não volta para análise. Confira em Reabrir orçamento o que existe no ERP e confirme desfazer: a ordem é cancelada (o pedido e as contas em aberto no ERP também) e o orçamento continua numa ordem nova.");
   const { authorization: _old, ...commercial } = commercialOf(order);
   const extra = { decision: null, decided_at: null, decided_by: null, decided_via: null, decision_detail_json: null,
     commercial_json: JSON.stringify({ ...commercial, authorization: null }) };
@@ -1617,6 +1618,9 @@ export async function trackText(ctx: ModuleContext, c: Conversation, typeId?: st
     if (order.status === "ready")
       lines.push(`Pronta para retirada desde ${day(order.ready_at)}.`);
     else if (order.due_at) lines.push(`Previsão: ${day(order.due_at)}.`);
+    // OS6: resumo do checklist da etapa, só quando o modelo diz.
+    const checklist = checklistCustomerSummary(order);
+    if (checklist) lines.push(checklist);
     return lines.join("\n");
   });
   return [

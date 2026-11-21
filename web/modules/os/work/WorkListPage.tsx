@@ -16,6 +16,7 @@ import { WorkDetailPage } from "./WorkDetailPage";
 import { workCollectionLabel } from "../work-vocabulary";
 import "../work.css";
 import { LegacyServiceOrders } from "../../integrations/LegacyServiceOrders";
+import { ErpLegacyImportDialog } from "./ErpLegacyImport";
 
 function dateFilterValue(value?: string) {
   if (!value) return "";
@@ -239,7 +240,13 @@ export function WorkPage() {
   if (route.tab === "contratos" || route.tab === "manutencoes") return <MaintenanceTab key={app.root + route.tab} tab={route.tab} />;
   if (!catalog.data) return <ResourceState resource={catalog} />;
   if (!Array.isArray(catalog.data.data)) return <Notice>Catálogo de modelos indisponível. <Button secondary onClick={catalog.reload}>Tentar novamente</Button></Notice>;
-  return <WorkList key={app.root + (route.typeId || "") + JSON.stringify(route.filters)} catalog={catalog.data} />;
+  // OS6: a ordem antiga do ERP chega com ?erp_document=<id> ("Trazer para a ordem de serviço").
+  const erpDocument = !route.id ? new URLSearchParams(route.search || "").get("erp_document") : null;
+  return <>
+    <WorkList key={app.root + (route.typeId || "") + JSON.stringify(route.filters)} catalog={catalog.data} />
+    {erpDocument && <ErpLegacyImportDialog key={erpDocument} documentId={erpDocument} types={catalog.data.data}
+      onClose={() => navigate({ area: "admin", page: "work" })} />}
+  </>;
 }
 
 /** OS4: Ordens · Contratos · Manutenções a abrir. */

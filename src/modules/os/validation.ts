@@ -96,9 +96,21 @@ export function validateWorkType(raw: unknown): CustomWorkType {
     unique(ids, path); check(ids.every(v => !active.includes(v)), path); return ids;
   };
   const stages = array(r.stages, 32, "stages").map(s => {
-    object(s, ["id", "label", "base_status", "message"], "stages");
+    object(s, ["id", "label", "base_status", "message", "checklist"], "stages");
     check(isStatus(s.base_status), "stages.base_status");
-    return { id: id(s.id, "stages.id"), label: text(s.label, 80, "stages.label"), base_status: s.base_status, message: message(s.message, fields, "stages.message") };
+    const stage: CustomWorkType["stages"][number] = { id: id(s.id, "stages.id"), label: text(s.label, 80, "stages.label"), base_status: s.base_status, message: message(s.message, fields, "stages.message") };
+    // OS6: checklist opcional por etapa; vazio não é gravado (modelos antigos ficam iguais).
+    if (s.checklist !== undefined) {
+      const items = array(s.checklist, 20, "stages.checklist").map(item => {
+        object(item, ["id", "label", "required", "photo_required"], "stages.checklist");
+        return { id: id(item.id, "stages.checklist.id"), label: text(item.label, 120, "stages.checklist.label"),
+          required: bool(item.required, "stages.checklist.required"), photo_required: bool(item.photo_required, "stages.checklist.photo_required") };
+      });
+      unique(items.map(item => item.id), "stages.checklist");
+      check(!CLOSED.includes(stage.base_status) || !items.length, "stages.checklist.closed");
+      if (items.length) stage.checklist = items;
+    }
+    return stage;
   });
   unique(stages.map(s => s.id), "stages");
   const stage = (name: any) => stages.find(s => s.id === name);
@@ -113,7 +125,10 @@ export function validateWorkType(raw: unknown): CustomWorkType {
     return { ...t, id: id(t.id, "transitions.id"), label: text(t.label, 80, "transitions.label"), ...(t.kind === "customer_approval" ? { valid_hours: integer(t.valid_hours, 1, 720, "transitions.valid_hours"), request_text: message(t.request_text, fields, "transitions.request_text") } : {}) };
   });
   unique(transitions.map(t => t.id), "transitions");
-  const features = { ...object(r.features, ["customer_open", "tasks", "people", "documents", "entries", "quote", "warranty_days", "pickup_reminder_days", "stale_days", "require_invoice_to_deliver"], "features") };
+  const features = { ...object(r.features, ["customer_open", "tasks", "people", "documents", "entries", "quote", "warranty_days", "pickup_reminder_days", "stale_days", "require_invoice_to_deliver", "checklist_customer_summary"], "features") };
+  // OS6: opcional como a marca da nota; só gravado quando marcado.
+  if (features.checklist_customer_summary === undefined || features.checklist_customer_summary === false) delete features.checklist_customer_summary;
+  else features.checklist_customer_summary = bool(features.checklist_customer_summary, "features.checklist_customer_summary");
   for (const key of ["customer_open", "tasks", "people", "documents", "entries"]) features[key] = bool(features[key], `features.${key}`);
   // OS5: opcional; só gravado quando marcado (modelos antigos ficam iguais).
   if (features.require_invoice_to_deliver === undefined || features.require_invoice_to_deliver === false) delete features.require_invoice_to_deliver;
@@ -123,6 +138,8 @@ export function validateWorkType(raw: unknown): CustomWorkType {
   integer(features.stale_days, 0, 365, "features.stale_days");
   check(!features.customer_open || fields.every(f => !f.required || (f.client_visible && !f.sensitive)), "features.customer_open");
   check(!features.pickup_reminder_days || stages.some(s => s.base_status === "ready"), "features.pickup_reminder_days");
+  // OS6: a foto do checklist é um documento da ordem.
+  check(features.documents || !stages.some(s => s.checklist?.some(item => item.photo_required)), "stages.checklist.photo_required");
   const edges = transitions.map(t => [t.from, t.to]);
   if (features.quote !== null) {
     const q = { ...object(features.quote, ["default_valid_days", "source_stages", "sent_stage", "approved_stage", "declined_stage", "edited_stage"], "features.quote") };

@@ -6,7 +6,7 @@ import { orderCancelled } from "./maintenance/schedule";
 import { authorizedOrder, resolveWorkType } from "./public";
 import { mayReadSensitive, projectOrderForCustomer, projectOrderForStaff, projectPrivateFields } from "./privacy";
 import { checkVersion, commitOrderMutation, mutationHistory, publishMutation, versionConflict } from "./mutations";
-import { cancelApproval, changeStage, decideStageApproval, requestStageApproval, sendStageApproval } from "./stages";
+import { cancelApproval, changeStage, decideStageApproval, requestStageApproval, requireMoveReason, sendStageApproval } from "./stages";
 import { notify, quoteSpec, resumeBuiltinStatus, conversationOf, orderViewForActor } from "./store";
 import { validateExtra } from "./validation";
 import type { WorkTypeView } from "./contracts";
@@ -135,6 +135,8 @@ export function registerMotorRoutes() {
       }
       let row: any;
       if (path === "stage") {
+        // OS6: cancelar e voltar etapa pedem motivo (pessoas e bots).
+        requireMoveReason(actor, order.row, data);
         row = await changeStage(ctx, order.row, data, actor.id, { notify: notifyCustomer, mutationKey: key });
         // OS4: ordem cancelada cancela o agendamento na Agenda.
         if (row?.status === "cancelled") await orderCancelled(ctx, row.id, actor.id).catch(error => console.warn("os4: cancelar agendamento", error));

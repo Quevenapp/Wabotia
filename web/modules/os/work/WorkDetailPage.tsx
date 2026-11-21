@@ -28,6 +28,7 @@ import { WorkCommercialPanel } from "./WorkCommercialPanel";
 import { WorkInvoicesPanel } from "../fiscal/WorkInvoicesPanel";
 import { DecisionDialog, ReasonDialog, WorkQuoteCommercial, needsReason, reasonTitle } from "./WorkQuoteCommercial";
 import { OrderContractPanel, OrderSchedulePanel } from "../maintenance/OrderPanels";
+import { WorkChecklistPanel, WorkLinks } from "./WorkChecklistPanel";
 import "../work.css";
 export const workTabs = [
   { id: "resumo", label: "Resumo" },
@@ -186,6 +187,8 @@ function Detail({ order, reload }: { order: Order; reload: () => void }) {
           </a>
         )}
       </div>
+      <WorkLinks order={order} />
+      <WorkChecklistPanel order={order} onChanged={changed} />
       <WorkCommercialPanel key={order.id} workId={order.id} />
       <WorkInvoicesPanel key={`notas-${order.id}`} workId={order.id} />
       {order.stage_approval?.state === "pending" && (
