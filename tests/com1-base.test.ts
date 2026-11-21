@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { COM1_MODULE_CONTRACT, COM1_OPERATIONS, commercialNfeRoute } from "../src/erp/commercial-nfe/routes.ts";
+import { COM1_MODULE_CONTRACT, COM1_OPERATIONS, NFCE_OPERATIONS, NFE_EVENT_OPERATIONS, commercialNfeRoute } from "../src/erp/commercial-nfe/routes.ts";
 import { commercialNfeSlots, installCommercialNfeHttp, installCommercialNfeSlots, com1NotReady } from "../src/erp/commercial-nfe/slots.ts";
 import { COM1_TEST_IDS, com1Actor, com1Identity, com1NoIoEnv, com1Request, com1RouteDependencies } from "./com1-support";
 import { engineActor } from "../src/security";
@@ -116,7 +116,8 @@ describe("base comercial: fronteira HTTP e política sensível", () => {
 
   it("RPCs internos e autoridade não podem ser escolhidos pelo navegador", async () => {
     const noStorage = new Proxy({} as DurableObjectState, { get() { throw new Error("Não deve acessar armazenamento."); } });
-    expect(COM1_INTERNAL_RPCS.size).toBe(5);
+    // 5 da NF-e do pedido + 7 da carta de correção, inutilização e devolução (pedido ao cofre, resultado e efeitos).
+    expect(COM1_INTERNAL_RPCS.size).toBe(12);
     for (const name of COM1_INTERNAL_RPCS) {
       const response = await handleRpc(noStorage, "com1", name, new Request(`https://internal/erp-rpc/${name}`, {
         method: "POST", body: JSON.stringify({ p_input: { status: "autorizada", claim_token: "forjado" } }),
@@ -141,7 +142,8 @@ describe("integração comercial: catálogo, OpenAPI e ponte", () => {
     const { requireOperationAccess } = await import("../src/access");
     resetCatalogCache();
     const entries = fullCatalog().filter(op => op.path.startsWith("erp-comercial-nfe/"));
-    expect(entries).toHaveLength(COM1_OPERATIONS.length);
+    // O catálogo comum também publica o cupom do balcão (nfce.*) e carta de correção, inutilização e devolução (nfe.*).
+    expect(entries).toHaveLength(COM1_OPERATIONS.length + NFCE_OPERATIONS.length + NFE_EVENT_OPERATIONS.length);
     const fiscal = com1Actor({ role: "operator", access: ["erp:fiscal"] });
     for (const operation of COM1_OPERATIONS) {
       const entry = entries.find(item => item.path === `erp-comercial-nfe/${operation.path}` && item.method === operation.method)!;

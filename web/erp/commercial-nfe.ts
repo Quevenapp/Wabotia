@@ -10,7 +10,8 @@ export interface CommercialNfeConfig extends CommercialSettings { checklist?: { 
 export interface EmitInput { emission_id: string; command_id: string; expected_version: number; body_revision: number; body_hash: string }
 export type ResumeInput = Omit<EmitInput, "body_hash">;
 export interface CancelInput { emission_id: string; command_id: string; expected_version: number; justification: string }
-export type CommercialNfeAction = "read" | "configure" | "prepare" | "emit" | "resume" | "cancel" | "effect_stock" | "effect_finance";
+/** `event`: carta de correção, devolução e inutilização (papel fiscal; só a parte Fiscal). */
+export type CommercialNfeAction = "read" | "configure" | "prepare" | "emit" | "resume" | "cancel" | "effect_stock" | "effect_finance" | "event";
 export type CommercialNfeArtifact = "danfe" | "xml" | "cancellation_xml";
 export interface CommercialNfeAccess {
   ready: boolean;
@@ -55,7 +56,25 @@ export interface CommercialNfePort {
   nfceCancel?(input: { sale_id: string; command_id: string; justification: string; physical_return_confirmed: boolean }, signal?: AbortSignal): Promise<NfceSituation>;
   /** DANFCE (80 mm) do cofre; nunca montado no navegador. */
   nfceCoupon?(saleId: string, via?: "consumidor" | "estabelecimento", signal?: AbortSignal): Promise<Blob>;
+  // Depois da NF-e autorizada: carta de correção, devolução e inutilização.
+  events?(emissionId: string, signal?: AbortSignal): Promise<NfeEventsView>;
+  correct?(input: { emission_id: string; command_id: string; text: string }, signal?: AbortSignal): Promise<NfeEventsView>;
+  correctionConsult?(input: { emission_id: string; command_id: string; correction_id: string }, signal?: AbortSignal): Promise<NfeEventsView>;
+  /** PDF montado no servidor a partir do XML do cofre, ou o XML do evento. */
+  correctionFile?(emissionId: string, sequence: number, kind: "pdf" | "xml", signal?: AbortSignal): Promise<Blob>;
+  createReturn?(input: { emission_id: string; command_id: string; items: ReturnItemInput[]; finance_option: ReturnFinanceOption }, signal?: AbortSignal): Promise<ReturnView>;
+  resumeReturn?(input: { return_id: string; command_id: string }, signal?: AbortSignal): Promise<ReturnView>;
+  returnFile?(returnId: string, kind: "danfe" | "xml", signal?: AbortSignal): Promise<Blob>;
+  voids?(query: { environment?: FiscalEnvironmentName; model?: "nfe" | "nfce" }, signal?: AbortSignal): Promise<VoidRangesView>;
+  voidRange?(input: { command_id: string; model: "nfe" | "nfce"; environment: FiscalEnvironmentName; series: number; first: number; last: number; justification: string }, signal?: AbortSignal): Promise<{ void: VoidRangeView; capability: VoidRangesView["capability"] }>;
 }
+type FiscalEnvironmentName = "homologacao" | "producao";
+export interface VoidRangesView {
+  items: VoidRangeView[];
+  capability: { nfe: { offered: boolean; reason: string | null }; nfce: { offered: boolean; reason: string | null } };
+}
+export type { NfeEventsView, ReturnView, VoidRangeView, CorrectionView, ReturnItemInput, ReturnFinanceOption };
+import type { CorrectionView, NfeEventsView, ReturnFinanceOption, ReturnItemInput, ReturnView, VoidRangeView } from "../../src/erp/commercial-nfe/events-contracts";
 export { canNfce } from "./nfce-access.ts";
 import { canNfce } from "./nfce-access.ts";
 
@@ -70,6 +89,7 @@ const policies: Record<CommercialNfeAction, { roles: string[]; permission: strin
   cancel: { roles: ["admin", "fiscal"], permission: "vendas.notas_fiscais.ie" },
   effect_stock: { roles: ["admin", "estoque"], permission: "suprimentos.controle_estoque.insercao" },
   effect_finance: { roles: ["admin", "financeiro"], permission: "financas.contas_receber.ie" },
+  event: { roles: ["admin", "fiscal"], permission: "vendas.notas_fiscais.ie" },
 };
 /** Visibilidade da ação. O servidor revalida o papel e a política sensível
  * requireCom1SensitivePolicy, inclusive confirmação ou concessão de bots. */
@@ -209,6 +229,17 @@ export function correctionTarget(blocker: FiscalBlocker, documentId?: string): s
   return path + (params.size ? `?${params}` : "");
 }
 
+/** Conferência mínima da resposta dos eventos (o painel só mostra; o servidor decide). */
+function eventsView(value: unknown, emissionId: string): NfeEventsView {
+  if (!object(value) || !object(value.emission) || value.emission.id !== emissionId || !object(value.rules) || !Array.isArray(value.corrections) ||
+      !Array.isArray(value.returns) || !Array.isArray(value.lines)) throw invalidResponse();
+  return value as unknown as NfeEventsView;
+}
+function returnView(value: unknown): ReturnView {
+  if (!object(value) || !uuid(value.id) || typeof value.status !== "string" || !Array.isArray(value.items) || !object(value.stock) || !object(value.finance)) throw invalidResponse();
+  return value as unknown as ReturnView;
+}
+
 export interface CommercialNfePortOptions {
   scopeKey?: string;
   fetch?: typeof fetch;
@@ -315,6 +346,30 @@ export function createCommercialNfePort(profile: string, options: CommercialNfeP
     nfceCancel: async (input, signal) => nfceRow(await request("cancel", `nfce/vendas/${pathId(input.sale_id)}/cancelar`, "POST",
       pick(input, ["command_id", "justification", "physical_return_confirmed"]), signal, undefined, true), input.sale_id),
     nfceCoupon: async (id, via = "consumidor", signal) => request("read", `nfce/vendas/${pathId(id)}/cupom${via === "estabelecimento" ? "?via=estabelecimento" : ""}`, "GET", undefined, signal, "danfe", true) as Promise<Blob>,
+    events: async (id, signal) => eventsView(await request("read", `emissoes/${pathId(id)}/eventos`, "GET", undefined, signal), id),
+    correct: async (input, signal) => eventsView(await request("event", `emissoes/${pathId(input.emission_id)}/carta-correcao`, "POST",
+      pick(input, ["command_id", "text"]), signal), input.emission_id),
+    correctionConsult: async (input, signal) => eventsView(await request("event", `emissoes/${pathId(input.emission_id)}/carta-correcao/consultar`, "POST",
+      { command_id: input.command_id, correction_id: pathId(input.correction_id) }, signal), input.emission_id),
+    correctionFile: async (id, sequence, kind, signal) => {
+      if (!Number.isInteger(sequence) || sequence < 1 || sequence > 20) throw new CommercialNfeError("Sequência da carta inválida.", { status: 400, code: "fiscal_invalid_request" });
+      return request("read", `emissoes/${pathId(id)}/carta-correcao/${kind}?sequence=${sequence}`, "GET", undefined, signal, kind === "pdf" ? "danfe" : "xml") as Promise<Blob>;
+    },
+    createReturn: async (input, signal) => returnView(await request("event", `emissoes/${pathId(input.emission_id)}/devolucao`, "POST",
+      pick(input, ["command_id", "items", "finance_option"]), signal)),
+    resumeReturn: async (input, signal) => returnView(await request("event", `devolucoes/${pathId(input.return_id)}/retomar`, "POST", { command_id: input.command_id }, signal)),
+    returnFile: async (id, kind, signal) => request("read", `devolucoes/${pathId(id)}/${kind}`, "GET", undefined, signal, kind) as Promise<Blob>,
+    async voids(query, signal) {
+      const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
+      const value = await request("read", `inutilizacoes${params.size ? `?${params}` : ""}`, "GET", undefined, signal);
+      if (!object(value) || !Array.isArray(value.items) || !object(value.capability)) throw invalidResponse();
+      return value as VoidRangesView;
+    },
+    async voidRange(input, signal) {
+      const value = await request("event", "inutilizacoes", "POST", pick(input, ["command_id", "model", "environment", "series", "first", "last", "justification"]), signal);
+      if (!object(value) || !object(value.void) || !object(value.capability)) throw invalidResponse();
+      return value as { void: VoidRangeView; capability: VoidRangesView["capability"] };
+    },
   };
 }
 

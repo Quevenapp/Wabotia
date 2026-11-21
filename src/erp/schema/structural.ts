@@ -204,4 +204,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Ordem de serviço, parte 5: a ordem com orçamento aprovado emite a NFS-e do Sistema Nacional (serviços) e a NF-e modelo 55 (peças) pelo cofre da NFapi, pela mesma máquina da NF-e comercial, sem lançar estoque nem financeiro de novo (os efeitos são os da fase 3).",
     replaced_by: "Versão 16 aditiva (15→16): service_emission, service_revision, service_command, service_cancel, service_effect e service_audit em erp_fiscal_vault, com o DDL da versão 10 e os limites da NFS-e (série de até 5 dígitos, número da DPS de até 15, chave nacional de até 50 caracteres e o número da NFS-e na coluna protocol), e service_settings (código de tributação, NBS, ISS e município de prestação, com exceções por serviço). Inscrição municipal, série da DPS e regime especial ficam no cofre.",
   },
+  {
+    id: "eventos-nfe",
+    oracle: "Carta de correção, inutilização e devolução pela tela de notas fiscais legada (event_request e nota de devolução no formulário), só em homologação e sem efeito no estoque nem nas contas.",
+    reason: "Fiscal, depois da nota autorizada: a carta de correção e a inutilização vão pelo cofre da NFapi, e a devolução de venda vira uma NF-e de devolução (finalidade 4, nota referenciada) emitida pelo cofre, com entrada no estoque e efeito nas contas uma vez só.",
+    replaced_by: "Versão 18 aditiva (17→18): order_correction (cartas da NF-e do pedido, sequência de 1 a 20, texto e XML do evento), void_range (inutilizações de NF-e e NFC-e por série e faixa) e order_return (devolução de venda: itens e quantidades, corpo da NF-e de devolução, resultado do cofre e o estado de cada efeito, estoque e financeiro, que só muda de pendente para aplicado uma vez). Número, assinatura e transmissão continuam no cofre.",
+  },
 ];

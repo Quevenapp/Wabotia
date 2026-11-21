@@ -16,6 +16,8 @@ export { NFCE_OPERATIONS } from "./nfce-metadata.ts";
 import { OS_NOTE_KINDS, OS_NOTE_OPERATIONS } from "./os-notes-metadata.ts";
 export { OS_NOTE_OPERATIONS } from "./os-notes-metadata.ts";
 import { NFSE_CANCEL_REASONS } from "./contracts.ts";
+import { NFE_EVENT_FILES, NFE_EVENT_OPERATIONS } from "./events-metadata.ts";
+export { NFE_EVENT_OPERATIONS } from "./events-metadata.ts";
 
 export interface CommercialNfeHttpContext {
   env: Env;
@@ -103,6 +105,19 @@ function validateInput(operation: CommercialNfeOperation, input: Record<string, 
     if (input.parts_nature_id != null && (typeof input.parts_nature_id !== "string" || !UUID.test(input.parts_nature_id))) invalid("parts_nature_id");
     if (input.items !== undefined && (!input.items || typeof input.items !== "object" || Array.isArray(input.items))) invalid("items");
   }
+  if (operation.name.startsWith("nfe.")) {
+    // Depois da NF-e autorizada: o motor confere o resto (faixa, saldo a devolver, texto).
+    if (input.correction_id !== undefined && (typeof input.correction_id !== "string" || !UUID.test(input.correction_id))) invalid("correction_id");
+    if (input.text !== undefined && (typeof input.text !== "string" || input.text.length > 4000)) invalid("text");
+    if (input.finance_option !== undefined && !["credito", "pagar"].includes(String(input.finance_option))) invalid("finance_option");
+    if (input.model !== undefined && !["nfe", "nfce"].includes(String(input.model))) invalid("model");
+    for (const key of ["series", "first", "last"])
+      if (input[key] !== undefined && (!Number.isSafeInteger(input[key]) || Number(input[key]) < (key === "series" ? 0 : 1) || Number(input[key]) > (key === "series" ? 889 : 999999999))) invalid(key);
+    if (input.sequence !== undefined && !/^(?:[1-9]|1\d|20)$/.test(String(input.sequence))) invalid("sequence");
+    if (input.items !== undefined && (!Array.isArray(input.items) || !input.items.length || input.items.length > 990 || input.items.some(item => !item || typeof item !== "object" || Array.isArray(item) ||
+      Object.keys(item).some(key => !["item", "quantity"].includes(key)) || !Number.isSafeInteger((item as Record<string, unknown>).item) || Number((item as Record<string, unknown>).item) < 0 ||
+      typeof (item as Record<string, unknown>).quantity !== "string" || !/^\d{1,11}(\.\d{1,4})?$/.test(String((item as Record<string, unknown>).quantity))))) invalid("items");
+  }
   if (input.status !== undefined && !["bloqueada", "preparada", "enviando", "processando", "incerta", "rejeitada", "autorizada", "denegada", "cancelada", "arquivada"].includes(String(input.status))) invalid("status");
 }
 
@@ -120,7 +135,7 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp-comercial-nfe/`;
     if (!url.pathname.startsWith(prefix)) throw new ApiError(404, "not_found", "Operação não encontrada.");
     const path = url.pathname.slice(prefix.length).replace(/\/+$/, "");
-    const operation = [...COM1_OPERATIONS, ...NFCE_OPERATIONS, ...OS_NOTE_OPERATIONS].find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
+    const operation = [...COM1_OPERATIONS, ...NFCE_OPERATIONS, ...OS_NOTE_OPERATIONS, ...NFE_EVENT_OPERATIONS].find(op => op.method === request.method.toUpperCase() && new RegExp(`^${op.path.replace(":id", "[^/]+")}$`).test(path));
     if (!operation) throw new ApiError(404, "not_found", "Operação não encontrada.");
     const id = operation.path.includes(":id") ? path.split("/")[operation.path.split("/").indexOf(":id")] : undefined;
     if (id !== undefined && !UUID.test(id)) invalid("id");
@@ -159,11 +174,16 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     if (!person.erp_role || !allowed.includes(person.erp_role)) throw new ApiError(403, "fiscal_forbidden", "Seu papel não permite esta operação.");
     // Notas da ordem: tudo exige Fiscal; a nota de peças também Vendas e Produtos (o motor confere e explica).
     const orderNotes = operation.name.startsWith("osnota.") || operation.name.startsWith("nfse.");
-    if (orderNotes && (!identity.parts?.customers || !identity.parts.fiscal || (input.kind === "nfe" && action === "emit" && (!identity.parts.products || !identity.parts.sales))))
+    // Carta de correção, inutilização e devolução: só a parte Fiscal (e os
+    // cadastros); estoque e financeiro da devolução respeitam as próprias partes no motor.
+    if (operation.name.startsWith("nfe.")) {
+      if (!identity.parts?.customers || !identity.parts.fiscal)
+        throw new ApiError(409, "module_disabled", "Carta de correção, inutilização e devolução dependem da parte Fiscal ligada. Peça ao administrador para ligá-la em Gestão → Módulos.");
+    } else if (orderNotes && (!identity.parts?.customers || !identity.parts.fiscal || (input.kind === "nfe" && action === "emit" && (!identity.parts.products || !identity.parts.sales))))
       throw new ApiError(409, "module_disabled", input.kind === "nfe" && identity.parts?.fiscal
         ? "A nota de peças depende das partes Vendas e Produtos ligadas. Peça ao administrador para ligá-las em Gestão → Módulos."
         : "As notas da ordem dependem da parte Fiscal ligada. Peça ao administrador para ligá-la em Gestão → Módulos.");
-    if (!identity.parts?.customers || !identity.parts.fiscal || (!orderNotes && ["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
+    if (!identity.parts?.customers || !identity.parts.fiscal || (!orderNotes && !operation.name.startsWith("nfe.") && ["prepare", "emit"].includes(action) && (!identity.parts.products || !identity.parts.sales)))
       throw new ApiError(409, "module_disabled", counter ? "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos." : "Esta operação depende de uma parte desligada.");
     if (counter && !identity.parts.pos)
       throw new ApiError(409, "module_disabled", "O cupom fiscal depende das partes Caixa / PDV e Fiscal ligadas. Peça ao administrador para ligá-las em Gestão → Módulos.");
@@ -183,14 +203,15 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     // devolve um vínculo autenticado à pessoa, sem bytes fiscais para a IA.
     // A navegação/download continua exigindo sessão, papel e privacidade.
     if (actor.via && request.headers.get("Accept")?.split(",").some(type => type.trim().split(";")[0] === "application/json") &&
-        result.status === 200 && ["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon", "osnota.xml", "osnota.pdf", "osnota.cancel.xml"].includes(operation.name) &&
+        result.status === 200 && (["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon", "osnota.xml", "osnota.pdf", "osnota.cancel.xml"].includes(operation.name) || Object.hasOwn(NFE_EVENT_FILES, operation.name)) &&
         /^(?:application\/pdf|application\/xml)(?:;|$)/i.test(headers.get("Content-Type") ?? "")) {
       const contentType = headers.get("Content-Type")!.split(";")[0];
       const rawSize = headers.get("Content-Length"), size = rawSize !== null && /^\d+$/.test(rawSize) ? Number(rawSize) : null;
       await result.body?.cancel();
+      const eventFile = Object.hasOwn(NFE_EVENT_FILES, operation.name);
       return Response.json({ emission_id: id, artifact: ["com1.danfe", "osnota.pdf"].includes(operation.name) ? "danfe" : operation.name === "nfce.coupon" ? "danfce"
-        : ["com1.xml", "osnota.xml"].includes(operation.name) ? "xml" : "cancellation_xml",
-        content_type: contentType, size_bytes: size, download_url: url.pathname, authentication_required: true },
+        : ["com1.xml", "osnota.xml"].includes(operation.name) ? "xml" : eventFile ? operation.name.replace(/^nfe\./, "").replace(/\./g, "_") : "cancellation_xml",
+        content_type: contentType, size_bytes: size, download_url: eventFile ? `${url.pathname}${url.search}` : url.pathname, authentication_required: true },
         { headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
     }
     return new Response(result.body, { status: result.status, headers });

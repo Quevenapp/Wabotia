@@ -135,22 +135,43 @@ function operationResponses(name: string) {
   };
 }
 
+// Catálogo comum: além das doze da NF-e do pedido, as do cupom do balcão
+// (nfce.*) e as de depois da nota autorizada (nfe.*: carta de correção,
+// inutilização e devolução), com nome estável e a mesma categoria sensível.
+const CATALOG_OPERATIONS: readonly CommercialNfeOperation[] = [...COM1_OPERATIONS, ...NFCE_OPERATIONS, ...NFE_EVENT_OPERATIONS];
+const catalogProperty = (op: CommercialNfeOperation, key: string) =>
+  (op.name.startsWith("nfe.") ? NFE_EVENT_PROPERTIES[key] : undefined) ?? propertySchemas[key] ?? (key === "nature_id" ? { type: ["string", "null"], format: "uuid" } : { type: "string" });
+const BINARY_OPERATIONS = new Set(["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon", ...Object.keys(NFE_EVENT_FILES)]);
+function catalogResponses(op: CommercialNfeOperation) {
+  if (op.name.startsWith("com1.")) return operationResponses(op.name);
+  const binary = op.name === "nfce.coupon" ? "application/pdf" : NFE_EVENT_FILES[op.name] ?? null;
+  return {
+    "200": binary ? { description: "Arquivo privado e sem cache.", content: { [binary]: { schema: { type: "string", format: "binary" } }, "application/json": { schema: schemaRef("ArtifactMetadata") } } }
+      : { description: "Resultado público da operação", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+    "202": { description: "Resposta do cofre ainda inconclusiva; consulte de novo", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+    "400": jsonResponse("Error", "Formato inválido"), "403": jsonResponse("Error", "Acesso recusado"),
+    "404": jsonResponse("Error", "Não visível"), "409": jsonResponse("Error", "Conflito, configuração ou parte desligada"),
+  };
+}
+
 /** Contrato leve compartilhado pela rota, pelo módulo Fiscal e pelo catálogo dos bots. */
 export const COM1_MODULE_CONTRACT = {
-  module: "erp-fiscal", routes: ["erp-comercial-nfe"], operations: ["com1."],
-  definition: { bot: { sensitive: COM1_OPERATIONS.filter(op => op.sensitive).map(op => op.name),
-    hints: Object.fromEntries(COM1_OPERATIONS.map(op => [op.name, op.summary])) } },
-  openapi: { components: { schemas: COM1_RESPONSE_SCHEMAS }, paths: Object.fromEntries([...new Set(COM1_OPERATIONS.map(op => op.path))].map(path => [
+  module: "erp-fiscal", routes: ["erp-comercial-nfe"], operations: ["com1.", "nfce.", "nfe."],
+  definition: { bot: { sensitive: CATALOG_OPERATIONS.filter(op => op.sensitive).map(op => op.name),
+    hints: Object.fromEntries(CATALOG_OPERATIONS.map(op => [op.name, op.summary])) } },
+  openapi: { components: { schemas: COM1_RESPONSE_SCHEMAS }, paths: Object.fromEntries([...new Set(CATALOG_OPERATIONS.map(op => op.path))].map(path => [
     `/profiles/{profile}/erp-comercial-nfe/${path.replace(":id", "{id}")}`,
-    Object.fromEntries(COM1_OPERATIONS.filter(op => op.path === path).map(op => [op.method.toLowerCase(), {
+    Object.fromEntries(CATALOG_OPERATIONS.filter(op => op.path === path).map(op => [op.method.toLowerCase(), {
       operationId: op.name, summary: op.summary,
-      description: `${op.summary}. Permissão: erp:${op.method === "GET" ? "read" : "write"}. ${op.sensitive ? "Categoria sensível; por padrão exige confirmação da pessoa com o papel responsável." : "Consulta fiscal sujeita às regras de privacidade."}${["com1.danfe", "com1.xml", "com1.cancel.xml"].includes(op.name) ? " A ferramenta do bot com Accept application/json recebe metadados e vínculo autenticado após validação do arquivo; download direto mantém o formato binário." : ""}`,
+      description: `${op.summary}. Permissão: erp:${op.method === "GET" ? "read" : "write"}. ${op.sensitive ? `Categoria sensível (nota fiscal); por padrão exige confirmação da pessoa com o papel responsável.` : "Consulta fiscal sujeita às regras de privacidade."}${op.name.startsWith("nfce.") ? " Exige Caixa / PDV e Fiscal ligados." : ""}${BINARY_OPERATIONS.has(op.name) ? " A ferramenta do bot com Accept application/json recebe metadados e vínculo autenticado após validação do arquivo; download direto mantém o formato binário." : ""}`,
       parameters: [{ name: "profile", in: "path", required: true, schema: { type: "string" } },
         ...(path.includes(":id") ? [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }] : []),
-        ...(op.query ?? []).map(name => ({ name, in: "query", required: name === "environment", schema: propertySchemas[name] ?? { type: "string" } }))],
+        ...(op.query ?? []).map(name => ({ name, in: "query", required: op.name.startsWith("com1.") && name === "environment", schema: catalogProperty(op, name) }))],
       ...(op.method === "GET" ? {} : { requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: false,
-        properties: Object.fromEntries(op.body.map(key => [key, propertySchemas[key]])), required: op.required } } } } }),
-      responses: operationResponses(op.name),
+        properties: Object.fromEntries(op.body.map(key => [key, catalogProperty(op, key)])), required: op.required } } } } }),
+      responses: catalogResponses(op),
     }])) ])) },
 };
+import { NFCE_OPERATIONS } from "./nfce-metadata.ts";
+import { NFE_EVENT_FILES, NFE_EVENT_OPERATIONS, NFE_EVENT_PROPERTIES } from "./events-metadata.ts";
 

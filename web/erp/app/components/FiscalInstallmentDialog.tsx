@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { CARD_BRAND_OPTIONS, CARD_INTEGRATION_OPTIONS, PAYMENT_OPTIONS, formaOptions, formaValue, withForma, type InstallmentDraft, type PaymentMethodOption, type Values } from '../lib/fiscal-invoice-form-model';
+import { CARD_BRAND_OPTIONS, CARD_INTEGRATION_OPTIONS, PAYMENT_OPTIONS, fiscalDocumentInput, formaOptions, formaValue, withForma, type InstallmentDraft, type PaymentMethodOption, type Values } from '../lib/fiscal-invoice-form-model';
 import { Modal } from './Modal';
 
 /**
@@ -43,7 +43,7 @@ export default function FiscalInstallmentDialog({ installment, position, directi
       {field('fiscal-installment-kind', 'Tipo de pagamento', <input id="fiscal-installment-kind" readOnly value={kind} placeholder="Conforme a forma" />, 'Meio de pagamento informado na NF-e (tPag), conforme a forma da parcela.')}
       {field('fiscal-installment-brand', 'Bandeira', select('fiscal-installment-brand', cardValue('brand'), CARD_BRAND_OPTIONS, next => setCard('brand', next)))}
       {field('fiscal-installment-integration', 'Tipo integração', select('fiscal-installment-integration', cardValue('integration'), CARD_INTEGRATION_OPTIONS, next => setCard('integration', next)))}
-      {field('fiscal-installment-cnpj', 'CNPJ credenciadora', input('fiscal-installment-cnpj', cardValue('cnpj'), next => setCard('cnpj', next.replace(/\D/g, '')), { max: 14, inputMode: 'numeric' }))}
+      {field('fiscal-installment-cnpj', 'CNPJ credenciadora', input('fiscal-installment-cnpj', cardValue('cnpj'), next => setCard('cnpj', fiscalDocumentInput(next)), { max: 18 }))}
       {field('fiscal-installment-authorization', 'Código de autorização', input('fiscal-installment-authorization', cardValue('authorization'), next => setCard('authorization', next), { max: 128 }))}
       {field('fiscal-installment-amount', 'Valor', input('fiscal-installment-amount', value('amount'), next => set('amount', next), { max: 20, inputMode: 'decimal' }))}
       {field('fiscal-installment-received', 'Valor Recebido', input('fiscal-installment-received', cardValue('received'), next => setCard('received', next), { max: 20, inputMode: 'decimal' }))}

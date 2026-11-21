@@ -959,6 +959,124 @@ const serviceTables: readonly EngineTable[] = BASE_ENGINE_TABLES
  * com o padrão e as exceções por serviço do catálogo. O que é do emitente
  * (inscrição municipal, série da DPS, regime especial, certificado) fica no cofre. */
 const C_SERVICE_SETTINGS = `${SERVICE_PREFIX}settings`;
+
+// Depois da nota autorizada (versão 18, só acréscimo). O cofre numera,
+// assina e transmite; aqui fica o pedido que o ERP fez, o resultado e o que
+// a nota mudou no estoque e nas contas (a devolução), cada efeito uma vez só.
+const C_CORRECTION = "erp_fiscal_vault__order_correction";
+const C_VOID = "erp_fiscal_vault__void_range";
+const C_RETURN = "erp_fiscal_vault__order_return";
+const EVENT_STATE = "('enviando','incerto','recusado','registrado')";
+const eventTable = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 18, owner: "fiscal-eventos", structural: "eventos-nfe" });
+const EVENT_TABLES: readonly EngineTable[] = [
+  eventTable(C_CORRECTION, [
+    `CREATE TABLE "${C_CORRECTION}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "emission_id" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "person_id" TEXT NOT NULL,
+  "text" TEXT NOT NULL,
+  "text_hash" TEXT NOT NULL,
+  "state" TEXT NOT NULL DEFAULT 'enviando',
+  "expected_sequence" INTEGER NOT NULL,
+  "sequence" INTEGER,
+  "protocol" TEXT,
+  "event_at" TEXT,
+  "messages" TEXT NOT NULL DEFAULT '[]',
+  "xml" TEXT,
+  "xml_hash" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_CORRECTION}_command_key" UNIQUE (command_id),
+  CONSTRAINT "${C_CORRECTION}_text_check" CHECK (length(text) BETWEEN 15 AND 1000 AND ${HEX64("text_hash")}),
+  CONSTRAINT "${C_CORRECTION}_state_check" CHECK (state IN ${EVENT_STATE}),
+  CONSTRAINT "${C_CORRECTION}_sequence_check" CHECK (expected_sequence BETWEEN 1 AND 20 AND (sequence IS NULL OR sequence BETWEEN 1 AND 20)),
+  CONSTRAINT "${C_CORRECTION}_registered_check" CHECK (state <> 'registrado' OR sequence IS NOT NULL),
+  CONSTRAINT "${C_CORRECTION}_messages_check" CHECK (${JSON_OF("messages", "array")}),
+  CONSTRAINT "${C_CORRECTION}_xml_check" CHECK ((xml IS NULL AND xml_hash IS NULL) OR (xml IS NOT NULL AND length(CAST(xml AS BLOB)) BETWEEN 1 AND 10485760 AND ${HEX64("xml_hash")})),
+  CONSTRAINT "${C_CORRECTION}_emission_fkey" FOREIGN KEY (emission_id) REFERENCES "${C_EMISSION}" (id)
+) STRICT`,
+    `CREATE INDEX "${C_CORRECTION}_emission" ON "${C_CORRECTION}" (emission_id, created_at)`,
+    `CREATE UNIQUE INDEX "${C_CORRECTION}_sequence" ON "${C_CORRECTION}" (emission_id, sequence) WHERE sequence IS NOT NULL`,
+    `CREATE TRIGGER "${C_CORRECTION}_registered_guard" BEFORE UPDATE ON "${C_CORRECTION}" WHEN NEW.id IS NOT OLD.id OR NEW.emission_id IS NOT OLD.emission_id OR NEW.command_id IS NOT OLD.command_id OR NEW.text IS NOT OLD.text OR NEW.text_hash IS NOT OLD.text_hash OR NEW.expected_sequence IS NOT OLD.expected_sequence OR (OLD.state = 'registrado' AND (NEW.state <> 'registrado' OR NEW.sequence IS NOT OLD.sequence OR NEW.protocol IS NOT OLD.protocol)) OR (OLD.xml IS NOT NULL AND (NEW.xml IS NOT OLD.xml OR NEW.xml_hash IS NOT OLD.xml_hash)) BEGIN SELECT RAISE(ABORT, '40001:nfe_correction_immutable'); END`,
+    `CREATE TRIGGER "${C_CORRECTION}_immutable_delete" BEFORE DELETE ON "${C_CORRECTION}" BEGIN SELECT RAISE(ABORT, '40001:com1_history_immutable'); END`,
+  ]),
+  eventTable(C_VOID, [
+    `CREATE TABLE "${C_VOID}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "command_id" TEXT NOT NULL,
+  "person_id" TEXT NOT NULL,
+  "model" TEXT NOT NULL,
+  "environment" TEXT NOT NULL,
+  "series" INTEGER NOT NULL,
+  "first_number" INTEGER NOT NULL,
+  "last_number" INTEGER NOT NULL,
+  "justification" TEXT NOT NULL,
+  "state" TEXT NOT NULL DEFAULT 'enviando',
+  "provider_ref" TEXT,
+  "protocol" TEXT,
+  "repeated" INTEGER NOT NULL DEFAULT 0,
+  "messages" TEXT NOT NULL DEFAULT '[]',
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_VOID}_command_key" UNIQUE (command_id),
+  CONSTRAINT "${C_VOID}_model_check" CHECK (model IN ('nfe','nfce') AND environment IN ('homologacao','producao')),
+  CONSTRAINT "${C_VOID}_range_check" CHECK (series BETWEEN 0 AND 889 AND first_number BETWEEN 1 AND 999999999 AND last_number BETWEEN first_number AND 999999999),
+  CONSTRAINT "${C_VOID}_justification_check" CHECK (length(justification) BETWEEN 15 AND 255),
+  CONSTRAINT "${C_VOID}_state_check" CHECK (state IN ${EVENT_STATE} AND repeated IN (0,1)),
+  CONSTRAINT "${C_VOID}_registered_check" CHECK (state <> 'registrado' OR (provider_ref IS NOT NULL AND length(provider_ref) > 0)),
+  CONSTRAINT "${C_VOID}_messages_check" CHECK (${JSON_OF("messages", "array")})
+) STRICT`,
+    `CREATE INDEX "${C_VOID}_list" ON "${C_VOID}" (environment, model, created_at)`,
+    `CREATE TRIGGER "${C_VOID}_registered_guard" BEFORE UPDATE ON "${C_VOID}" WHEN NEW.id IS NOT OLD.id OR NEW.command_id IS NOT OLD.command_id OR NEW.model IS NOT OLD.model OR NEW.environment IS NOT OLD.environment OR NEW.series IS NOT OLD.series OR NEW.first_number IS NOT OLD.first_number OR NEW.last_number IS NOT OLD.last_number OR NEW.justification IS NOT OLD.justification OR (OLD.state = 'registrado' AND (NEW.state <> 'registrado' OR NEW.provider_ref IS NOT OLD.provider_ref)) BEGIN SELECT RAISE(ABORT, '40001:nfe_void_immutable'); END`,
+    `CREATE TRIGGER "${C_VOID}_immutable_delete" BEFORE DELETE ON "${C_VOID}" BEGIN SELECT RAISE(ABORT, '40001:com1_history_immutable'); END`,
+  ]),
+  eventTable(C_RETURN, [
+    `CREATE TABLE "${C_RETURN}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "emission_id" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "person_id" TEXT NOT NULL,
+  "environment" TEXT NOT NULL,
+  "connection_fingerprint" TEXT NOT NULL,
+  "reference" TEXT NOT NULL,
+  "items" TEXT NOT NULL,
+  "finance_option" TEXT NOT NULL,
+  "body" TEXT NOT NULL,
+  "body_hash" TEXT NOT NULL,
+  "total" INTEGER NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'preparada',
+  "provider_id" TEXT,
+  "series" INTEGER,
+  "number" INTEGER,
+  "access_key" TEXT,
+  "protocol" TEXT,
+  "authorized_at" TEXT,
+  "messages" TEXT NOT NULL DEFAULT '[]',
+  "stock_state" TEXT NOT NULL DEFAULT 'pendente',
+  "stock_result" TEXT,
+  "finance_state" TEXT NOT NULL DEFAULT 'pendente',
+  "finance_result" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${C_RETURN}_command_key" UNIQUE (command_id),
+  CONSTRAINT "${C_RETURN}_reference_key" UNIQUE (reference),
+  CONSTRAINT "${C_RETURN}_reference_check" CHECK (reference = 'wb.' || id || '.v1'),
+  CONSTRAINT "${C_RETURN}_environment_check" CHECK (environment IN ('homologacao','producao') AND ${HEX64("connection_fingerprint")}),
+  CONSTRAINT "${C_RETURN}_items_check" CHECK (${JSON_OF("items", "array")} AND json_array_length(items) BETWEEN 1 AND 990),
+  CONSTRAINT "${C_RETURN}_finance_option_check" CHECK (finance_option IN ('credito','pagar')),
+  CONSTRAINT "${C_RETURN}_body_check" CHECK (${JSON_OF("body", "object")} AND ${HEX64("body_hash")} AND total >= 0),
+  CONSTRAINT "${C_RETURN}_status_check" CHECK (status IN ('preparada','enviando','processando','incerta','rejeitada','denegada','autorizada','cancelada')),
+  CONSTRAINT "${C_RETURN}_authorized_check" CHECK (status NOT IN ('autorizada','cancelada') OR (provider_id IS NOT NULL AND access_key IS NOT NULL AND ${KEY44("access_key")} AND protocol IS NOT NULL AND number IS NOT NULL AND series IS NOT NULL)),
+  CONSTRAINT "${C_RETURN}_messages_check" CHECK (${JSON_OF("messages", "array")}),
+  CONSTRAINT "${C_RETURN}_effect_check" CHECK (stock_state IN ('pendente','aplicado','pulado') AND finance_state IN ('pendente','aplicado','pulado') AND (stock_result IS NULL OR ${JSON_OF("stock_result", "object")}) AND (finance_result IS NULL OR ${JSON_OF("finance_result", "object")})),
+  CONSTRAINT "${C_RETURN}_emission_fkey" FOREIGN KEY (emission_id) REFERENCES "${C_EMISSION}" (id)
+) STRICT`,
+    `CREATE INDEX "${C_RETURN}_emission" ON "${C_RETURN}" (emission_id, created_at)`,
+    `CREATE TRIGGER "${C_RETURN}_identity_guard" BEFORE UPDATE ON "${C_RETURN}" WHEN NEW.id IS NOT OLD.id OR NEW.emission_id IS NOT OLD.emission_id OR NEW.command_id IS NOT OLD.command_id OR NEW.reference IS NOT OLD.reference OR NEW.environment IS NOT OLD.environment OR NEW.connection_fingerprint IS NOT OLD.connection_fingerprint OR NEW.items IS NOT OLD.items OR NEW.body IS NOT OLD.body OR NEW.body_hash IS NOT OLD.body_hash OR NEW.total IS NOT OLD.total OR (OLD.status = 'autorizada' AND NEW.status NOT IN ('autorizada','cancelada')) OR (OLD.status IN ('autorizada','cancelada') AND (NEW.provider_id IS NOT OLD.provider_id OR NEW.access_key IS NOT OLD.access_key OR NEW.number IS NOT OLD.number)) OR (OLD.stock_state = 'aplicado' AND (NEW.stock_state <> 'aplicado' OR NEW.stock_result IS NOT OLD.stock_result)) OR (OLD.finance_state = 'aplicado' AND (NEW.finance_state <> 'aplicado' OR NEW.finance_result IS NOT OLD.finance_result)) BEGIN SELECT RAISE(ABORT, '40001:nfe_return_immutable'); END`,
+    `CREATE TRIGGER "${C_RETURN}_immutable_delete" BEFORE DELETE ON "${C_RETURN}" BEGIN SELECT RAISE(ABORT, '40001:com1_history_immutable'); END`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1009,6 +1127,9 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     ],
     since: 16, owner: "os5-fiscal", structural: "nota-servico-os",
   },
+  // Versão 18: o que vem depois da NF-e autorizada (carta de correção,
+  // inutilização de numeração e devolução de venda).
+  ...EVENT_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

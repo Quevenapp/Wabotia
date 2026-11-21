@@ -12,7 +12,8 @@ const UF = `e:${UFS.join('|')}`, UF_EX = `e:${UFS.join('|')}|EX`;
 const RATE = 'd:4:3', MONEY = 'd:2:13', QTY = 'd:4:11', PRICE = 'd:10:11', UNIT = 'd:4:11', WEIGHT = 'd:3:12';
 const TAXATION = 'e:T|I|O';
 const CODE = 'x:^[A-Z0-9]{8}([A-Z0-9]{2})?$';
-const CNPJ = 'x:^[0-9]{14}$', CPF_CNPJ = 'x:^([0-9]{11}|[0-9]{14})$';
+// CNPJ alfanumérico (12 posições 0-9/A-Z e dois dígitos verificadores): o cadastro e o cofre já aceitam.
+const CNPJ = 'x:^[0-9A-Z]{12}[0-9]{2}$', CPF_CNPJ = 'x:^([0-9]{11}|[0-9A-Z]{12}[0-9]{2})$';
 const INFO = 'm:2000';
 export const CST_ICMS = Object.freeze(['00','02','10','15','20','30','40','41','50','51','53','60','61','70','90']);
 export const CSOSN = Object.freeze(['101','102','103','201','202','203','300','400','500','900']);

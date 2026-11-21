@@ -9,6 +9,7 @@ import { NfseSettingsPanel } from "./NfseSettings";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { erpPorts } from "./ports";
+import { NfeVoidRanges } from "./NfeVoidRanges";
 import { canCommercialNfe, type CommercialNfePort } from "./commercial-nfe";
 import type { CommercialSettings, ConfigSaveInput, EffectTiming, FiscalEnvironment } from "../../src/erp/commercial-nfe/contracts.ts";
 import {
@@ -289,6 +290,7 @@ function EmissorSettingsArea() {
           </p>
         ))}
       <CommercialNfeSettings port={ports?.commercialNfe} connection={view} confirmIdentity={ports?.confirmIdentity} />
+      <NfeVoidRanges port={ports?.commercialNfe} />
     </div>
   );
 }
