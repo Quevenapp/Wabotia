@@ -12,6 +12,17 @@
 import { ApiError, type Actor } from "./types";
 import { ERP_MODULE_IDS } from "./erp/parts";
 import {
+  actionsOf,
+  areaModuleAllowed,
+  grantedActions,
+  isErpModule,
+  missingActionMessage,
+  normalizeErpAccess,
+  parsePermissionItem,
+  validPermissionItem,
+  type ModuleAction,
+} from "./security-modules";
+import {
   moduleForOperation,
   moduleForRoute,
   modules,
@@ -78,6 +89,13 @@ export type AccessItem = {
   explicitOnly?: boolean;
   label: string;
   description: string;
+  /**
+   * Módulo: as ações com nome e descrição (src/security-modules.ts), para o
+   * nível rápido e o "Personalizar" da tela de pessoa.
+   */
+  actions?: readonly ModuleAction[];
+  /** Papel antigo do ERP (erp:<papel>): aceito e migrado, fora da tela. */
+  legacy?: boolean;
 };
 
 /** Catálogo completo; com `states`, só os módulos ligados. */
@@ -97,6 +115,7 @@ export function accessCatalog(states?: ModuleStates): AccessItem[] {
       role: false,
       label: m.name,
       description: m.description,
+      actions: actionsOf(m.id),
     });
     for (const g of m.grants || [])
       items.push({
@@ -106,6 +125,8 @@ export function accessCatalog(states?: ModuleStates): AccessItem[] {
         role: true,
         label: g.label,
         description: g.description,
+        // Os papéis do ERP viraram níveis por módulo: o servidor os deriva.
+        ...(isErpModule(m.id) ? { legacy: true } : {}),
       });
   }
   return items;
@@ -150,6 +171,25 @@ export function presetsFor(catalog: AccessItem[]) {
 
 /** Lista guardada da pessoa; null (sem lista) vale como ["*"]. */
 const listOf = (actor: Pick<Actor, "access">) => actor.access ?? [ALL];
+
+/**
+ * Módulo pelo modelo novo (src/security-modules.ts): true com alguma ação,
+ * false com "Sem acesso" (vale mesmo com "*"), undefined sem item novo (vale
+ * a regra antiga). O item "erp" é a porta de todas as rotas do ERP: vale se
+ * alguma parte do ERP tiver ação.
+ */
+function moduleByPermission(list: readonly string[], item: string): boolean | undefined {
+  if (item.includes(":") || !list.some((id) => parsePermissionItem(id))) return undefined;
+  if (item === "erp") {
+    const parts = ERP_MODULE_IDS.map((id) => grantedActions(list, id));
+    if (parts.every((p) => p === null)) return undefined;
+    return parts.some((p) => !!p?.length);
+  }
+  const granted = grantedActions(list, item);
+  if (granted === null)
+    return isErpModule(item) && ERP_MODULE_IDS.some((id) => grantedActions(list, id) !== null) ? false : undefined;
+  return granted.length > 0;
+}
 const explicitOnly = new Set<string>(
   coreAccess.filter((item) => "explicitOnly" in item && item.explicitOnly).map((item) => item.id),
 );
@@ -173,7 +213,7 @@ export function effectiveAccess(actor: Actor, catalog: AccessItem[]) {
         ? allows(actor, item.id)
         : item.role
         ? list.includes(item.id)
-        : list.includes(ALL) || list.includes(item.id)
+        : moduleByPermission(list, item.id) ?? (list.includes(ALL) || list.includes(item.id))
     )
       out.add(item.id);
     if (item.role && list.includes(item.id) && item.module_id)
@@ -200,6 +240,9 @@ export function allows(actor: Actor, item: string) {
   const list = listOf(actor);
   // "*" como item: o que só o atendente completo alcança.
   if (item === ALL) return list.includes(ALL);
+  // Nível do módulo (Sem acesso, Só ver, Operar, Administrar ou ações).
+  const byPermission = moduleByPermission(list, item);
+  if (byPermission !== undefined) return byPermission;
   if (list.includes(item)) return true;
   // Área do núcleo ou módulo pelo "*"; módulo também por um papel dele.
   if (!item.includes(":") && list.includes(ALL)) return true;
@@ -265,12 +308,25 @@ export function routeAccess(segment: string): string | null | undefined {
   return segment in SEGMENTS ? SEGMENTS[segment] : undefined;
 }
 
-export function requireRouteAccess(actor: Actor, segment: string) {
+export function requireRouteAccess(actor: Actor, segment: string, method?: string) {
   if (!restricted(actor)) return;
   const item = routeAccess(segment);
   if (item === null) return;
   // Fora do catálogo: só quem tem tudo ("*").
   requireAccess(actor, item ?? ALL);
+  // Módulo da área no modelo novo: ler pede "Ver", DELETE pede "Apagar" e o
+  // resto "Criar e editar". As rotas do ERP conferem ação por ação no
+  // envelope (src/modules/erp/identity.ts).
+  const owner = method ? moduleForRoute(segment) : null;
+  if (owner && method) requireAreaModuleAction(actor, owner.id, method, owner.name);
+}
+
+/** Recusa com a ação que falta e quem libera (403 permission_denied). */
+export function requireAreaModuleAction(actor: Actor, moduleId: string, method: string, moduleName?: string) {
+  if (!restricted(actor)) return;
+  const result = areaModuleAllowed(listOf(actor), moduleId, method);
+  if (!result.ok)
+    throw new ApiError(403, "permission_denied", missingActionMessage(result.module, result.action, moduleName));
 }
 
 /** Só estes endpoints delegam a autorização à ficha/ERP/job do recurso. */
@@ -298,7 +354,11 @@ export function requireOperationAccess(actor: Actor, op: string) {
   const owner = moduleForOperation(op);
   // Operações fiscais do ERP (NF-e do pedido, cupom do balcão, carta de
   // correção, inutilização e devolução): qualquer papel erp:*; o motor confere o papel.
-  if (owner) return requireAccess(actor, /^(?:com1|nfce|nfe)\./.test(op) ? "erp" : owner.id);
+  if (owner) {
+    requireAccess(actor, /^(?:com1|nfce|nfe)\./.test(op) ? "erp" : owner.id);
+    // Comando de módulo da área: "Criar e editar"; o que apaga, "Apagar".
+    return requireAreaModuleAction(actor, owner.id, /\.delete$/.test(op) ? "DELETE" : "POST", owner.name);
+  }
   const match = OPERATIONS.find(([pattern]) => pattern.test(op));
   if (match && match[1] === null) return;
   // Comando fora da lista: só quem tem tudo ("*").
@@ -344,15 +404,26 @@ export function validateAccess(value: unknown): string[] | null {
       "invalid_request",
       "Acesso: envie uma lista de itens.",
     );
-  const known = new Set([ALL, ...accessCatalog().map((i) => i.id)]);
-  const out = [...new Set(value)];
+  const catalog = accessCatalog();
+  const known = new Set([ALL, ...catalog.map((i) => i.id)]);
+  const moduleIds = new Set(catalog.filter((i) => i.group === "module" && !i.role).map((i) => i.id));
+  let out = [...new Set(value)];
   for (const item of out)
-    if (typeof item !== "string" || !known.has(item))
+    if (typeof item !== "string" || !(known.has(item) || validPermissionItem(item, moduleIds)))
       throw new ApiError(
         400,
         "invalid_request",
         `Acesso desconhecido: ${String(item)}.`,
       );
+  // Um nível rápido por módulo (ou as ações dele, em "Personalizar").
+  const levels = out.flatMap((item) => {
+    const parsed = parsePermissionItem(item);
+    return parsed?.kind === "level" ? [parsed.module] : [];
+  });
+  if (new Set(levels).size !== levels.length)
+    throw new ApiError(400, "invalid_request", "Escolha um só nível por módulo.");
+  // Modelo novo no ERP: o papel do motor sai dos níveis, não da tela.
+  out = normalizeErpAccess(out);
   for (const module of ONE_ROLE)
     if (out.filter((item) => item.startsWith(module + ":")).length > 1)
       throw new ApiError(

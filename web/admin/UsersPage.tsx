@@ -18,6 +18,22 @@ import {
   toast,
 } from "../ui";
 import { FormDialog, Pager, toggled, useList, useResource } from "./shared";
+import {
+  LEVEL_OPTIONS,
+  cadastrosHint,
+  moduleActions,
+  moduleLevel,
+  moduleSummary,
+  prepareAccess,
+  setModuleLevel,
+  toggleModuleAction,
+} from "./module-permissions";
+import {
+  hasModuleItems,
+  isErpModule,
+  parsePermissionItem,
+  type PermissionLevel,
+} from "../../src/security-modules";
 
 /** Caixas de seleção das áreas de atendimento a que a pessoa ou sistema tem acesso. */
 export function AreaAccess({
@@ -89,11 +105,13 @@ export function AccessEditor({
   const checked = (item: Row) =>
     value.includes(item.id) || (!item.role && !item.explicitOnly && value.includes("*"));
   const preset =
-    catalog.presets.find(
-      (p) =>
-        p.access.length === value.length &&
-        p.access.every((id: string) => value.includes(id)),
-    )?.id || "";
+    catalog.presets
+      .map((p) => ({ id: p.id, access: prepareAccess(p.access) }))
+      .find(
+        (p) =>
+          p.access.length === value.length &&
+          p.access.every((id: string) => value.includes(id)),
+      )?.id || "";
   const box = (item: Row, indent = false) => (
     <label
       className="check-field"
@@ -121,7 +139,7 @@ export function AccessEditor({
         value={preset}
         onChange={(id) => {
           const chosen = catalog.presets.find((p) => p.id === id);
-          if (chosen) onChange([...chosen.access]);
+          if (chosen) onChange(prepareAccess([...chosen.access]));
         }}
         emptyOption="Personalizado"
         options={catalog.presets.map((p) => [p.id, p.label])}
@@ -139,19 +157,138 @@ export function AccessEditor({
         </fieldset>
       )}
       {mods.length > 0 && (
-        <fieldset className="scope-grid">
-          <legend>Módulos</legend>
-          {mods.map((mod) => (
-            <React.Fragment key={mod.id}>
-              {box(mod)}
-              {items
-                .filter((i) => i.role && i.module_id === mod.id)
-                .map((role) => box(role, true))}
-            </React.Fragment>
-          ))}
-        </fieldset>
+        <ModulePermissions
+          mods={mods}
+          value={value}
+          onChange={onChange}
+          roles={(mod) =>
+            items
+              .filter((i) => i.role && !i.legacy && i.module_id === mod.id)
+              .map((role) => box(role, true))
+          }
+        />
       )}
     </>
+  );
+}
+
+/**
+ * Módulos ligados na área, um por bloco: nível rápido (Sem acesso, Só ver,
+ * Operar, Administrar) e "Personalizar" com as ações uma a uma. O que cada
+ * ação deixa fazer vem do servidor (src/security-modules.ts) e é conferido lá.
+ */
+export function ModulePermissions({
+  mods,
+  value,
+  onChange,
+  roles,
+}: {
+  mods: Row[];
+  value: string[];
+  onChange: (next: string[]) => void;
+  roles?: (mod: Row) => React.ReactNode;
+}) {
+  const erpModules = mods.map((m) => m.id as string).filter(isErpModule);
+  return (
+    <fieldset className="scope-grid module-permissions">
+      <legend>Módulos: o que a pessoa pode fazer</legend>
+      <p>
+        Escolha um nível para cada módulo ligado. “Só ver” consulta sem mudar
+        nada; “Operar” faz o dia a dia; “Administrar” inclui apagar, cancelar e
+        configurar. Em “Personalizar…”, marque as ações uma a uma. O servidor
+        confere cada ação, e um bot que age por esta pessoa nunca faz mais do
+        que ela.
+      </p>
+      {cadastrosHint(value, erpModules) && (
+        <Notice tone="warn">
+          Com Cadastros em “Sem acesso”, a pessoa vê os nomes dos clientes nas
+          outras telas do ERP, mas não abre a lista de clientes e
+          fornecedores. Para isso, escolha pelo menos “Só ver” em Cadastros.
+        </Notice>
+      )}
+      {mods.map((mod) => (
+        <ModuleSection
+          key={mod.id}
+          mod={mod}
+          value={value}
+          onChange={onChange}
+          erpModules={erpModules}
+          roles={roles?.(mod)}
+        />
+      ))}
+    </fieldset>
+  );
+}
+
+function ModuleSection({
+  mod,
+  value,
+  onChange,
+  erpModules,
+  roles,
+}: {
+  mod: Row;
+  value: string[];
+  onChange: (next: string[]) => void;
+  erpModules: string[];
+  roles?: React.ReactNode;
+}) {
+  const level = moduleLevel(value, mod.id);
+  const [custom, setCustom] = useState(level === "personalizado");
+  const shown = custom ? "personalizado" : level;
+  const actions: Row[] = mod.actions || [];
+  const granted = moduleActions(value, mod.id);
+  const included = actions.filter((a) => granted.includes(a.id)).map((a) => a.label);
+  return (
+    <div className="module-permission" data-module={mod.id}>
+      <Field
+        label={mod.label}
+        value={shown}
+        emptyOption={null}
+        options={LEVEL_OPTIONS}
+        help={mod.description}
+        onChange={(next) => {
+          if (next === "personalizado") return setCustom(true);
+          setCustom(false);
+          onChange(setModuleLevel(value, mod.id, next as PermissionLevel, erpModules));
+        }}
+      />
+      {!custom && (
+        <small className="workspace-help">
+          {included.length ? `Pode: ${included.join("; ")}.` : "Não abre este módulo."}
+        </small>
+      )}
+      {custom &&
+        actions.map((action) => (
+          <label
+            className="check-field"
+            key={action.id}
+            title={action.description}
+            style={{ paddingLeft: 24 }}
+          >
+            <input
+              type="checkbox"
+              checked={granted.includes(action.id)}
+              onChange={(event) =>
+                onChange(
+                  toggleModuleAction(
+                    value,
+                    mod.id,
+                    action.id,
+                    event.target.checked,
+                    actions.map((a) => a.id as string),
+                    erpModules,
+                  ),
+                )
+              }
+            />
+            <span>
+              {action.label} <small>— {action.description}</small>
+            </span>
+          </label>
+        ))}
+      {roles}
+    </div>
   );
 }
 
@@ -169,7 +306,8 @@ export function AdminRoles({
   value: string[];
   onChange: (next: string[]) => void;
 }) {
-  const roles = catalog.data.filter((i) => i.role);
+  // Os papéis antigos do ERP não aparecem: o administrador já tem tudo no ERP.
+  const roles = catalog.data.filter((i) => i.role && !i.legacy);
   if (!roles.length) return <p>O administrador acessa tudo.</p>;
   const moduleLabel = (id: string) =>
     catalog.data.find((i) => !i.role && i.id === id)?.label || id;
@@ -209,12 +347,25 @@ function accessSummary(row: Row, items: Row[]) {
       .map(label);
     return ["Tudo (administrador)", ...roles].join(" · ");
   }
-  const value = listOf(parse(row.access, null));
-  const roles = value.filter((v) => v.includes(":")).map(label);
+  const value = prepareAccess(listOf(parse(row.access, null)));
+  const legacy = (id: string) => !!items.find((i) => i.id === id)?.legacy;
+  const roles = value.filter((v) => v.includes(":") && !legacy(v)).map(label);
+  const isModule = (id: string) => items.some((i) => i.id === id && i.group === "module" && !i.role);
   const base = value.includes("*")
     ? ["Completo"]
-    : value.filter((v) => !v.includes(":")).map(label);
-  return [...base, ...roles].join(" · ") || "Nada";
+    : value.filter((v) => !v.includes(":") && !parsePermissionItem(v) && !isModule(v)).map(label);
+  // Módulos: o nível de cada um ("Financeiro: Só ver"); sem item novo, como antes.
+  const mods = items
+    .filter((i) => i.group === "module" && !i.role)
+    .flatMap((m) =>
+      hasModuleItems(value, m.id) || isErpModule(m.id)
+        ? [moduleSummary(value, m.id, m.label)]
+        : !value.includes("*") && value.includes(m.id)
+          ? [m.label]
+          : [],
+    )
+    .filter((s): s is string => !!s);
+  return [...base, ...mods, ...roles].join(" · ") || "Nada";
 }
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -494,8 +645,9 @@ function UserDialog({
       ? { ...user, profiles: parse(user.profiles, []) }
       : { role: "operator" },
   );
+  // Papel antigo do ERP → níveis equivalentes; ao salvar, fica no modelo novo.
   const [access, setAccess] = useState<string[]>(
-    listOf(user ? parse(user.access, null) : null),
+    prepareAccess(listOf(user ? parse(user.access, null) : null)),
   );
   const operator = (user?.role || form.role) !== "admin";
   const [schedule, setSchedule] = useState<Row | null>(

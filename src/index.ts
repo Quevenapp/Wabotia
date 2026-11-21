@@ -1137,7 +1137,7 @@ app.use("/api/v1/profiles/*", async (c, next) => {
   else if (segment === "c2") { /* Política do descritor, resolvida a cada invocação. */ }
   else if (customerResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* O handler autoriza a pessoa e o recurso. */ }
   else if (integrationResourceRoute(c.req.method, c.req.path.split("/").slice(5).join("/"))) { /* F3 confere pessoa, origem e destino; não concede acesso geral ao módulo. */ }
-  else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment);
+  else if (segment) requireRouteAccess(c.get("actor"), ["contact-conflicts", "contact-identities", "contact-jobs"].includes(segment) ? "contacts" : segment, c.req.method);
   await next();
 });
 app.get("/api/v1/profiles/:profile/access", (c) => {
