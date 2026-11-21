@@ -1,6 +1,6 @@
 # Hermes, API e Cloudflare: do serviço desligado à conexão
 
-O Wabotia já deve estar instalado. **Não gere outra MASTER_KEY nem execute novamente a instalação do Worker.** Aqui você vai ligar dois serviços nativos do Hermes e permitir que o seu Wabotia os alcance. O painel continua hospedado na Cloudflare.
+O Vinki já deve estar instalado. **Não gere outra MASTER_KEY nem execute novamente a instalação do Worker.** Aqui você vai ligar dois serviços nativos do Hermes e permitir que o seu Vinki os alcance. O painel continua hospedado na Cloudflare.
 
 Antes de começar, confira os [requisitos da conta e a função de cada serviço Cloudflare](INSTALACAO.md#antes-do-deploy-para-que-serve-cada-serviço-da-cloudflare). R2 precisa de assinatura ativada mesmo com franquia gratuita; D1 está incluído nos planos Workers; Zero Trust precisa estar ativado para usar Access neste roteiro. Se já ativou Zero Trust, apenas confirme o acesso às aplicações na etapa C.
 
@@ -8,12 +8,12 @@ Siga nesta ordem: **A. preparar Hermes → B. testar localmente → deploy pelo 
 
 ## Deploy da configuração pelo painel
 
-Requer Wabotia 0.2.0 ou posterior. Se não aparece o botão, siga [Atualizar Wabotia](ATUALIZACOES.md).
+Requer Vinki 0.2.0 ou posterior. Se não aparece o botão, siga [Atualizar Vinki](ATUALIZACOES.md).
 
 1. Primeiro, conclua A e B deste guia: perfil criado, modelo configurado e duas APIs autenticadas respondendo localmente.
 2. Ative o plano Zero Trust. O domínio precisa estar ativo na conta Cloudflare escolhida.
 3. Em **My Profile → API Tokens → Create Token → Custom Token**, limite a autorização à sua conta e à zona do domínio. Permissões de conta: **Cloudflare Tunnel: Edit**, **Access: Apps and Policies: Edit**, **Access: Service Tokens: Edit**. Permissões da zona: **Zone: Read** e **DNS: Edit**. Defina validade apropriada e guarde o token de forma privada.
-4. Na visão geral do domínio, copie **Account ID** e **Zone ID**. Em **Wabotia → Sistema e atualizações → Preparação do Hermes na Cloudflare**, informe esses IDs e o token. Clique **Verificar e salvar autorização**. Esse é um token de API Cloudflare, diferente do Client ID/Secret de Access. A autorização fica criptografada no backend.
+4. Na visão geral do domínio, copie **Account ID** e **Zone ID**. Em **Vinki → Sistema e atualizações → Preparação do Hermes na Cloudflare**, informe esses IDs e o token. Clique **Verificar e salvar autorização**. Esse é um token de API Cloudflare, diferente do Client ID/Secret de Access. A autorização fica criptografada no backend.
 5. Selecione o perfil de atendimento e abra **Conexões → Preparar Hermes na Cloudflare**. Informe dois endereços novos de um único nível no domínio autorizado, nome exato do perfil Hermes, portas (normalmente 9119 e 8642), token administrativo e API_SERVER_KEY do perfil. As duas chaves Hermes estão em `~/.config/wabotia/hermes/chaves.local.txt` na máquina do Hermes; não use MASTER_KEY/SETUP_TOKEN nesses campos.
 6. Confirme os pré-requisitos, clique **Revisar configuração**, confira os recursos e clique **Fazer deploy da configuração**. Acompanhe as 12 etapas. Access é validado antes da publicação DNS. Nenhum DNS, túnel ou aplicativo existente é substituído.
 7. Quando aparecer **Configuração pronta**, escolha o tipo de execução e baixe o instalador. **O arquivo contém uma credencial do túnel**; use transferência privada para a VPS. Não o inclua no Git. Instale `cloudflared` pelo [site oficial](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/), ou Docker se escolheu essa opção.
@@ -45,11 +45,11 @@ R2/D1/Zero Trust e eventuais termos/cobranças continuam sendo preparados pelo t
 ### A1. Hermes nativo: crie o perfil e ligue a API
 
 1. Abra o terminal **com o mesmo usuário que instalou o Hermes**, sem `sudo` nos comandos Hermes. Confirme que `hermes --help` funciona.
-2. Baixe o código do Wabotia se ainda não tiver uma cópia. Se já tiver, abra a pasta existente e atualize-a pelo Git antes de usar o assistente; não clone por cima da instalação.
+2. Baixe o código do Vinki se ainda não tiver uma cópia. Se já tiver, abra a pasta existente e atualize-a pelo Git antes de usar o assistente; não clone por cima da instalação.
 
 ```sh
-git clone https://github.com/Quevenapp/Wabotia.git
-cd Wabotia
+git clone https://github.com/Quevenapp/Vinki.git
+cd Vinki
 ```
 
 3. Cole o comando abaixo. Troque apenas os dois endereços pelo seu domínio. `--create-profile` cria `wabotia` se ele ainda não existir; se existir, preserva o perfil.
@@ -60,7 +60,7 @@ python3 scripts/prepare-hermes.py --profile wabotia --create-profile \
   --api-hostname api-hermes-local.seudominio.com
 ```
 
-O assistente faz backup privado, gera chaves quando ausentes e configura `gateway.api_server.enabled=true`, `host=127.0.0.1`, `port=8642` no gateway compartilhado. Cada perfil tem sua própria `API_SERVER_KEY`. A chave do `default`, necessária ao listener compartilhado, **não é entregue ao Wabotia**. Canais, histórico e bots existentes são preservados. O assistente recusa perfis pausados e instalações com `gateway.multiplex_profiles=false`; não altere esse modo sem revisar seu gateway.
+O assistente faz backup privado, gera chaves quando ausentes e configura `gateway.api_server.enabled=true`, `host=127.0.0.1`, `port=8642` no gateway compartilhado. Cada perfil tem sua própria `API_SERVER_KEY`. A chave do `default`, necessária ao listener compartilhado, **não é entregue ao Vinki**. Canais, histórico e bots existentes são preservados. O assistente recusa perfis pausados e instalações com `gateway.multiplex_profiles=false`; não altere esse modo sem revisar seu gateway.
 
 **API estava desligada?** O comando acima habilita a configuração; o próximo passo inicia os processos. Criar uma chave sozinho não liga o serviço.
 
@@ -105,11 +105,11 @@ docker inspect -f '{{range .Mounts}}{{println .Source "->" .Destination}}{{end}}
 
 Neste exemplo o nome é `hermes`. Substitua-o em **todos** os comandos se o seu for diferente. O segundo comando precisa indicar `host` para seguir este roteiro. O terceiro deve mostrar o volume persistente `/opt/data`. **Não use `docker compose down -v`.** Se a rede for `bridge`, `127.0.0.1` do host não é o contêiner: adapte a implantação com uma rede privada compartilhada e autenticação compatível antes de continuar. Abrir portas no firewall não resolve essa diferença.
 
-2. Salve um backup do volume Hermes e do Compose existente. Na VPS, baixe a pasta Wabotia e copie o assistente para o contêiner:
+2. Salve um backup do volume Hermes e do Compose existente. Na VPS, baixe a pasta Vinki e copie o assistente para o contêiner:
 
 ```sh
-git clone https://github.com/Quevenapp/Wabotia.git
-cd Wabotia
+git clone https://github.com/Quevenapp/Vinki.git
+cd Vinki
 docker cp scripts/prepare-hermes.py hermes:/tmp/wabotia-prepare-hermes.py
 docker exec --user hermes hermes python3 /tmp/wabotia-prepare-hermes.py \
   --output /opt/data/wabotia-connection --profile wabotia --create-profile \
@@ -131,7 +131,7 @@ docker restart hermes
 
 ```ini
 [Unit]
-Description=Hermes administrativo para Wabotia em Docker
+Description=Hermes administrativo para Vinki em Docker
 After=docker.service
 Requires=docker.service
 
@@ -168,7 +168,7 @@ Continue na Cloudflare usando os hostnames **da VPS**. Instale `cloudflared` no 
 
 ## B. Confirme que as APIs estão ligadas
 
-No Hermes nativo, na pasta Wabotia:
+No Hermes nativo, na pasta Vinki:
 
 ```sh
 python3 scripts/prepare-hermes.py --check
@@ -187,8 +187,8 @@ Só prossiga com os dois `OK`. O teste verifica a descoberta de `wabotia`, a ide
 
 1. Entre em [dash.cloudflare.com](https://dash.cloudflare.com) e escolha a conta **que possui o domínio**. Em **Domínios**, ele precisa estar ativo na Cloudflare. Não basta ter registrado o domínio em outro provedor: os nameservers devem estar configurados conforme a Cloudflare.
 2. Abra **Zero Trust > Controles de acesso > Aplicativos**. Em algumas versões: **Cloudflare One > Access controls > Applications**.
-3. Se aparecer **Bem-vindo ao Cloudflare Zero Trust**, clique **Começar**. Selecione o plano apropriado. O plano **Zero Trust gratuito**, quando disponível, atende esta configuração inicial; é separado do plano Workers Paid do Wabotia.
-4. Confira preço, eventuais dados de cobrança e termos exibidos antes de concluir. Se pedir nome da equipe, escolha um nome disponível, como `minhaempresa-wabotia`. O endereço `nome.cloudflareaccess.com` é da equipe Access; **não é** a URL do Hermes nem do Wabotia.
+3. Se aparecer **Bem-vindo ao Cloudflare Zero Trust**, clique **Começar**. Selecione o plano apropriado. O plano **Zero Trust gratuito**, quando disponível, atende esta configuração inicial; é separado do plano Workers Paid do Vinki.
+4. Confira preço, eventuais dados de cobrança e termos exibidos antes de concluir. Se pedir nome da equipe, escolha um nome disponível, como `minhaempresa-wabotia`. O endereço `nome.cloudflareaccess.com` é da equipe Access; **não é** a URL do Hermes nem do Vinki.
 5. Volte a **Controles de acesso > Aplicativos**. A ativação terminou quando você consegue acessar a lista e adicionar uma aplicação.
 
 ![Tela de escolha de plano do Zero Trust](screenshots/15-zero-trust-planos.jpg)
@@ -199,15 +199,15 @@ Só prossiga com os dois `OK`. O teste verifica a descoberta de `wabotia`, a ide
 
 1. Em **Zero Trust > Controles de acesso > Credenciais de serviço**, abra **Service Tokens / Tokens de serviço**. Em telas antigas: **Access > Service Auth > Service Tokens**.
 2. Clique **Create Service Token / Criar token de serviço**. Nome: `wabotia-hermes-local` (ou `wabotia-hermes-vps`). Escolha a validade e anote a data de renovação.
-3. A **Cloudflare gera** dois valores: **Client ID** e **Client Secret**. Copie os dois para seu gerenciador de senhas. O segredo pode ser exibido apenas uma vez. Eles serão colados nos campos Cloudflare Access da conexão Hermes no Wabotia.
+3. A **Cloudflare gera** dois valores: **Client ID** e **Client Secret**. Copie os dois para seu gerenciador de senhas. O segredo pode ser exibido apenas uma vez. Eles serão colados nos campos Cloudflare Access da conexão Hermes no Vinki.
 
 ### D.2. Proteja os dois endereços
 
 1. Abra **Controles de acesso > Aplicativos > Adicionar aplicativo > Self-hosted / Auto-hospedado**.
-2. Nome: `Wabotia - Hermes administrativo local`. Em domínio público, preencha subdomínio `hermes-local`, domínio `seudominio.com` e deixe o campo caminho vazio. A proteção deve cobrir **o hostname inteiro**.
-3. Adicione uma política com nome `Somente Wabotia`. Em **Action / Ação**, selecione **Service Auth / Autenticação de serviço**. Em **Include / Incluir**, selecione **Service Token** e escolha o token da etapa D.1. Não use uma regra `Everyone` nem `Bypass`.
+2. Nome: `Vinki - Hermes administrativo local`. Em domínio público, preencha subdomínio `hermes-local`, domínio `seudominio.com` e deixe o campo caminho vazio. A proteção deve cobrir **o hostname inteiro**.
+3. Adicione uma política com nome `Somente Vinki`. Em **Action / Ação**, selecione **Service Auth / Autenticação de serviço**. Em **Include / Incluir**, selecione **Service Token** e escolha o token da etapa D.1. Não use uma regra `Everyone` nem `Bypass`.
 4. Salve a política e a aplicação. Login interativo por e-mail não substitui Service Auth: o Worker precisa se autenticar sem uma pessoa no navegador.
-5. Repita para `api-hermes-local.seudominio.com`, nome `Wabotia - API bots local`, com o **mesmo token desta conexão**. Na VPS, use os hostnames com `vps`.
+5. Repita para `api-hermes-local.seudominio.com`, nome `Vinki - API bots local`, com o **mesmo token desta conexão**. Na VPS, use os hostnames com `vps`.
 6. Confirme na lista as duas aplicações e confira suas políticas. Só então publique as rotas do túnel.
 
 | Tela / campo | Valor de referência |
@@ -226,7 +226,7 @@ Só prossiga com os dois `OK`. O teste verifica a descoberta de `wabotia`, a ide
 1. No dashboard da Cloudflare, abra **Rede > Túneis > Criar túnel**. Em telas antigas: **Zero Trust > Networks > Connectors > Cloudflare Tunnels**.
 2. Escolha **Cloudflared**, quando solicitado, e dê o nome `wabotia-hermes-local` ou `wabotia-hermes-vps`.
 3. Na tela de instalação, escolha o sistema e a arquitetura da **máquina do Hermes** (ex.: Debian/Ubuntu 64-bit). Instale o pacote oficial seguindo os comandos exibidos. Confirme com `cloudflared --version`.
-4. A Cloudflare mostra um comando para registrar o conector. Ele contém um **token do túnel**. Trate esse token como senha: guarde-o em local privado. Ele é usado apenas pelo `cloudflared`, não entra no Wabotia.
+4. A Cloudflare mostra um comando para registrar o conector. Ele contém um **token do túnel**. Trate esse token como senha: guarde-o em local privado. Ele é usado apenas pelo `cloudflared`, não entra no Vinki.
 5. Se não existe outro serviço `cloudflared` nessa máquina, o comando oficial de instalação de serviço da tela pode ser usado. Se já existe, **não execute outro `cloudflared service install` por cima dele**. Use o serviço separado da etapa E2.
 
 ### E2. Serviço separado no Ubuntu/Linux/WSL2 com systemd
@@ -247,7 +247,7 @@ Abra `~/.config/systemd/user/cloudflared-wabotia.service` no editor e cole o mod
 
 ```ini
 [Unit]
-Description=Cloudflare Tunnel exclusivo do Wabotia
+Description=Cloudflare Tunnel exclusivo do Vinki
 After=network-online.target
 
 [Service]
@@ -288,14 +288,14 @@ Na VPS, troque os subdomínios por `hermes-vps` e `api-hermes-vps`. Se estiver u
 
 Salve as rotas. A Cloudflare normalmente cria os CNAMEs automaticamente para `UUID_DO_TUNEL.cfargotunnel.com`, com proxy ativo. Confira em **Domínios > seu domínio > DNS > Registros**. Se já existir um registro com o mesmo nome, não o sobrescreva sem verificar seu uso. Não crie um registro A apontando para o IP residencial e não abra portas 8642/9119 no roteador ou no firewall da VPS.
 
-**Teste sem chave:** abrir a rota protegida em uma janela anônima deve ser bloqueado pelo Access. Uma tela de login ou recusa é esperada para um navegador sem Service Token; o teste autenticado será feito no Wabotia. Se aparecer JSON de perfis sem autenticação, remova a rota publicada e corrija a proteção antes de continuar. A raiz `/` pode retornar 404 porque só as rotas acima foram publicadas.
+**Teste sem chave:** abrir a rota protegida em uma janela anônima deve ser bloqueado pelo Access. Uma tela de login ou recusa é esperada para um navegador sem Service Token; o teste autenticado será feito no Vinki. Se aparecer JSON de perfis sem autenticação, remova a rota publicada e corrija a proteção antes de continuar. A raiz `/` pode retornar 404 porque só as rotas acima foram publicadas.
 
-## F. Cole cada chave no lugar certo no Wabotia
+## F. Cole cada chave no lugar certo no Vinki
 
 1. Abra **a URL da sua instalação** com `/app`, entre como administrador e crie um perfil de atendimento, por exemplo `Atendimento`. Mantenha-o pausado.
 2. Vá a **Conexões > Nova conexão > Hermes**. Preencha:
 
-| Campo do Wabotia | De onde vem / exemplo |
+| Campo do Vinki | De onde vem / exemplo |
 |---|---|
 | Nome | `Hermes local` ou `Hermes VPS` |
 | URL do backend administrativo | `https://hermes-local.seudominio.com` (sem `/api/profiles`) |
@@ -317,11 +317,11 @@ No computador nativo, o arquivo privado fica em `~/.config/wabotia/hermes/chaves
 
 | Credencial | Quem gera | Onde é usada |
 |---|---|---|
-| MASTER_KEY | Gerador do site/instalador Wabotia | Secret do Worker; guardar a original para restaurar dados |
-| SETUP_TOKEN | Gerador do site/instalador Wabotia | Secret do Worker e primeiro cadastro de administrador |
+| MASTER_KEY | Gerador do site/instalador Vinki | Secret do Worker; guardar a original para restaurar dados |
+| SETUP_TOKEN | Gerador do site/instalador Vinki | Secret do Worker e primeiro cadastro de administrador |
 | Token administrativo Hermes | `prepare-hermes.py` | Backend Hermes e campo administrativo da conexão |
-| API_SERVER_KEY do perfil | `prepare-hermes.py` ou Hermes | API do perfil e campo da conexão Wabotia |
-| Access Client ID + Client Secret | Cloudflare | Par de campos Access da conexão Wabotia |
+| API_SERVER_KEY do perfil | `prepare-hermes.py` ou Hermes | API do perfil e campo da conexão Vinki |
+| Access Client ID + Client Secret | Cloudflare | Par de campos Access da conexão Vinki |
 | Token do túnel | Cloudflare | Somente processo `cloudflared` da máquina |
 
 As chaves já guardadas da instalação continuam válidas. Você está acrescentando as credenciais da conexão, não substituindo MASTER_KEY/SETUP_TOKEN. Reexecutar o assistente preserva chaves Hermes existentes. Nunca rode o gerador para “consertar” uma chave de criptografia perdida.
@@ -350,7 +350,7 @@ docker exec --user hermes hermes python3 /opt/data/wabotia-connection/prepare-he
   --output /opt/data/wabotia-connection --check
 ```
 
-Se desabilitou a configuração da API, repita a preparação dentro do contêiner com o mesmo `--output`, depois reinicie `hermes`. Use o serviço `cloudflared` correspondente se instalou pelo comando oficial em vez do serviço separado. Quando os testes locais passarem e o túnel estiver Íntegro, volte ao Wabotia e clique **Testar conexão**.
+Se desabilitou a configuração da API, repita a preparação dentro do contêiner com o mesmo `--output`, depois reinicie `hermes`. Use o serviço `cloudflared` correspondente se instalou pelo comando oficial em vez do serviço separado. Quando os testes locais passarem e o túnel estiver Íntegro, volte ao Vinki e clique **Testar conexão**.
 
 | Sintoma | O que fazer |
 |---|---|
@@ -358,13 +358,13 @@ Se desabilitou a configuração da API, repita a preparação dentro do contêin
 | 401/403 do Hermes | Conferir chave correta do perfil e token do backend; não trocar MASTER_KEY |
 | Cloudflare 502 | Túnel está conectado, mas não alcança o serviço/porta local; rodar `--check` |
 | Cloudflare 1033 / túnel offline | Iniciar `cloudflared`, conferir internet, token e máquina ligada |
-| HTML de login no teste do Wabotia | Política Access precisa ser Service Auth; conferir Client ID/Secret e validade |
+| HTML de login no teste do Vinki | Política Access precisa ser Service Auth; conferir Client ID/Secret e validade |
 | 403 / Invalid Host no backend | Preencher HTTP Host Header administrativo com `127.0.0.1:9119` |
-| 404 apenas na raiz do hostname | Esperado: use a rota publicada; no Wabotia cadastre só as URLs base |
+| 404 apenas na raiz do hostname | Esperado: use a rota publicada; no Vinki cadastre só as URLs base |
 | Perfil aparece, mas não executa | Configurar modelo/provedor no Hermes; conferir chave específica e rota `/p/wabotia/` |
 | Serviço unit not found | Comando não corresponde à forma de instalação; usar o gerenciador existente |
 
-O computador local não pode dormir enquanto os bots estiverem em atendimento. O painel Wabotia permanece disponível se Hermes/túnel estiverem offline; os canais ainda conectados podem continuar no atendimento humano.
+O computador local não pode dormir enquanto os bots estiverem em atendimento. O painel Vinki permanece disponível se Hermes/túnel estiverem offline; os canais ainda conectados podem continuar no atendimento humano.
 
 ## Referências oficiais
 

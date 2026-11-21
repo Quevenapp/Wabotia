@@ -2,10 +2,10 @@ package br.com.queven.wabotia.device.core
 
 /*
  * Os poucos tipos do motor do Vinki que os quadros do painel ainda usam. No
- * Senhapp não há motor local: a fila mora no Wabotia (docs/contrato/wabotia-fila.md).
+ * Senhapp não há motor local: a fila mora no Vinki (docs/contrato/wabotia-fila.md).
  */
 
-/** Uma campanha do painel. O Wabotia ainda não envia campanhas; a lista fica vazia. */
+/** Uma campanha do painel. O Vinki ainda não envia campanhas; a lista fica vazia. */
 data class Campaign(
     val campaignId: String,
     val origem: String,

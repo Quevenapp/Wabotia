@@ -491,7 +491,7 @@ export function AppProvider({
             ));
             const minimal = summary.settings?.push?.preview === "minimal";
             notify(channelNotificationTitle(row.name || "Mensagem nova", channel,
-              payload.multichannel === true || isMultichannel(summary), minimal), minimal ? "Wabotia" : payload.text || "Anexo", {
+              payload.multichannel === true || isMultichannel(summary), minimal), minimal ? "Vinki" : payload.text || "Anexo", {
               tag: "message:" + id,
               open: () => navigate({ area: "conversations", id }),
             });

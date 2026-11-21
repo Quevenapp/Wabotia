@@ -161,7 +161,7 @@ struct TeamView: View {
         if !loaded {
             SkeletonList(rows: 3).frame(height: 230)
         } else if chats.isEmpty {
-            hint("bubble.left.and.bubble.right", "Nenhuma conversa interna", "Toque em uma pessoa ou em um bot para conversar dentro do Wabotia.")
+            hint("bubble.left.and.bubble.right", "Nenhuma conversa interna", "Toque em uma pessoa ou em um bot para conversar dentro do Vinki.")
         } else {
             ForEach(chats) { chat in
                 if let peer = chat.peer {
@@ -394,7 +394,7 @@ struct InternalChatView: View {
                                         ChatChip(text: ConversationFormatting.dayChip(message.created)).padding(.vertical, 6).flippedVertically()
                                     }
                                 }
-                                ChatChip(text: "Conversa interna. As mensagens ficam dentro do Wabotia.", icon: "lock.fill").padding(.vertical, 10).flippedVertically()
+                                ChatChip(text: "Conversa interna. As mensagens ficam dentro do Vinki.", icon: "lock.fill").padding(.vertical, 10).flippedVertically()
                             }
                         }
                         .padding(.horizontal, 6)

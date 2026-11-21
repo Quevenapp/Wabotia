@@ -1,4 +1,4 @@
-// Wabotia: a reconferência do mesmo ator não apaga a permissão fina já conferida
+// Vinki: a reconferência do mesmo ator não apaga a permissão fina já conferida
 // (a aba "Lançamentos de estoque" não some e volta a cada reconferência).
 import test from 'node:test';
 import assert from 'node:assert/strict';

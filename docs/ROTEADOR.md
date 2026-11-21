@@ -1,10 +1,10 @@
 # Roteador de telefones WhatsApp
 
-O roteador permite importar telefones WhatsApp conectados à mesma integração Zernio, receber pelo mesmo webhook e escolher o remetente pela API: um telefone específico ou um grupo autorizado. O Wabotia não impõe um limite fixo de linhas. QR e transporte Hermes continuam separados.
+O roteador permite importar telefones WhatsApp conectados à mesma integração Zernio, receber pelo mesmo webhook e escolher o remetente pela API: um telefone específico ou um grupo autorizado. O Vinki não impõe um limite fixo de linhas. QR e transporte Hermes continuam separados.
 
 ## Mensagens entregues e janela de atendimento
 
-O Wabotia não configura limites locais de mensagens. O painel acompanha mensagens entregues no mês, separadas por categoria. Consulte a [cobrança de WhatsApp pela Zernio](https://docs.zernio.com/platforms/whatsapp/pricing) para as condições do provedor; os totais não estimam preços.
+O Vinki não configura limites locais de mensagens. O painel acompanha mensagens entregues no mês, separadas por categoria. Consulte a [cobrança de WhatsApp pela Zernio](https://docs.zernio.com/platforms/whatsapp/pricing) para as condições do provedor; os totais não estimam preços.
 
 - **Atendimento:** cada nova mensagem recebida do cliente renova a janela até 24 horas após o horário dessa mensagem, no mesmo telefone. O painel mostra a última mensagem do cliente e o vencimento. Recibos, respostas da equipe e templates enviados não renovam a janela. Eventos antigos não fazem o relógio voltar; horários inválidos não abrem uma janela artificial.
 - **Remetente fixo:** depois da primeira escolha, o atendimento permanece no telefone original. Pausa, falha ou perda de permissão não provocam envio por outro remetente.
@@ -14,7 +14,7 @@ O Wabotia não configura limites locais de mensagens. O painel acompanha mensage
 
 Os antigos campos de limite, uso inicial e `policy.service_overage` deixam de afetar os envios. O histórico é preservado. A rota antiga de alteração de limite retorna `410 number_limit_removed`.
 
-O campo legado `free_only: true` passa a significar somente que o pedido não pode usar template; não garante gratuidade nem exige saldo local. Aplicações pareadas como **Vinki** mantêm essa restrição a templates, inclusive nos envios diretos. Permissões, consentimento, autorização individual para templates e a janela real continuam sendo conferidos antes do envio.
+O campo legado `free_only: true` passa a significar somente que o pedido não pode usar template; não garante gratuidade nem exige saldo local. Aplicações pareadas como **Vinki V4** mantêm essa restrição a templates, inclusive nos envios diretos. Permissões, consentimento, autorização individual para templates e a janela real continuam sendo conferidos antes do envio.
 
 ## 1. Prepare a integração Zernio
 
@@ -22,13 +22,13 @@ Siga o [guia WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). Em **Integração Zernio
 
 ## 2. Configure o webhook na Zernio
 
-Copie a URL exibida, terminada em /webhooks/zernio-accounts/ID_DA_CONTA. Cadastre-a nos webhooks da Zernio, com o mesmo segredo de assinatura, e habilite os eventos de recebimento, envio, entrega, leitura e falha. A assinatura é verificada pelo Wabotia.
+Copie a URL exibida, terminada em /webhooks/zernio-accounts/ID_DA_CONTA. Cadastre-a nos webhooks da Zernio, com o mesmo segredo de assinatura, e habilite os eventos de recebimento, envio, entrega, leitura e falha. A assinatura é verificada pelo Vinki.
 
 ## 3. Adicione os telefones
 
 1. Clique **Buscar telefones na Zernio**. A busca apenas consulta a integração.
 2. Escolha um telefone encontrado e dê um nome fácil de reconhecer.
-3. Clique **Adicionar telefone ao Wabotia**. Não é necessário informar uso anterior ou limite de mensagens.
+3. Clique **Adicionar telefone ao Vinki**. Não é necessário informar uso anterior ou limite de mensagens.
 4. Os telefones entram pausados. Confira o webhook e clique **Ativar** na lista de uso. A área de atendimento também precisa estar pronta para o atendimento normal.
 
 Para telefones de uma integração Meta anterior, resolva operações em andamento ou sem confirmação e exclua a linha antiga antes de importar pela Zernio. O histórico anterior é preservado separado da nova conexão.
@@ -37,7 +37,7 @@ Para telefones de uma integração Meta anterior, resolva operações em andamen
 
 As categorias são **Atendimento na janela de 24 horas** (sem template), **Atendimento por template** (UTILITY) e **Marketing por template**. Autenticação e mensagens cuja categoria não pôde ser identificada aparecem separadamente quando houver uso. A categoria do template é a aprovada na Zernio: um template UTILITY sem cobrança continua na categoria de template.
 
-O mês usa o fuso da integração e a primeira confirmação conhecida de entrega/leitura, desde a data de início do acompanhamento. Recibos atrasados podem corrigir o mês; recibos repetidos não somam novamente. Envios feitos fora do Wabotia só aparecem se seus recibos chegarem ao webhook. O painel informa o início do acompanhamento e não recupera automaticamente meses anteriores na Zernio.
+O mês usa o fuso da integração e a primeira confirmação conhecida de entrega/leitura, desde a data de início do acompanhamento. Recibos atrasados podem corrigir o mês; recibos repetidos não somam novamente. Envios feitos fora do Vinki só aparecem se seus recibos chegarem ao webhook. O painel informa o início do acompanhamento e não recupera automaticamente meses anteriores na Zernio.
 
 Em cada telefone, abra **Templates da Zernio** para consultar nome, texto, idioma, categoria e status dos templates já cadastrados. A busca não cria nem envia mensagens. A aprovação e a gestão dos templates continuam na Zernio. Somente templates aprovados podem ser enviados, respeitando as permissões e o consentimento.
 
@@ -46,7 +46,7 @@ Em cada telefone, abra **Templates da Zernio** para consultar nome, texto, idiom
 Na etapa **Telefones**, cada cartão em **Seus telefones e consumo** tem **Função e permissões**:
 
 1. Abra **Função e permissões** no telefone desejado.
-2. Escolha **Atendimento oficial** para seu telefone de contato permanente, ou **Integração com janela de 24 horas (Vinki)** para uma linha utilizada por sistemas externos.
+2. Escolha **Atendimento oficial** para seu telefone de contato permanente, ou **Integração com janela de 24 horas (Vinki V4)** para uma linha utilizada por sistemas externos.
 3. Confira as opções individuais. Alterá-las muda a função para **Personalizado**.
 4. Clique **Salvar função e permissões** e aguarde a confirmação. Salvar não ativa o canal nem a automação da área de atendimento.
 
@@ -70,7 +70,7 @@ Uma permissão de grupo ou de aplicação nunca libera o que o telefone bloqueou
 
 **Contadores:** os totais representam mensagens entregues, não clientes ou atendimentos. Confirmação, chamada da senha e lembrete entregues somam três mensagens, mesmo na mesma janela.
 
-**Exemplos além do Vinki:** retirada de pedidos em restaurantes/lojas, check-in e chamada de recepção, estacionamento/valet e solicitações de documentos no ERP. O cliente abre o link e envia a mensagem; as respostas retornam pelo mesmo telefone durante a janela. Para documentos e dados pessoais, valide a identidade e as permissões no sistema de origem antes de entregar. Lembretes para dias seguintes precisam de template autorizado ou de nova mensagem do cliente.
+**Exemplos além do Vinki V4:** retirada de pedidos em restaurantes/lojas, check-in e chamada de recepção, estacionamento/valet e solicitações de documentos no ERP. O cliente abre o link e envia a mensagem; as respostas retornam pelo mesmo telefone durante a janela. Para documentos e dados pessoais, valide a identidade e as permissões no sistema de origem antes de entregar. Lembretes para dias seguintes precisam de template autorizado ou de nova mensagem do cliente.
 
 ## 4. Crie um grupo
 

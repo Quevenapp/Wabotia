@@ -1528,8 +1528,9 @@ td.table-actions > .card-actions {
   );
   color: var(--on-avatar);
 }
-.brand-mark-dot {
-  fill: var(--brand-gradient-end);
+.logo-word {
+  display: block;
+  flex: none;
 }
 .logo {
   display: inline-flex;

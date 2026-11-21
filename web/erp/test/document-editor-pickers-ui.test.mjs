@@ -201,7 +201,7 @@ function pickerController({rows={},positions=null,role='vendas'}={}){
 }
 const keyEnter=(view)=>{let prevented=false;view.find(n=>n.type==='input').props.onKeyDown({key:'Enter',preventDefault(){prevented=true;}});return prevented;};
 async function type(view,value){view.find(n=>n.type==='input').props.onChange({target:{value}});await view.flush();}
-// Wabotia: as opções são lidas quando o seletor é aberto (foco na busca), não na montagem.
+// Vinki: as opções são lidas quando o seletor é aberto (foco na busca), não na montagem.
 async function open(view){view.find(n=>n.type==='input').props.onFocus();await view.flush();}
 
 test('Enter in the item field never submits the document: exact code or GTIN adds, everything else explains',async()=>{
@@ -256,7 +256,7 @@ test('product options show the depósito stock, keep “sem lançamentos” apar
  try{await open(moved);await wait(300);await moved.flush();assert.doesNotMatch(moved.text(),/Estoque: 12,5/);}finally{moved.unmount();}
 });
 
-test('Wabotia: pickers read nothing on mount; opening reads at once, typing waits 250 ms, a barcode Enter and re-enabling do not reread',async()=>{
+test('Vinki: pickers read nothing on mount; opening reads at once, typing waits 250 ms, a barcode Enter and re-enabling do not reread',async()=>{
  const code='7890000000017',p=pickerController({rows:{list:[productRow(productIds[0],{code:'A1'})],[code]:[productRow(productIds[1],{gtin:code})]},positions:new AccessError(403)}),added=[];
  const defaults=()=>p.calls.filter(path=>path==='/v1/cadastros/products?limit=25&active=true'||path===`/v1/posicoes-estoque?active=true&warehouse_id=${warehouse}&limit=25`).length;
  const view=await mountComponent('DocumentCatalogPicker.tsx',{controller:p.controller,entity:'products',label:'Adicionar produto do cadastro',stockWarehouse:warehouse,onSelect(){},onCode:row=>{added.push(row.id);return 'incluído';}},{componentName:'CatalogPicker'});

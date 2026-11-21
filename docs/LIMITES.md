@@ -1,8 +1,8 @@
 # Limites do Cloudflare: consultas ao D1 e CPU
 
-O Wabotia roda em Workers com D1 e um Durable Object por área (Coordinator).
+O Vinki roda em Workers com D1 e um Durable Object por área (Coordinator).
 
-**O plano pago do Workers (Workers Paid) é exigido** para rodar o Wabotia,
+**O plano pago do Workers (Workers Paid) é exigido** para rodar o Vinki,
 desde a versão seguinte à 0.20.0 (decisão de 16/11/2026). O plano gratuito
 não é suportado: o alarme de cada área e a conclusão do carrinho passam de 50
 consultas ao D1 por invocação, e a invocação que passa do limite para no meio,
@@ -255,7 +255,7 @@ O que reduz o custo:
   - A análise pode levar até 15 minutos depois da implantação. 1% das requisições fica sem encaminhamento, como base de comparação.
   - Estados da análise: `SUCCESS`, `INSUFFICIENT_INVOCATIONS` e `UNSUPPORTED_APPLICATION` (ficou mais lento e voltou atrás).
 - **Explícito:** `"placement": { "region": "aws:us-east-1" }`, que exclui o `mode`. Põe o Worker perto de uma região de nuvem, sem depender de tráfego.
-  - Serve para recurso de endereço único. O D1 e os objetos do Wabotia estão num lugar só, o leste da América do Norte.
+  - Serve para recurso de endereço único. O D1 e os objetos do Vinki estão num lugar só, o leste da América do Norte.
   - Para instalação pequena, com pouco tráfego e quase todo do Brasil, é o candidato mais seguro: o modo automático pode ficar em `INSUFFICIENT_INVOCATIONS`.
 - **Como conferir:** o cabeçalho `cf-placement` (`remote-IAD`: encaminhado; `local-GRU`: sem encaminhar) e o estado em `GET /accounts/:conta/workers/services/:worker`.
 
@@ -265,7 +265,7 @@ O que reduz o custo:
 - **WebSocket** (painel ao vivo, aparelhos): a documentação não trata. Hoje a conexão vai da borda ao objeto nos EUA; com o Worker encaminhado, passa pela borda, pelo Worker perto do objeto e pelo objeto. A distância é a mesma. É ponto de conferência no ensaio.
 - **Chamadas de saída** (Zernio, Meta, Mercado Pago, Hermes): passam a sair dos EUA. As APIs da Meta e da Zernio também estão lá, então tende a melhorar. Nenhuma depende do país de origem da chamada.
 - **Webhooks de entrada** (Meta, Zernio, Mercado Pago): já chegam de servidores nos EUA, e o Worker os atende onde chegam. Com o modo automático, não deveria haver ida a mais; o prazo de resposta não muda. Conferir no ensaio.
-- **Métodos RPC e Worker sem fetch:** não são afetados. O Wabotia só usa o fetch.
+- **Métodos RPC e Worker sem fetch:** não são afetados. O Vinki só usa o fetch.
 
 **Instalador e atualizador** (núcleo, `src/release.ts` no `feat/pacote-v2`; nada editado aqui):
 - `workerUploadV2` já copia `placement` dos ajustes instalados para os metadados do upload (lista `observability`, `limits`, `logpush`, `placement`…). Uma vez ligado (painel da Cloudflare, ou uma chamada à API), o posicionamento **sobrevive às atualizações**.

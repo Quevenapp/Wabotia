@@ -56,7 +56,7 @@ const quantity = (value: string | null | undefined) => typeof value === 'string'
 // Exact comparison at the larger scale of both texts (a Origin balance may carry up to 12 decimals).
 const decimalLess = (a: string, b: string) => { const digits = Math.max(...[a, b].map(v => v.split('.')[1]?.length ?? 0)); const scale = (v: string) => { const [w, f = ''] = v.replace('-', '').split('.'); return (v.startsWith('-') ? -1n : 1n) * BigInt(w + f.padEnd(digits, '0')); }; return scale(a) <= scale(b); };
 const noSubscribe = () => () => undefined;
-// Wabotia: fora de Produtos (Contatos, Depósitos) a porta fica desligada, como em RealFinance: nada de ler cadastros.produtos.
+// Vinki: fora de Produtos (Contatos, Depósitos) a porta fica desligada, como em RealFinance: nada de ler cadastros.produtos.
 const LIST_PREFERENCES_IDLE = { phase: 'loading' } as unknown as AccessState;
 const LIST_PREFERENCES_OFF: ListPreferencesPort = { getSnapshot: () => LIST_PREFERENCES_IDLE, subscribe: noSubscribe, listPreferences: async () => { throw new Error('LIST_PREFERENCES_UNAVAILABLE'); } };
 
@@ -74,10 +74,10 @@ function StockView({ item, balances, error, onClose }: { item: CatalogListItem; 
 /** Product row state. Called on every render of the catalog, whatever the entity, so the hook order never changes. */
 export function useProductList(list: CatalogList) {
   const { controller } = list;
-  // Wabotia: o contador da sacola sai depois da primeira página (ou da falha dela), sem disputar o primeiro salto da lista.
+  // Vinki: o contador da sacola sai depois da primeira página (ou da falha dela), sem disputar o primeiro salto da lista.
   const [bagReady, setBagReady] = useState(false);
   if (!bagReady && list.entity === 'products' && !list.loading) setBagReady(true);
-  // Wabotia: sem os documentos no motor (web/erp/motor.ts), a sacola de vendas não é lida e não aparece.
+  // Vinki: sem os documentos no motor (web/erp/motor.ts), a sacola de vendas não é lida e não aparece.
   const salesBag = useSalesBag(controller, list.entity === 'products' && bagReady && !pendingInMotor('/documentos-empresa')), navigateTo = useNavigate();
   const generateFromBag = () => { salesBag.setOpen(false); navigateTo('/documentos-empresa?tipo=sales_orders&acao=sacola'); };
   const [priceEdit, setPriceEdit] = useState<PriceEdit | null>(null);
@@ -108,7 +108,7 @@ export function useProductList(list: CatalogList) {
   useEffect(() => () => { stockRequest.current?.abort(); priceRequest.current?.abort(); batchRequest.current?.abort(); }, [controller]);
   const isProducts = list.entity === 'products';
   const stockVisible = isProducts && stockAccess && blockEnabled('erp-estoque');
-  // Wabotia: os depósitos só servem ao seletor "Depósito" do filtro de Estoque e ao nome do depósito filtrado; lidos no primeiro uso.
+  // Vinki: os depósitos só servem ao seletor "Depósito" do filtro de Estoque e ao nome do depósito filtrado; lidos no primeiro uso.
   const [warehousesWanted, setWarehousesWanted] = useState(false);
   if (!warehousesWanted && stockVisible && Boolean(list.productFilterDraft.stock || list.productFilters.warehouse_id)) setWarehousesWanted(true);
   useEffect(() => {
@@ -136,7 +136,7 @@ export function useProductList(list: CatalogList) {
   const defaultsFor = useRef<string | null>(null);
   useEffect(() => {
     const snapshot = controller.getSnapshot(), actor = snapshot.membership?.user_id ?? null;
-    // Wabotia: a primeira página espera as preferências (CatalogList), lidas em paralelo com as permissões; chegando (ou sem
+    // Vinki: a primeira página espera as preferências (CatalogList), lidas em paralelo com as permissões; chegando (ou sem
     // sessão para lê-las) a espera acaba no mesmo render dos filtros padrão, e a lista sai uma vez só, já filtrada.
     if (isProducts && prefs.loading && actor && snapshot.phase === 'ready') return;
     list.setPrefsHold(false);
@@ -275,7 +275,7 @@ export function useProductList(list: CatalogList) {
 export type ProductListState = ReturnType<typeof useProductList>;
 
 /** Marcadores: o cubo de estoque do Origin (verde normal, amarelo no mínimo, vermelho vazio/negativo, cinza com ✕ excluído). */
-// Wabotia: o cubo lê só o estoque nativo; o saldo observado no Origin (202610220008) saiu: Origin fora (motor 91213b8).
+// Vinki: o cubo lê só o estoque nativo; o saldo observado no Origin (202610220008) saiu: Origin fora (motor 91213b8).
 function StockCube({ item, visible }: { item: CatalogListItem; visible: boolean }) {
   if (item.deleted === true) return <span className="catalog-cube is-deleted" title="Item Excluído"><Icon name="cube" size={14} /></span>;
   const current = visible && item.stock?.state === 'recorded' ? quantity(item.stock.quantity) : null;
@@ -346,7 +346,7 @@ export function productListView(list: CatalogList, product: ProductListState): C
     // 234: the total leaves out the warehouses with "Desconsiderar saldo deste depósito", as the stock screens do.
     if (id === 'stock') {
       const byWarehouse = Boolean(productFilters.warehouse_id), nativeTitle = byWarehouse ? `Depósito: ${warehouseName(productFilters.warehouse_id)}` : 'Soma dos depósitos, sem os que têm “Desconsiderar saldo deste depósito”';
-      // Wabotia: só o estoque nativo; as duas linhas Origin/FAGOO (202610220008) saíram: Origin fora (motor 91213b8).
+      // Vinki: só o estoque nativo; as duas linhas Origin/FAGOO (202610220008) saíram: Origin fora (motor 91213b8).
       const stock = stockCell(item.stock, byWarehouse); return <td key={id} className={`numeric catalog-stock${stock.state ? ` is-${stock.state}` : ''}`} title={nativeTitle}>{stock.text}</td>;
     }
     if (id === 'stock_min' || id === 'stock_max') return <td key={id} className="numeric">{quantity(item[id] as string) ? quantityText(item[id] as string) : '—'}</td>;

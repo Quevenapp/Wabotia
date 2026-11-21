@@ -1,5 +1,5 @@
 /** Fatia D, a parte do contrato que roda no Worker: o contrato de manutenção é
- * do módulo Ordem de Serviço do Wabotia (banco do núcleo, Coordinator da área),
+ * do módulo Ordem de Serviço do Vinki (banco do núcleo, Coordinator da área),
  * fora do objeto do ERP. Aqui só se lê a prévia conferida no ERP, se confere o
  * módulo e se chama o comando do próprio módulo (os.contract.create, sem mudar
  * as regras dele), com a cobrança recorrente desligada; o vínculo volta ao ERP.

@@ -1,4 +1,4 @@
-// erp_catalog_contact_timeline (Wabotia, linha do tempo da ficha do cliente,
+// erp_catalog_contact_timeline (Vinki, linha do tempo da ficha do cliente,
 // src/customer/timeline.ts): uma fonte por chamada, paginada por (data, chave)
 // com o corte aplicado antes do limite.
 //   p_source 'sales':    pedidos de venda nativos do contato (sem o teto de 10

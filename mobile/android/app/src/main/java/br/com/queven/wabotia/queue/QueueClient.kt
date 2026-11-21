@@ -20,7 +20,7 @@ import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-/** Recusa do Wabotia na fila, com o código do contrato (`queue_empty`, `kiosk_rate`, `invalid_transition`…). */
+/** Recusa do Vinki na fila, com o código do contrato (`queue_empty`, `kiosk_rate`, `invalid_transition`…). */
 class QueueException(val status: Int, val code: String, message: String) : Exception(message) {
     /** Falha de rede ou servidor fora do ar: repetir com a mesma `Idempotency-Key` é seguro. */
     val retryable: Boolean get() = status == 0 || status == 408 || status >= 500 || code == "operation_unknown"
@@ -58,7 +58,7 @@ fun normalizeBaseUrl(value: String): String {
 /**
  * O cliente da fila de uma área (`/api/v1/profiles/{p}/queue`). O token vem de quem usa: o do aparelho pareado
  * (`wab_…`) ou o da pessoa logada (`wabu_…`). Toda escrita leva `Idempotency-Key`; quem repete depois de uma queda de
- * rede passa a mesma chave e o Wabotia devolve a mesma resposta (nunca duas senhas, nunca duas chamadas).
+ * rede passa a mesma chave e o Vinki devolve a mesma resposta (nunca duas senhas, nunca duas chamadas).
  */
 class QueueClient(
     baseUrl: String,
@@ -208,7 +208,7 @@ internal fun <T> execute(http: OkHttpClient, request: Request, parse: (String) -
     val response = try {
         http.newCall(request).execute()
     } catch (e: IOException) {
-        throw QueueException(0, QueueException.NETWORK, "Sem conexão com o Wabotia.")
+        throw QueueException(0, QueueException.NETWORK, "Sem conexão com o Vinki.")
     }
     response.use {
         val text = it.body?.string().orEmpty()
@@ -220,14 +220,14 @@ internal fun <T> execute(http: OkHttpClient, request: Request, parse: (String) -
                 error?.get("message")?.jsonPrimitive?.contentOrNull ?: when (it.code) {
                     401 -> "A credencial não vale mais. Conecte de novo."
                     403 -> "Sem permissão para esta ação na fila."
-                    else -> "O Wabotia recusou (${it.code})."
+                    else -> "O Vinki recusou (${it.code})."
                 },
             )
         }
         return try {
             parse(text)
         } catch (e: Exception) {
-            throw QueueException(it.code, "invalid_response", "Resposta inesperada do Wabotia.")
+            throw QueueException(it.code, "invalid_response", "Resposta inesperada do Vinki.")
         }
     }
 }

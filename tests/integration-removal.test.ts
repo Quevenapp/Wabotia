@@ -102,7 +102,7 @@ async function pool(f: Fixture) {
 }
 
 it.each(["meta", "zernio"] as const)(
-  "exclui a integração %s vazia e suas credenciais somente no Wabotia",
+  "exclui a integração %s vazia e suas credenciais somente no Vinki",
   async (provider) => {
     const f = await fixture(provider),
       other = await fixture();

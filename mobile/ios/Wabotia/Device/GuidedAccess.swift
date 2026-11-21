@@ -27,7 +27,7 @@ final class GuidedAccessStatus: ObservableObject {
         enabled = UIAccessibility.isGuidedAccessEnabled
         if !enabled { startedByApp = false }
         #if DEBUG
-        print("[Wabotia] aparelho: Acesso Guiado \(enabled ? "ligado" : "desligado")")
+        print("[Vinki] aparelho: Acesso Guiado \(enabled ? "ligado" : "desligado")")
         #endif
     }
 
@@ -39,7 +39,7 @@ final class GuidedAccessStatus: ObservableObject {
                 if ok { self?.startedByApp = true }
                 self?.update()
                 #if DEBUG
-                print("[Wabotia] aparelho: trava pelo app (Modo de App Único) \(ok ? "aceita" : "não autorizada neste aparelho")")
+                print("[Vinki] aparelho: trava pelo app (Modo de App Único) \(ok ? "aceita" : "não autorizada neste aparelho")")
                 #endif
             }
         }

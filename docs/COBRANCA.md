@@ -4,7 +4,7 @@ A equipe e os módulos cobram o cliente pela própria conversa do WhatsApp. O
 cliente recebe um botão de pagamento (linha oficial) ou o link no texto
 (linha QR) e, no Pix, também o código **copia e cola** numa mensagem
 separada. A confirmação vem **só do provedor**: o webhook assinado chega, o
-Wabotia consulta o pagamento na API e só então marca como pago. Uma mensagem
+Vinki consulta o pagamento na API e só então marca como pago. Uma mensagem
 do cliente ("já paguei", comprovante) nunca muda o estado.
 
 Primeiro provedor: **Mercado Pago**. O código fica atrás de uma interface
@@ -19,16 +19,16 @@ Feito uma vez por área de atendimento, por um administrador.
    uma existente).
 2. Na aplicação, abra **Credenciais de produção** e copie o **Access Token**
    (começa com `APP_USR-`).
-3. No Wabotia, abra **Gestão → Automação → Cobrança**, cole o Access Token,
+3. No Vinki, abra **Gestão → Automação → Cobrança**, cole o Access Token,
    informe o **e-mail do pagador** (o Pix do Mercado Pago exige um e-mail;
-   vale o do contato quando ele tem) e salve. O Wabotia mostra o **endereço
+   vale o do contato quando ele tem) e salve. O Vinki mostra o **endereço
    do webhook** desta área.
 4. No Mercado Pago, abra **Webhooks → Configurar notificações**, escolha o
    **modo produtivo**, cole o endereço do webhook e marque o evento
    **Pagamentos**. Salve.
 5. O Mercado Pago gera a **assinatura secreta** do webhook. Copie e cole no
-   campo **Assinatura secreta do webhook** do Wabotia e salve de novo.
-6. Use **Testar credenciais**: o Wabotia consulta a conta e mostra o nome
+   campo **Assinatura secreta do webhook** do Vinki e salve de novo.
+6. Use **Testar credenciais**: o Vinki consulta a conta e mostra o nome
    dela. Sem a assinatura secreta, nenhum pagamento é confirmado.
 
 O Access Token e a assinatura ficam cifrados com a `MASTER_KEY`, como as
@@ -80,7 +80,7 @@ mensagem só pelo modelo de notificação: link e, no Pix, o código.
 | Link | Botão "Pagar agora" para o checkout (cartão, Pix e outros meios) | Preferência do Checkout Pro (`POST /checkout/preferences`) |
 
 Validade: de 30 minutos a 30 dias, padrão 24 horas. Vencida, a cobrança
-expira no Wabotia e é cancelada no provedor.
+expira no Vinki e é cancelada no provedor.
 
 Cancelar pelo painel ou pela API (`POST …/payments/{id}/cancel`): quem vê a
 conversa cancela as cobranças avulsas. As abertas por um módulo (sinal da
@@ -99,7 +99,7 @@ cancelar no fluxo dele.
 | `refunded` | Estornada ou contestada (`refunded`, `charged_back`) depois de paga |
 
 Dinheiro confirmado vence: se o pagamento for aprovado depois de expirar ou de
-cancelado no Wabotia, a cobrança passa a `paid`. Cada mudança publica
+cancelado no Vinki, a cobrança passa a `paid`. Cada mudança publica
 `payment.created`, `payment.paid`, `payment.expired`, `payment.cancelled` ou
 `payment.refunded` (com `conversation_id`), registra uma nota interna na
 conversa e, ao pagar, envia "Pagamento recebido" ao cliente (pelo modelo de
@@ -119,14 +119,14 @@ notificação se a janela de 24 horas estiver fechada).
 1. O Mercado Pago chama `POST /webhooks/payments/mercadopago/{conta}` com
    `?data.id=<pagamento>&type=payment` e os cabeçalhos `x-signature`
    (`ts=…,v1=…`) e `x-request-id`.
-2. O Wabotia monta `id:<data.id em minúsculas>;request-id:<x-request-id>;ts:<ts>;`
+2. O Vinki monta `id:<data.id em minúsculas>;request-id:<x-request-id>;ts:<ts>;`
    e confere o HMAC-SHA256 com a assinatura secreta. Diferente: `401` e nada
    muda. O `ts` assinado precisa estar a até 15 minutos do relógio; o
    `data.id` vale só o da consulta (o do corpo, se vier, tem de ser igual);
    sem `data.id` na consulta, o aviso é ignorado. Cada IP tem um limite de
    avisos por minuto.
 3. Consulta `GET /v1/payments/{id}` com o Access Token, encontra a cobrança
-   pelo `external_reference` (o id da cobrança no Wabotia) e confere valor e
+   pelo `external_reference` (o id da cobrança no Vinki) e confere valor e
    moeda.
 4. Muda o estado com uma atualização condicionada: webhooks repetidos (o
    Mercado Pago reenvia até receber 200) não repetem evento nem mensagem.

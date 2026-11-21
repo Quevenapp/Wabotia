@@ -9,7 +9,7 @@ da orquestração. O código fica em `src/erp/scheduler/`.
 No Fagoo o único agendamento é um Cron Trigger `*/2` do Worker `erp-api`, e
 ele só roda o Origin. As tarefas da plataforma (`erp_platform_schedule`, com as
 notificações de hora em hora e a limpeza diária das exportações) **nunca
-disparavam**. No Wabotia elas passam a rodar no alarme do próprio objeto.
+disparavam**. No Vinki elas passam a rodar no alarme do próprio objeto.
 
 Desde a fatia [Receber dados do Bling](RECEBER-BLING.md), o mesmo alarme
 também pode executar coleta interna para acervo. O envio e os aplicadores

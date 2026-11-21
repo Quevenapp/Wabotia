@@ -199,7 +199,7 @@ export function OrderDetail({
       : actor === "provider"
         ? "Provedor de pagamento"
         : actor === "system"
-          ? "Wabotia"
+          ? "Vinki"
           : app.names[actor] || actor;
   if (!order)
     return (
@@ -487,7 +487,7 @@ export function OrderDetail({
               </Button>
             </div>
             <p className="muted">
-              O entregador lê o QR no app Wabotia (Escanear pedido). Vale uma
+              O entregador lê o QR no app Vinki (Escanear pedido). Vale uma
               leitura
               {slip.slip.expires_at
                 ? `, até ${clock(slip.slip.expires_at)}`

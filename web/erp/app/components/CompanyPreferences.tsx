@@ -16,7 +16,7 @@ import {integrationRouteState,useIntegrationHost} from '../../../modules/integra
 const BoletoBankSwitches=lazy(()=>import('./BoletoApiSettings').then(m=>({default:m.BoletoBankSwitches})));
 // Maquininha integrada ao caixa (Caixa / PDV): sob demanda, fora do núcleo do ERP.
 const TerminalPreference=lazy(()=>import('../../MaquininhaSettings').then(m=>({default:m.TerminalPreference})));
-// Wabotia: Usuários vira Permissões no ERP; pessoas e papel vêm do núcleo (decisão de 16/11).
+// Vinki: Usuários vira Permissões no ERP; pessoas e papel vêm do núcleo (decisão de 16/11).
 import ErpPermissions from '../../ErpPermissions';
 import RealActivity from './RealActivity';
 import RealFiles from './RealFiles';
@@ -58,9 +58,9 @@ export default function CompanyPreferences({controller,state}:{controller:Prefer
   // A page outside the hub (Meu Negócio > Ajustes, migration 150) returns to its own screen.
   const back=category?{label:category.label,to:`/preferencias/${category.id}`}:{label:'Meu Negócio',to:'/meu-negocio'};
   const settings=<PreferenceSettingsPage key={`${state.membership!.user_id}:${route.page.id}`} controller={controller} page={route.page} section={route.section} categoryLabel={back.label} categoryTo={back.to}/>;
-  // Wabotia (comercial): a baixa automática das contas pagas por Pix ou link da Cobrança, na página Contas a receber.
-  // Wabotia (boleto-api): os interruptores dos bancos de boleto por API, na mesma página.
-  // Wabotia (maquininha): a maquininha integrada ao caixa, na página Frente de caixa.
+  // Vinki (comercial): a baixa automática das contas pagas por Pix ou link da Cobrança, na página Contas a receber.
+  // Vinki (boleto-api): os interruptores dos bancos de boleto por API, na mesma página.
+  // Vinki (maquininha): a maquininha integrada ao caixa, na página Frente de caixa.
   if(route.page.id==='vendas-frente-caixa')return <>{settings}<Suspense fallback={null}><TerminalPreference/></Suspense></>;
   return route.page.id==='financas-receber'?<>{settings}<ChargeAutoSettlePreference/><Suspense fallback={null}><BoletoBankSwitches/></Suspense></>:settings;}
  if(route.kind==='screen')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Início</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/sistema">Sistema</Link> › <span aria-current="page">{SYSTEM_SCREENS[route.screen]}</span></nav>

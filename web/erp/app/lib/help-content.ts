@@ -27,8 +27,8 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
       'As permissões gravadas em Preferências › Sistema › Usuários valem no servidor e no banco, não só na tela: uma ação recusada mostra o motivo.',
     ], links: [{ label: 'Usuários e permissões', to: '/preferencias/sistema/usuarios' }] },
   ] },
-  // Wabotia: o tópico 'convivencia' (Convivência com o Origin) saiu; a convivência com o Bling é de um componente externo (PLANO-FAGOO.md, item 17).
-  // Wabotia: sem a comparação com o Origin (item 17); a emissão com valor fiscal vai para um emissor externo, ainda não ligado.
+  // Vinki: o tópico 'convivencia' (Convivência com o Origin) saiu; a convivência com o Bling é de um componente externo (PLANO-FAGOO.md, item 17).
+  // Vinki: sem a comparação com o Origin (item 17); a emissão com valor fiscal vai para um emissor externo, ainda não ligado.
   { slug: 'notas-fiscais', title: 'Manual de notas fiscais', summary: 'As notas do ERP, a emissão por um emissor externo e as notas recebidas.', sections: [
     { title: 'As notas do ERP', paragraphs: [
       'As notas fiscais de saída, as NFC-e e as notas de entrada ficam no ERP, ligadas aos pedidos, ao estoque e ao financeiro. Você pode prepará-las a partir de um pedido, importando o XML ou à mão.',

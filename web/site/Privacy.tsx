@@ -23,14 +23,14 @@ export function Privacy() {
         <div className="eyebrow">PRIVACIDADE</div>
         <h1>Política de privacidade</h1>
         <p className="lead">
-          Vale para os aplicativos Wabotia de Android e iOS e para o site
+          Vale para os aplicativos Vinki de Android e iOS e para o site
           oficial. Atualizada em 13 de novembro de 2026.
         </p>
 
         <section className="account-setup hermes-guide">
           <h2>Quem cuida dos seus dados</h2>
           <p>
-            O Wabotia é um programa de código aberto que cada empresa instala na
+            O Vinki é um programa de código aberto que cada empresa instala na
             própria conta de nuvem. O aplicativo se conecta ao{" "}
             <strong>servidor que você informa na primeira tela</strong>, que
             pertence à empresa onde você atende. Essa empresa é a responsável
@@ -95,7 +95,7 @@ export function Privacy() {
           <h2>Notificações</h2>
           <p>
             Para avisar sobre mensagens novas, o servidor da sua empresa envia a
-            notificação ao serviço de notificações do Wabotia (
+            notificação ao serviço de notificações do Vinki (
             <code>push.wabotia.queven.app</code>), que a repassa ao Firebase
             Cloud Messaging, do Google, e ao serviço de notificações da Apple. A
             notificação leva o endereço de notificações do aparelho, um título,
@@ -125,7 +125,7 @@ export function Privacy() {
           <h2>Sua conta e seus direitos</h2>
           <p>
             As contas são criadas pelo administrador da empresa no painel do
-            Wabotia; não é possível criar conta pelo aplicativo. Para alterar ou
+            Vinki; não é possível criar conta pelo aplicativo. Para alterar ou
             excluir sua conta e os dados ligados a ela, fale com o administrador
             da empresa onde você atende. Sair da conta no aplicativo apaga as
             cópias guardadas no aparelho.

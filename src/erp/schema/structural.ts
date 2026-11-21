@@ -9,7 +9,7 @@ export interface StructuralDifference {
   /** O que existe no Fagoo. */
   oracle: string;
   reason: string;
-  /** O que faz o papel no Wabotia. */
+  /** O que faz o papel no Vinki. */
   replaced_by: string;
   /** Rotas da erp-api afetadas (para o painel), quando há. */
   routes?: string[];
@@ -26,14 +26,14 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
     id: "auth",
     oracle: "schema auth do Supabase: users, sessions, mfa_factors, mfa_challenges",
-    reason: "Login, sessão e segundo fator são do núcleo do Wabotia, não do ERP.",
+    reason: "Login, sessão e segundo fator são do núcleo do Vinki, não do ERP.",
     replaced_by:
       "Porta de identidade (src/erp/engine/identity.ts): o Worker manda o envelope com quem chama (papel erp:<papel>, sessão, aal, fator) e as pessoas da área; o motor nunca consulta o D1. Fase 3: o preenchimento a partir do núcleo.",
   },
   {
     id: "membership-papel",
     oracle: "erp_access.membership gravada pelos RPCs de usuários (convite, user_save)",
-    reason: "O papel do ERP vem do acesso por pessoa do Wabotia (erp:admin|consulta|vendas|financeiro|estoque|fiscal; o administrador do Wabotia vale erp:admin).",
+    reason: "O papel do ERP vem do acesso por pessoa do Vinki (erp:admin|consulta|vendas|financeiro|estoque|fiscal; o administrador do Vinki vale erp:admin).",
     replaced_by:
       "Projeção antes de cada RPC (src/erp/domains/access/identity.ts): membership e profile seguem o envelope; sem erp:* a pessoa fica inativa e recebe 403. A tabela continua, com o último papel, e nenhum RPC grava papel.",
   },
@@ -43,7 +43,7 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
       "erp_access_user_invite_begin, user_invite_complete, users_list_v2, user_get, user_save, user_command, user_security, mfa_reset",
     reason: "Gestão de pessoas, convite, sessões e redefinição do segundo fator são telas do núcleo (Pessoas, login e MFA).",
     replaced_by:
-      "Telas de Pessoas do Wabotia: lista de pessoas com papel erp:*, convite, sessões e fator. Ficam no ERP: permissões finas e horário (user_controls), política de MFA do ERP, portão (gate_v2), atividade. Os 8 RPCs não são registrados: a erp-api responde 0A000 (501).",
+      "Telas de Pessoas do Vinki: lista de pessoas com papel erp:*, convite, sessões e fator. Ficam no ERP: permissões finas e horário (user_controls), política de MFA do ERP, portão (gate_v2), atividade. Os 8 RPCs não são registrados: a erp-api responde 0A000 (501).",
     routes: [
       "GET /v1/usuarios",
       "GET /v1/usuarios/:user_id",
@@ -57,8 +57,8 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
     id: "agentes",
     oracle: "erp_access.agent, agent_token e erp_access_agent_resolve (token de agente do MCP do Fagoo)",
-    reason: "Integrações e agentes são aplicações do Wabotia com chave e escopo.",
-    replaced_by: "Aplicações do Wabotia com escopos erp:read e erp:write (fase 3). O /mcp do Fagoo é bloco externo (src/erp/blocks.ts).",
+    reason: "Integrações e agentes são aplicações do Vinki com chave e escopo.",
+    replaced_by: "Aplicações do Vinki com escopos erp:read e erp:write (fase 3). O /mcp do Fagoo é bloco externo (src/erp/blocks.ts).",
   },
   {
     id: "rotulo-autor",
@@ -69,14 +69,14 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
     id: "storage",
     oracle: "storage.buckets e storage.objects do Supabase (erp_attachments.storage_ready, *_finish, erp_access_storage)",
-    reason: "O armazenamento do Wabotia é o R2 (binding MEDIA).",
+    reason: "O armazenamento do Vinki é o R2 (binding MEDIA).",
     replaced_by:
       "storage_ready não lança; ctx.objects (registerRpc(…, { objects })) e ctx.listing (registerRpc(…, { listing: true })) lidos do R2 antes da transação, em erp-storage/<área>/<bucket>/<nome>.",
   },
   {
     id: "certificado-a1",
     oracle: "bucket brufap-a1-vault (202610160041_a1_custody): custódia do certificado A1 no Storage",
-    reason: "Decisão do usuário: o certificado A1 nunca fica no Wabotia, que tem bots e integrações; ele mora no cofre da NFapi, separado.",
+    reason: "Decisão do usuário: o certificado A1 nunca fica no Vinki, que tem bots e integrações; ele mora no cofre da NFapi, separado.",
     replaced_by:
       "O bucket fica fora do mapa do armazenamento (src/erp-storage.ts, ERP_BUCKETS): gravar, ler, apagar e assinar dão 404 mesmo com erp-fiscal ligado (tests/erp-storage.test.ts). A emissão usa o cofre (src/erp/emissor).",
   },
@@ -92,7 +92,7 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
     id: "sessao-token",
     oracle: "session_id e aal lidos das claims do token do Supabase pela erp-api (tokenSession) e enviados ao erp_access_gate_v2",
-    reason: "O token é o da sessão do Wabotia.",
+    reason: "O token é o da sessão do Vinki.",
     replaced_by: "aal e session_id do envelope de identidade; a costura (src/erp/api/local-fetch.ts) passa a mandá-los na fase 3.",
   },
   {
@@ -112,9 +112,9 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     id: "agendador",
     oracle:
       "Cron Trigger */2 do Worker erp-api, que só roda o Origin: erp_platform_schedule (notificações de hora em hora, limpeza diária das exportações) nunca dispara no Fagoo",
-    reason: "No Wabotia o ERP mora no objeto erp:<área>, que tem alarme próprio; o cron do Worker só acorda.",
+    reason: "No Vinki o ERP mora no objeto erp:<área>, que tem alarme próprio; o cron do Worker só acorda.",
     replaced_by:
-      "Despachante no alarme do objeto (src/erp/scheduler/, docs/ERP-AGENDADOR.md) com a tabela wb_routine (estado das rotinas: próximo horário, último resultado, falhas), do Wabotia, criada pelo migrate como a erp_meta (WB_ROUTINE_DDL), fora do DDL gerado e do backup.",
+      "Despachante no alarme do objeto (src/erp/scheduler/, docs/ERP-AGENDADOR.md) com a tabela wb_routine (estado das rotinas: próximo horário, último resultado, falhas), do Vinki, criada pelo migrate como a erp_meta (WB_ROUTINE_DDL), fora do DDL gerado e do backup.",
   },
   {
     id: "retencao-tarefas",
@@ -235,7 +235,7 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     id: "campos-contato",
     oracle: "Campos customizados só de produtos (erp_catalog.custom_field com CHECK module='products'); o contato não tem onde guardar campos próprios.",
     reason: "Cadastros: campos próprios de contato (texto, número, data, lista e sim/não), por tipo de contato, com obrigatório, coluna e filtro da lista, exportação e importação, e o campo sensível que só vai para listagens, ficha do atendimento, IA e bots quando o administrador libera.",
-    replaced_by: "Versão 20 aditiva (19→20): contact_field (definição, opções da lista, tipos de contato, sensível e liberação com quem e quando), contact_field_value (valor por contato e campo) e contact_field_audit (registro imutável das alterações, inclusive liberar e recolher campo sensível) em erp_catalog. RPCs só do motor erp_catalog_contact_field_* (domains/catalog/contact-fields.ts), na parte Cadastros; a rota do Wabotia /api/v1/profiles/:profile/erp-contato-campos (src/erp/contact-fields) atende o painel, a ficha do atendimento e os bots.",
+    replaced_by: "Versão 20 aditiva (19→20): contact_field (definição, opções da lista, tipos de contato, sensível e liberação com quem e quando), contact_field_value (valor por contato e campo) e contact_field_audit (registro imutável das alterações, inclusive liberar e recolher campo sensível) em erp_catalog. RPCs só do motor erp_catalog_contact_field_* (domains/catalog/contact-fields.ts), na parte Cadastros; a rota do Vinki /api/v1/profiles/:profile/erp-contato-campos (src/erp/contact-fields) atende o painel, a ficha do atendimento e os bots.",
   },
   {
     id: "relatorios-dre-equipe",
@@ -246,14 +246,14 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
   {
     id: "contador-pacote",
     oracle: "O espaço do contador monta no navegador um ZIP com os XML importados da competência (até mil notas por tipo, sem cartas de correção, inutilizações nem PDFs) e nada fica gravado.",
-    reason: "Para o contador: o pacote do período com os XML das notas emitidas pelo emissor do Wabotia (NF-e, NFC-e e NFS-e, com cancelamentos, cartas de correção e inutilizações), das recebidas com entrada e do acervo do Bling, os PDFs que o emissor oferece e a planilha de índice, montado aos poucos no alarme do objeto da área, com as partes no R2, para baixar pela tela ou pelo link enviado ao contador.",
+    reason: "Para o contador: o pacote do período com os XML das notas emitidas pelo emissor do Vinki (NF-e, NFC-e e NFS-e, com cancelamentos, cartas de correção e inutilizações), das recebidas com entrada e do acervo do Bling, os PDFs que o emissor oferece e a planilha de índice, montado aos poucos no alarme do objeto da área, com as partes no R2, para baixar pela tela ou pelo link enviado ao contador.",
     replaced_by: "Versão 22 aditiva (21→22): erp_contador__package (um pacote por ambiente e período, com etapa, cursor, contagens, avisos e o deslocamento do ZIP) e erp_contador__part (cada parte gravada no R2, com os arquivos e as linhas da planilha). O cadastro do contador, os envios e os links ficam no D1 (migração 0195).",
   },
   {
     id: "ordem-producao",
     oracle: "O Estoque tem composição (estrutura e kit) e lotes, mas não tem ordem de produção: transformar insumos em produto acabado era um lançamento manual de saída e outro de entrada, sem custo do acabado.",
     reason: "Produção: a ordem de produção (produto acabado, quantidade, depósitos de insumos e do acabado, data, responsável) com os insumos vindos da composição e editáveis, a conclusão total ou parcial que dá baixa dos insumos e entrada do acabado numa transação, com o custo dos insumos mais o custo adicional, o estorno pelas guardas do Estoque e o planejamento a partir dos pedidos de venda em aberto.",
-    replaced_by: "Versão 23 aditiva (22→23): erp_production__order, erp_production__order_input, erp_production__completion, erp_production__completion_input e erp_production__command. Os lançamentos são os do Estoque (erp_stock_post para a saída dos insumos, erp_stock_launch ou erp_stock_lot_launch para a entrada do acabado com o custo, erp_stock_reverse no estorno); RPCs só do motor erp_production_* (domains/production), na parte Produção; a rota do Wabotia /api/v1/profiles/:profile/erp-producao (src/erp/production) atende o painel e os bots.",
+    replaced_by: "Versão 23 aditiva (22→23): erp_production__order, erp_production__order_input, erp_production__completion, erp_production__completion_input e erp_production__command. Os lançamentos são os do Estoque (erp_stock_post para a saída dos insumos, erp_stock_launch ou erp_stock_lot_launch para a entrada do acabado com o custo, erp_stock_reverse no estorno); RPCs só do motor erp_production_* (domains/production), na parte Produção; a rota do Vinki /api/v1/profiles/:profile/erp-producao (src/erp/production) atende o painel e os bots.",
   },
   {
     id: "adotar-bling-d",

@@ -170,7 +170,7 @@ const schemas = {
       },
       reply_to: {
         type: "string",
-        description: "ID Wabotia de uma mensagem desta conversa.",
+        description: "ID Vinki de uma mensagem desta conversa.",
       },
       mentions: {
         type: "array",
@@ -1921,7 +1921,7 @@ export function openapi(origin: string) {
         servers: [{ url: origin }],
         security: [],
         description:
-          "Configure esta URL na Zernio. O id é local Wabotia. Assinatura X-Zernio-Signature: HMAC-SHA256 hexadecimal do corpo original usando webhook_secret, sem prefixo de timestamp. Não exige Bearer nem Idempotency-Key. Eventos são deduplicados pelo identificador da mensagem; accountId, plataforma e ID da integração na Zernio são conferidos antes de encaminhar. O webhook da integração atende todos os telefones importados dela.",
+          "Configure esta URL na Zernio. O id é local Vinki. Assinatura X-Zernio-Signature: HMAC-SHA256 hexadecimal do corpo original usando webhook_secret, sem prefixo de timestamp. Não exige Bearer nem Idempotency-Key. Eventos são deduplicados pelo identificador da mensagem; accountId, plataforma e ID da integração na Zernio são conferidos antes de encaminhar. O webhook da integração atende todos os telefones importados dela.",
         parameters: [
           {
             in: "path",
@@ -1964,7 +1964,7 @@ export function openapi(origin: string) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Wabotia API",
+      title: "Vinki API",
       version: "1.0.0",
       description:
         'Atendimento e bots internos. Integrações servidor-servidor cadastradas pelo administrador. Nunca exponha sua chave em JavaScript público. Webhooks são entregues ao menos uma vez; deduplique por ID. Assinatura HMAC-SHA256 sobre timestamp.corpo_original. As operações marcadas como "Aplicativos móveis" aceitam somente sessões de usuário (token wabu_, emitido por POST /api/auth/mobile/login) ou o cookie do painel; chaves de aplicação recebem 403. O login móvel é servido em /api/auth/mobile/login, fora de /api/v1.',

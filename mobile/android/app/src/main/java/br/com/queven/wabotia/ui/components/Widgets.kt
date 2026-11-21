@@ -108,7 +108,7 @@ fun BrandMark(modifier: Modifier = Modifier, size: Dp = 88.dp) {
     ) {
         Icon(
             painterResource(R.drawable.ic_brand_mark),
-            contentDescription = "Wabotia",
+            contentDescription = "Vinki",
             tint = Color.Unspecified,
             modifier = Modifier.size(size * 0.66f),
         )

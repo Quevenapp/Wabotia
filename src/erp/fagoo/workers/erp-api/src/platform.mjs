@@ -147,7 +147,7 @@ export async function executePlatformRoute(route, { userId, rpc, sign, cep = loo
   if (route.action === 'export-link') {
     const v = await call('erp_platform_export_link', { p_export_id: route.id });
     if (!object(v) || v.export_id !== route.id || v.bucket !== EXPORT_BUCKET || !/^exports\/[a-f0-9-]{36}\/[a-f0-9]{64}\.zip$/.test(v.object_key || '') || !v.object_key.startsWith(`exports/${route.id}/`)
-      // Wabotia: desvio exportacao-wabotia (src/erp/schema/deviations.ts); o Fagoo confere ^brufap-exportacao-.
+      // Vinki: desvio exportacao-wabotia (src/erp/schema/deviations.ts); o Fagoo confere ^brufap-exportacao-.
       || v.expires_in !== 120 || !/^wabotia-exportacao-[0-9-]{15}\.zip$/.test(v.filename || '') || !Number.isSafeInteger(v.size_bytes) || !/^[a-f0-9]{64}$/.test(v.sha256 || '')) bad();
     const url = await sign(v.object_key, 120, v.filename);
     return { scope: 'platform_export_link', url, expires_in: 120, filename: v.filename, size_bytes: v.size_bytes, sha256: v.sha256, data_mode: 'erp_native' };
@@ -280,7 +280,7 @@ async function runExport(task, lease, { rpc, exportStorage, attachments }) {
     if (index % 20 === 19) await rpc('erp_platform_task_progress', { ...held, p_progress: { summary: { datasets: datasets.length, rows, files } } });
   }
   const summary = { datasets: datasets.length, rows, files, files_skipped: skipped.length };
-  const manifest = { formato: 'brufap-exportacao-v1', empresa: 'dados desta instalação do ERP do Wabotia', gerado_em: new Date().toISOString(), dados_ate: plan.as_of,
+  const manifest = { formato: 'brufap-exportacao-v1', empresa: 'dados desta instalação do ERP do Vinki', gerado_em: new Date().toISOString(), dados_ate: plan.as_of,
     escopo: 'Tabelas da empresa (cadastros, documentos, finanças, estoque, notas, empresa, preferências, frente de caixa, preços, anexos, atividades, cobrança e cópia sincronizada do sistema de origem) e os arquivos anexados.',
     fora_do_pacote: plan.excluded, conjuntos: datasets, arquivos_omitidos: skipped.slice(0, 200), resumo: summary };
   await zip.add('manifesto.json', encoder.encode(JSON.stringify(manifest, null, 2)));

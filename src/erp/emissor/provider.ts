@@ -342,7 +342,7 @@ export type FiscalExportItem = "nfse" | "nfe" | "nfce" | "events" | "void_ranges
 /**
  * Exportação dos XML de um período, com planilha de resumo. Os links são
  * para o navegador do usuário abrir direto no emissor (sem chave), valem até
- * links_valid_until (cerca de 30 min) e o servidor do Wabotia nunca baixa
+ * links_valid_until (cerca de 30 min) e o servidor do Vinki nunca baixa
  * esses arquivos. Link vencido: consulte a exportação de novo (links novos).
  * A exportação some em 24 h (404 fiscal_export_not_found).
  */
@@ -589,7 +589,7 @@ export class FiscalError extends ApiError {
       retry_at: details.retry_at ?? null,
     };
   }
-  /** Corpo de resposta HTTP do Wabotia, com os detalhes. */
+  /** Corpo de resposta HTTP do Vinki, com os detalhes. */
   toJSON() {
     return { error: { code: this.code, message: this.message, ...this.details } };
   }

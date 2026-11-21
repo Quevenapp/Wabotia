@@ -15,7 +15,7 @@ const has=(v,label)=>v.nodes().some(n=>n.type==='button'&&!n.props.hidden&&v.nod
 test('115 Empresa › Geral loads once, marks every stored option honestly and saves only the changed key',async()=>{const f=createPreferencesFixture(),v=await mount(f,'empresa-geral');try{
  assert.deepEqual(f.calls.map(c=>[c.method,c.path]),[['GET','/v1/preferencias/empresa-geral']]);
  const text=v.text();for(const label of['Número de casas decimais na quantidade','Número de casas decimais no preço nas entradas','Número de casas decimais no preço nas saídas','Número de casas decimais no peso do produto','Não enviar link no envio de documentos','Permite a edição da data e hora das ocorrências','Ainda não aplicada','O ERP guarda até 6 casas decimais'])assert.ok(text.includes(label),label);
- /* Wabotia: padrão de 2 casas (desvio telas-2-casas, decisão do usuário de 16/11). */assert.equal(v.input('pref-empresa-decimais_quantidade').props.value,'2');assert.equal(v.button('Salvar').disabled,true);
+ /* Vinki: padrão de 2 casas (desvio telas-2-casas, decisão do usuário de 16/11). */assert.equal(v.input('pref-empresa-decimais_quantidade').props.value,'2');assert.equal(v.button('Salvar').disabled,true);
  await v.change('pref-empresa-decimais_quantidade','4');assert.equal(v.guard().changed,true);assert.equal(v.button('Salvar').disabled,false);
  await v.click('Salvar');assert.equal(posts(f).length,1);const body=posts(f)[0].body;
  assert.deepEqual(Object.keys(body).sort(),['changes','command_id']);assert.deepEqual(body.changes,[{key:'empresa.decimais_quantidade',expected_version:0,value:4}]);
@@ -44,7 +44,7 @@ test('115 only an authoritative 404 on the command enables resending the very sa
 }finally{v.unmount();}});
 
 test('115 a definite refusal releases the command and keeps the edits in the form',async()=>{const f=createPreferencesFixture({before(c){if(c.method==='POST')throw new AccessError(409);}}),v=await mount(f,'empresa-geral');try{
- /* Wabotia: 2 já é o padrão; 3 é uma alteração. */await v.change('pref-empresa-decimais_preco_saida','3');await v.click('Salvar');assert.match(v.text(),/As preferências mudaram desde a consulta. Nada foi salvo/);
+ /* Vinki: 2 já é o padrão; 3 é uma alteração. */await v.change('pref-empresa-decimais_preco_saida','3');await v.click('Salvar');assert.match(v.text(),/As preferências mudaram desde a consulta. Nada foi salvo/);
  assert.equal(v.nodes().some(n=>n.type==='button'&&n.props.children==='Conferir resultado'),false);assert.equal(v.input('pref-empresa-decimais_preco_saida').props.value,'3');assert.equal(v.guard().busy,false);assert.equal(v.guard().changed,true);
 }finally{v.unmount();}});
 
@@ -85,7 +85,7 @@ test('115 a late answer for a previous user never fills the page',async()=>{cons
  assert.match(v.text(),/Preferência não liberada/);assert.equal(v.nodes().some(n=>n.props.id==='pref-empresa-decimais_quantidade'),false);
 }finally{v.unmount();}});
 
-// Wabotia: o tema segue o painel; salvar "tema escuro" no ERP grava a preferência, mas não troca o tema do navegador.
+// Vinki: o tema segue o painel; salvar "tema escuro" no ERP grava a preferência, mas não troca o tema do navegador.
 test('115 Sistema › Interface is personal: any role saves its own theme and it is applied in this browser',async()=>{globalThis.document.documentElement.dataset.theme='light';const f=createPreferencesFixture({role:'estoque'}),v=await mount(f,'sistema-interface');try{
  assert.match(v.text(),/valem somente para o seu usuário/);await v.change('pref-sistema-tema_escuro',true);await v.click('Salvar');
  assert.deepEqual(posts(f)[0].body.changes,[{key:'sistema.tema_escuro',expected_version:0,value:true}]);assert.equal(globalThis.document.documentElement.dataset.theme,'light');
@@ -130,7 +130,7 @@ test('115 hub: every page has a Origin category and an address; disabled items c
 test('115 opening Sistema › Interface never flips the theme of this browser until the user saved one',async()=>{
  globalThis.document.documentElement.dataset.theme='dark';
  const f=createPreferencesFixture(),v=await mount(f,'sistema-interface');try{assert.equal(v.input('pref-sistema-tema_escuro').props.checked,false);assert.equal(globalThis.document.documentElement.dataset.theme,'dark');}finally{v.unmount();}
- const g=createPreferencesFixture();g.set('sistema.tema_escuro',false);const w=await mount(g,'sistema-interface');try{/* Wabotia: o valor salvo no ERP não troca o tema do painel. */assert.equal(globalThis.document.documentElement.dataset.theme,'dark');}finally{w.unmount();}
+ const g=createPreferencesFixture();g.set('sistema.tema_escuro',false);const w=await mount(g,'sistema-interface');try{/* Vinki: o valor salvo no ERP não troca o tema do painel. */assert.equal(globalThis.document.documentElement.dataset.theme,'dark');}finally{w.unmount();}
 });
 
 test('115 a marked user who lost access can be unmarked from the users field',async()=>{

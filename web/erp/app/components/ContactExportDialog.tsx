@@ -12,7 +12,7 @@ import { contactFieldSheetColumns, contactFieldValuesFor, contactFieldsAvailable
 // Painel "Exportar para a planilha" (Origin CL-18): Formato CSV | XLS, Tipo dos campos Padrão | Customizado | Ambos e os
 // avisos do Origin. Os campos customizados ainda não existem no Brufap, então só "Padrão" fica disponível. A planilha
 // usa o mesmo cabeçalho do modelo de importação e é montada no navegador; nada é enviado.
-// Wabotia: "Customizado" e "Ambos" levam os campos próprios de contato (uma coluna com o nome de cada campo; campo sensível só
+// Vinki: "Customizado" e "Ambos" levam os campos próprios de contato (uma coluna com o nome de cada campo; campo sensível só
 // depois de liberado pelo administrador). Com filtro de campo próprio na lista, só os contatos que passam por ele.
 export function ContactExportDialog({ controller, state, types, total, fieldFilters = [], onClose }: { controller: AccessController; state: Omit<ContactListState, 'page'>; types: readonly ContactTypeItem[]; total: number; fieldFilters?: readonly ContactFieldFilter[]; onClose: () => void }) {
   const [format, setFormat] = useState<'csv' | 'xls'>('csv'), [busy, setBusy] = useState(false), [progress, setProgress] = useState(''), [error, setError] = useState(''), [done, setDone] = useState('');

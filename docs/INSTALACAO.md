@@ -1,18 +1,18 @@
-# Instalar o Wabotia, passo a passo
+# Instalar o Vinki, passo a passo
 
-Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Wabotia para instalar em VPS e não é necessário Supabase.
+Este guia instala o painel na **sua conta Cloudflare**. O computador só precisa ficar ligado se nele estiverem Hermes, o túnel ou o conector QR. Não há servidor Vinki para instalar em VPS e não é necessário Supabase.
 
 O [guia online](https://wabotia.queven.app/install) reúne o fluxo atual de instalação e conexão pela Zernio. PDFs de versões anteriores são apenas referência histórica. Valide os seus canais antes de atender clientes, conforme [VALIDACAO.md](VALIDACAO.md).
 
 Para conectar o WhatsApp oficial, siga [WhatsApp pela Zernio](ZERNIO-WHATSAPP.md). A Zernio intermedeia a Meta usando API key, Profile ID e webhook.
 
-Já instalou? Use [Atualizar Wabotia pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
+Já instalou? Use [Atualizar Vinki pelo painel](ATUALIZACOES.md). Para preparar o acesso ao Hermes, veja o [deploy da configuração Cloudflare pelo painel](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel): ele cria Access, túnel e DNS após a preparação das APIs locais.
 
 ## Antes de começar: instale o Node.js e o npm
 
-**Node.js executa o instalador do Wabotia; npm vem junto e baixa as ferramentas necessárias.** Você pode fazer a instalação a partir do seu computador ou do terminal de uma VPS Ubuntu, inclusive da Hostinger. O painel será publicado na Cloudflare. Se fizer pela VPS, a pasta privada com as chaves ficará na VPS.
+**Node.js executa o instalador do Vinki; npm vem junto e baixa as ferramentas necessárias.** Você pode fazer a instalação a partir do seu computador ou do terminal de uma VPS Ubuntu, inclusive da Hostinger. O painel será publicado na Cloudflare. Se fizer pela VPS, a pasta privada com as chaves ficará na VPS.
 
-Escolha **um** dos caminhos abaixo. Faça as etapas do Node.js e do instalador Wabotia no **mesmo terminal e com o mesmo usuário**. A instalação por NVM pertence ao usuário: instalar como `root` não disponibiliza automaticamente Node.js para o usuário `hermes`.
+Escolha **um** dos caminhos abaixo. Faça as etapas do Node.js e do instalador Vinki no **mesmo terminal e com o mesmo usuário**. A instalação por NVM pertence ao usuário: instalar como `root` não disponibiliza automaticamente Node.js para o usuário `hermes`.
 
 ### Ubuntu na VPS Hostinger, no computador ou no WSL2
 
@@ -69,13 +69,13 @@ node -v
 npm -v
 ```
 
-Exemplo de resultado: `v26.13.0` e `11.20.0`. Esses números são uma referência de 05/11/2026 e podem mudar. O Wabotia exige **Node.js 22.13 ou superior e npm**. Só avance quando os dois comandos mostrarem suas versões sem erro. Depois siga para a conta Cloudflare e execute o instalador Wabotia nesse mesmo terminal, sem sudo.
+Exemplo de resultado: `v26.13.0` e `11.20.0`. Esses números são uma referência de 05/11/2026 e podem mudar. O Vinki exige **Node.js 22.13 ou superior e npm**. Só avance quando os dois comandos mostrarem suas versões sem erro. Depois siga para a conta Cloudflare e execute o instalador Vinki nesse mesmo terminal, sem sudo.
 
 ### Se deu erro na instalação do Node.js
 
 | Mensagem ou sintoma | Como resolver |
 |---|---|
-| `libatomic.so.1: cannot open shared object file` | O Node.js foi instalado, mas falta uma biblioteca do Ubuntu. Repita a etapa 2, conforme seu usuário, e teste `node -v` e `npm -v`. Não precisa apagar Node.js ou Wabotia. |
+| `libatomic.so.1: cannot open shared object file` | O Node.js foi instalado, mas falta uma biblioteca do Ubuntu. Repita a etapa 2, conforme seu usuário, e teste `node -v` e `npm -v`. Não precisa apagar Node.js ou Vinki. |
 | `nvm: command not found` ou `node: command not found` no Ubuntu | Entre com o mesmo usuário da instalação. Execute `source "$HOME/.nvm/nvm.sh"` e `nvm use --lts`. Se o arquivo não existir, repita a etapa 3. |
 | O terminal ficou mostrando somente `>` | Geralmente faltou fechar uma aspa. Pressione **Ctrl+C** e cole novamente o comando inteiro, sem retirar as aspas. |
 | Falta de permissão no `apt-get` | Confira `whoami`. Usuário comum precisa de sudo; root não precisa. Se sua conta não puder usar sudo, use uma conta administradora. |
@@ -94,14 +94,14 @@ node -v
 npm.cmd -v
 ```
 
-Os dois comandos devem mostrar versões. Use depois os comandos **Windows / PowerShell** do instalador Wabotia. Se for executar dentro do Ubuntu/WSL2, siga o caminho Ubuntu acima e instale o Node.js dentro dele.
+Os dois comandos devem mostrar versões. Use depois os comandos **Windows / PowerShell** do instalador Vinki. Se for executar dentro do Ubuntu/WSL2, siga o caminho Ubuntu acima e instale o Node.js dentro dele.
 
 ### macOS
 
 1. Abra o [site oficial do Node.js](https://nodejs.org/en/download), escolha **LTS**, **macOS** e baixe **macOS Installer (.pkg)** para o seu Mac.
 2. Abra o arquivo e conclua o assistente com as opções padrão; ele instala Node.js e npm.
 3. Feche terminais antigos. Abra **Aplicativos > Utilitários > Terminal** e execute `node -v` e `npm -v`.
-4. Com as versões aparecendo sem erro, use os comandos **Linux/macOS** do instalador Wabotia. Os comandos `apt-get` deste guia são apenas para Ubuntu.
+4. Com as versões aparecendo sem erro, use os comandos **Linux/macOS** do instalador Vinki. Os comandos `apt-get` deste guia são apenas para Ubuntu.
 
 Se estiver gravando o passo a passo, pause a gravação antes de preencher tokens ou abrir o arquivo privado de chaves.
 
@@ -113,16 +113,16 @@ Com Node.js e npm conferidos pelo roteiro acima, prepare os serviços a seguir a
 
 ### Antes do deploy: para que serve cada serviço da Cloudflare
 
-A Cloudflare é a plataforma que mantém o Wabotia disponível na internet e guarda seus dados. Os serviços trabalham juntos, mas a ativação de um não habilita automaticamente todos os outros.
+A Cloudflare é a plataforma que mantém o Vinki disponível na internet e guarda seus dados. Os serviços trabalham juntos, mas a ativação de um não habilita automaticamente todos os outros.
 
-| Serviço | Para que serve no Wabotia | O que você prepara |
+| Serviço | Para que serve no Vinki | O que você prepara |
 |---|---|---|
 | **Workers** | Executa o painel web, a API e as regras do atendimento. | **Exige o plano pago Workers Paid.** O plano gratuito não é suportado. |
 | **D1** | Banco de dados: guarda usuários, configurações, conversas, protocolos e registros. | Confira acesso ao D1. O instalador cria o banco exclusivo da instalação. |
 | **R2** | Armazena documentos, imagens, áudios e outros anexos. Uma pasta de armazenamento é chamada de *bucket*. | Ative a assinatura R2 e use um bucket privado. |
 | **Durable Objects e alarmes** | Coordenam as conversas e os trabalhos pendentes, preservando ordem e evitando operações duplicadas. Os alarmes retomam tarefas agendadas. | O deploy configura esses recursos. Não precisa criar um servidor nem contratar cada alarme. |
 | **Zero Trust** | Área da Cloudflare para administrar a segurança do acesso ao Hermes. | Ative um plano, como Zero Trust Free, antes de configurar o Access. |
-| **Access** | Verifica se a chamada ao Hermes vem do Wabotia autorizado. | Cadastre aplicações e políticas Service Auth; crie Client ID/Client Secret para a conexão. |
+| **Access** | Verifica se a chamada ao Hermes vem do Vinki autorizado. | Cadastre aplicações e políticas Service Auth; crie Client ID/Client Secret para a conexão. |
 | **Tunnel e cloudflared** | Fazem a ponte da Cloudflare até a máquina do Hermes sem abrir portas no roteador. cloudflared é o programa instalado nessa máquina. | Crie o túnel e mantenha cloudflared e Hermes ligados. |
 | **DNS** | Liga nomes como `api-hermes.seudominio.com` ao destino correto. | Use domínio ativo na Cloudflare para os hostnames do túnel e confira os registros criados. |
 | **API da Cloudflare** | Recebe o pacote oficial e publica diretamente o Worker. | Autorize o token da instalação. Não é necessário configurar Builds. |
@@ -143,10 +143,10 @@ R2 tem uma franquia mensal gratuita e cobrança conforme o uso excedente. Confir
 
 1. Abra **Armazenamento e bancos de dados > Banco de dados SQL D1**. Confira que consegue abrir a lista e encontrar **Criar banco de dados**.
 2. **D1 já está incluído nos planos Workers Free e Paid.** Ele não exige uma assinatura separada equivalente à adesão do R2; limites e eventuais cobranças dependem do plano Workers. Consulte os [planos oficiais do D1](https://developers.cloudflare.com/d1/platform/pricing/).
-3. O instalador do Wabotia cria o banco. Não é preciso criar um banco de teste para habilitar o serviço. Se já instalou o Wabotia, confira o banco existente em **Worker > Bindings > DB**, sem criar outro para substituí-lo.
-4. **O Wabotia exige o plano pago Workers Paid.** Assine na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans) antes de instalar. No plano gratuito, o trabalho de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por execução e param no meio, com parte já gravada ([Limites do Cloudflare](LIMITES.md)). Uma assinatura Zero Trust Free ou um plano do site/domínio não muda o plano Workers. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso; ele não consegue conferir o plano sozinho, porque isso exigiria dar ao token acesso aos dados de cobrança da conta.
+3. O instalador do Vinki cria o banco. Não é preciso criar um banco de teste para habilitar o serviço. Se já instalou o Vinki, confira o banco existente em **Worker > Bindings > DB**, sem criar outro para substituí-lo.
+4. **O Vinki exige o plano pago Workers Paid.** Assine na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans) antes de instalar. No plano gratuito, o trabalho de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por execução e param no meio, com parte já gravada ([Limites do Cloudflare](LIMITES.md)). Uma assinatura Zero Trust Free ou um plano do site/domínio não muda o plano Workers. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso; ele não consegue conferir o plano sozinho, porque isso exigiria dar ao token acesso aos dados de cobrança da conta.
 
-O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 e R2. Você não precisa gerar chaves D1 nem credenciais S3/R2 para colocar no painel Wabotia.
+O Worker usa as ligações **DB** e **MEDIA** criadas no deploy para acessar D1 e R2. Você não precisa gerar chaves D1 nem credenciais S3/R2 para colocar no painel Vinki.
 
 ### Requisito 3 (opcional) - Zero Trust, só para ligar o Hermes por túnel
 
@@ -196,10 +196,10 @@ Requer o Node.js da seção inicial. Neste caminho o token vai direto do seu com
 ### Crie o token e copie Account ID
 
 1. Na conta Cloudflare escolhida, copie **Account ID** na visão geral da conta/domínio.
-2. Abra o [formulário de token já preenchido](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=Wabotia%20instala%C3%A7%C3%A3o): a Cloudflare abre a criação do token com o nome e as três permissões. O instalador mostra o mesmo link antes de pedir o token.
-3. Se o link não abrir o formulário, crie à mão: **My Profile → API Tokens → Create Token → Custom Token**, nome “Wabotia instalação” e permissões de conta **Workers Scripts: Edit**, **D1: Edit** e **Workers R2 Storage: Edit**.
+2. Abra o [formulário de token já preenchido](https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%5D&accountId=*&zoneId=all&name=Vinki%20instala%C3%A7%C3%A3o): a Cloudflare abre a criação do token com o nome e as três permissões. O instalador mostra o mesmo link antes de pedir o token.
+3. Se o link não abrir o formulário, crie à mão: **My Profile → API Tokens → Create Token → Custom Token**, nome “Vinki instalação” e permissões de conta **Workers Scripts: Edit**, **D1: Edit** e **Workers R2 Storage: Edit**.
 4. Em **Account Resources**, selecione **Include → Specific account**, somente a conta da instalação. Defina a validade, confira e crie.
-5. Copie o valor exibido uma vez e guarde em local privado. Esse token autoriza publicar Workers e administrar D1/R2 nessa conta. Ele será enviado diretamente à Cloudflare; o site Wabotia não o recebe.
+5. Copie o valor exibido uma vez e guarde em local privado. Esse token autoriza publicar Workers e administrar D1/R2 nessa conta. Ele será enviado diretamente à Cloudflare; o site Vinki não o recebe.
 
 ### Baixe e execute
 
@@ -217,7 +217,7 @@ Invoke-WebRequest https://wabotia.queven.app/install-wabotia.mjs -OutFile instal
 node .\install-wabotia.mjs
 ```
 
-O primeiro comando baixa o instalador oficial. O segundo o executa. Informe Account ID, o token (não aparece enquanto você digita) e um **nome novo**, como `wabotia-atendimento`.
+O primeiro comando baixa o instalador oficial. O segundo o executa. Informe Account ID, o token (não aparece enquanto você digita) e um **nome novo**, como `vinki-atendimento`.
 
 **Como saber se está esperando você ou trabalhando:**
 
@@ -258,14 +258,14 @@ Abra a URL exibida pelo instalador seguida de `/app`. Para domínio próprio, us
 Corrija a mensagem e execute, no mesmo diretório, substituindo o nome:
 
 ```sh
-node install-wabotia.mjs --name wabotia-atendimento --resume
+node install-wabotia.mjs --name vinki-atendimento --resume
 ```
 
 Informe a mesma conta e um token válido. A retomada usa a pasta privada original e não apaga recursos. Não exclua DB, MEDIA ou os arquivos de chaves para tentar novamente.
 
 ### Vou reinstalar
 
-Use um nome novo, por exemplo `wabotia-atendimento`, preservando a instalação anterior até validar a nova. Faça backup se houver dados. O histórico não é importado automaticamente. Mantenha bots, APIs e túnel Hermes existentes; cadastre a conexão novamente usando os mesmos endereços e chaves autorizadas. Não execute o assistente de criar túnel nos endereços que já funcionam.
+Use um nome novo, por exemplo `vinki-atendimento`, preservando a instalação anterior até validar a nova. Faça backup se houver dados. O histórico não é importado automaticamente. Mantenha bots, APIs e túnel Hermes existentes; cadastre a conexão novamente usando os mesmos endereços e chaves autorizadas. Não execute o assistente de criar túnel nos endereços que já funcionam.
 
 Pause os canais antigos antes de ativar os mesmos números/bots na nova instalação. Só depois de conferir os dados e canais você pode desativar os recursos antigos e remover a cópia GitHub anterior. A instalação nova não depende dela.
 
@@ -281,7 +281,7 @@ Pause os canais antigos antes de ativar os mesmos números/bots na nova instala�
 
 **Sem servidor para o Hermes?** Conecte um provedor de IA direto (Anthropic, OpenAI, DeepSeek ou API compatível) em **Hermes e canais → Nova conexão → Provedor de IA**, teste a conexão e pule para o item 5 da seção 6. O bot conversa com base nas suas fontes e menus, mas não executa ações em outros sistemas nem pode ser especialista. Veja [Bot por provedor de IA](PROVEDOR-IA.md).
 
-Um comando na máquina do Hermes, sem túnel, sem domínio e sem chaves do Hermes guardadas no Wabotia. Detalhes e limites em [Plugin Wabotia para o Hermes Agent](HERMES-PLUGIN.md).
+Um comando na máquina do Hermes, sem túnel, sem domínio e sem chaves do Hermes guardadas no Vinki. Detalhes e limites em [Plugin Vinki para o Hermes Agent](HERMES-PLUGIN.md).
 
 1. Tenha o Hermes funcionando, com modelo e provedor configurados. Quem ainda não tem pode usar uma VPS com a imagem pronta do Hermes Agent, como a da Hostinger.
 2. No painel: **Hermes e canais → Conectar Hermes**, mantenha **Plugin no Hermes** e salve.
@@ -298,7 +298,7 @@ Siga o [roteiro completo Hermes + Cloudflare](HERMES-CLOUDFLARE.md). Ele mostra 
 
 O assistente `python3 scripts/prepare-hermes.py --profile wabotia --create-profile` faz backup e configura a API nativa. Ele não inicia serviços sozinho. O manual mostra os comandos de início, reinício e diagnóstico, inclusive quando a API é desligada depois. Dois serviços precisam responder: backend administrativo na 9119 e API dos bots na 8642, ambos autenticados e restritos ao loopback. Use `--check` para verificar os dois antes de abrir um túnel.
 
-As chaves Hermes geradas ficam em `~/.config/wabotia/hermes/chaves.local.txt`. Elas são adicionais às chaves de instalação do Wabotia. Não substitua MASTER_KEY/SETUP_TOKEN. Não copie credenciais dos canais de outro bot.
+As chaves Hermes geradas ficam em `~/.config/wabotia/hermes/chaves.local.txt`. Elas são adicionais às chaves de instalação do Vinki. Não substitua MASTER_KEY/SETUP_TOKEN. Não copie credenciais dos canais de outro bot.
 
 ## 5. Caminho alternativo por túnel: configure a Cloudflare para alcançar o Hermes
 
@@ -309,19 +309,19 @@ O [roteiro ilustrado, etapas C a E](HERMES-CLOUDFLARE.md#c-cloudflare-domínio-e
 3. Criar duas aplicações Access Self-hosted, com política Service Auth limitada a esse token.
 4. Criar um túnel novo, instalar cloudflared na máquina do Hermes e aguardar o estado Íntegro.
 5. Publicar somente `/api/profiles` no hostname administrativo e `/p/wabotia/v1/…` no hostname dos bots, com portas e HTTP Host Header conforme a tabela do roteiro.
-6. Conferir os registros DNS criados, testar a proteção e cadastrar as URLs e chaves no Wabotia.
+6. Conferir os registros DNS criados, testar a proteção e cadastrar as URLs e chaves no Vinki.
 
 O manual também explica como instalar um serviço cloudflared separado se já existir outro túnel na máquina. Não sobrescreva o túnel existente. Não abra portas no roteador e não publique todas as rotas do painel Hermes.
 
 O assistente alternativo `node scripts/connect-hermes.mjs` gera um YAML para túnel gerenciado localmente. Ele não liga a API. Use esse caminho somente se preferir administrar o YAML; não misture os comandos de túnel local com o túnel gerenciado pelo dashboard.
 
-O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele dormir, o painel Wabotia continua disponível, mas os bots ficam offline; o atendimento humano permanece nos canais ainda conectados.
+O computador precisa permanecer ligado enquanto hospedar Hermes e túnel. Se ele dormir, o painel Vinki continua disponível, mas os bots ficam offline; o atendimento humano permanece nos canais ainda conectados.
 
 ## 6. Conecte e escolha a Equipe Bot
 
 Com o plugin, a conexão já está feita: comece no item 5. Com um provedor de IA, o **Testar conexão** cria o bot: ative a conexão, habilite o bot em **Atendente e especialistas**, escolha-o como Atendente e siga do item 6. Os itens 1 a 4 valem para o caminho por túnel.
 
-1. Wabotia > **Conexões > Nova conexão**. Selecione **Hermes**, escolha **URLs públicas com túnel Cloudflare**, dê um nome e preencha as URLs HTTPS administrativa e da API.
+1. Vinki > **Conexões > Nova conexão**. Selecione **Hermes**, escolha **URLs públicas com túnel Cloudflare**, dê um nome e preencha as URLs HTTPS administrativa e da API.
 2. Cole o token administrativo e a `API_SERVER_KEY` de cada atendimento Hermes. Abra **Conexão protegida por Cloudflare Access** e preencha o Client ID e Client Secret criados na Cloudflare. Para vários atendimentos Hermes, o campo JSON aceita um mapa `{"atendente":"CHAVE","financeiro":"OUTRA_CHAVE"}`. Essas chaves são exemplos; insira seus valores somente no painel. Máximo de 20 atendimentos Hermes por conexão.
 3. Salve, clique **Testar conexão** e **Descobrir bots**. A verificação exige idempotência durável anunciada pelo Hermes.
 4. Ative a conexão. Em **Equipe Bot**, habilite os bots autorizados e selecione o **Atendente**.
@@ -337,7 +337,7 @@ Arquivos produzidos por bots precisam ser exportados como artefatos da API nativ
 
 1. No painel Zernio, confira seus telefones já cadastrados e obtenha uma API key.
 2. Em **Integração Zernio**, salve API key, fuso e segredo de assinatura do webhook. O ID pode ficar vazio inicialmente.
-3. Use **Encontrar ID na Zernio**, confirme a integração pelo nome e abra **Telefones → Buscar telefones na Zernio**. O Wabotia importa o que já está cadastrado no provedor.
+3. Use **Encontrar ID na Zernio**, confirme a integração pelo nome e abra **Telefones → Buscar telefones na Zernio**. O Vinki importa o que já está cadastrado no provedor.
 4. Cadastre na Zernio o webhook exibido, com o mesmo segredo e eventos de mensagens e recibos.
 5. Em **Telefones**, adicione os números, teste e ative. Fora da janela de 24 horas, templates continuam exigindo aprovação e consentimento.
 
@@ -355,9 +355,9 @@ Para Docker, use o Dockerfile/Compose em `connectors/qr` conforme seu README. O 
 
 ### WhatsApp já configurado no Hermes
 
-Meta/QR continuam configurados no Hermes. Instale somente o transporte mínimo descrito em [connectors/hermes/README.md](../connectors/hermes/README.md). Ele exige a extensão compatível de entrada exclusiva no gateway: mantém o canal sob um único consumidor e entrega suas mensagens ao Wabotia. Não instala o painel no Hermes.
+Meta/QR continuam configurados no Hermes. Instale somente o transporte mínimo descrito em [connectors/hermes/README.md](../connectors/hermes/README.md). Ele exige a extensão compatível de entrada exclusiva no gateway: mantém o canal sob um único consumidor e entrega suas mensagens ao Vinki. Não instala o painel no Hermes.
 
-Antes de trocar de modo: pause o canal antigo, pare seu consumidor, confira entregas em **Entregas**, resolva estados `unknown` e só então ative o novo. O Wabotia recusa dois modos ativos para o mesmo número. Também confira que não existe consumidor antigo fora do Wabotia.
+Antes de trocar de modo: pause o canal antigo, pare seu consumidor, confira entregas em **Entregas**, resolva estados `unknown` e só então ative o novo. O Vinki recusa dois modos ativos para o mesmo número. Também confira que não existe consumidor antigo fora do Vinki.
 
 ## 8. Conecte seus outros sistemas
 

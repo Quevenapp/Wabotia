@@ -51,7 +51,7 @@ export function catalogListParams(entity: CatalogEntity, query: string, active: 
 // ---- Listagem no padrão do Origin (migração 096): páginas numeradas de 100, total, ordenação e filtros ----
 export const CATALOG_PAGE_SIZE = 100;
 export type CatalogSort = 'created_desc' | 'name_asc' | 'name_desc' | 'code_asc' | 'code_desc';
-// Wabotia: sem origin_stock (202610220008), que o motor manda sempre nulo: Origin fora (motor 91213b8).
+// Vinki: sem origin_stock (202610220008), que o motor manda sempre nulo: Origin fora (motor 91213b8).
 export interface CatalogListItem extends CatalogRecord { stock?: CatalogStock | null }
 export interface CatalogListPage { entity: CatalogEntity; items: CatalogListItem[]; page: number; size: number; total: number; sort: CatalogSort; stock_visible?: boolean; data_mode: 'erp_native' }
 export type CatalogPeriodField = 'created' | 'updated' | 'expiry';

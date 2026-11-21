@@ -1,4 +1,4 @@
-// erp_catalog_contact_fields (Wabotia, campos próprios de contato; esquema do
+// erp_catalog_contact_fields (Vinki, campos próprios de contato; esquema do
 // ERP versão 20): as definições que o público vê (Preferências › Cadastros,
 // cadastro, ficha do atendimento, lista e bots). Regras em ../contact-fields.ts.
 import { registerRpc } from "../../../engine/registry.ts";

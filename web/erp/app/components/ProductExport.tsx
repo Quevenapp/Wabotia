@@ -65,7 +65,7 @@ export default function ProductExport({ controller }: { controller: AccessContro
         const params = new URLSearchParams(filters); params.set('offset', String(offset)); params.set('limit', String(EXPORT_BATCH)); params.set('include_deleted', String(includeDeleted));
         const result = page(await controller.catalog(`/v1/cadastros/products/exportacao?${params}`, { signal: signal.signal }), offset, EXPORT_BATCH);
         if (signal.signal.aborted) return;
-        // Wabotia: sem as colunas do estoque Origin (202610220008): Origin fora (motor 91213b8).
+        // Vinki: sem as colunas do estoque Origin (202610220008): Origin fora (motor 91213b8).
         rows.push(...result.items);
       }
       const columns = exportColumns(kind, kind !== 'standard' && Array.isArray(fields) ? customExportColumns(fields) : []);

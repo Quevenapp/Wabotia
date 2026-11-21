@@ -51,14 +51,14 @@ type Dialog = { kind: 'store' } | { kind: 'move'; move: 'withdrawal' | 'supply' 
   | { kind: 'return'; sale: PdvSale } | { kind: 'shortcuts' } | { kind: 'gtin' } | { kind: 'pix'; payload: string; amount: string | null; confirm: boolean } | { kind: 'contact'; initial: QuickContactValues } | { kind: 'contact_search'; query: string }
   // Pesquisa avançada (Alt+A) of the product.
   | { kind: 'product_search' }
-  // Wabotia (maquininha): cartão na maquininha integrada do caixa, com a venda já salva.
+  // Vinki (maquininha): cartão na maquininha integrada do caixa, com a venda já salva.
   | { kind: 'terminal'; sale: PdvSale; card: 'debito' | 'credito'; amount: bigint; terminal: string };
 const noSubscription = () => () => {}, noSnapshot = () => null;
 const STORE_KEY = 'brufap.pdv.loja';
 const readStore = () => { try { return globalThis.localStorage?.getItem(STORE_KEY) ?? null; } catch { return null; } };
 const writeStore = (id: string) => { try { globalThis.localStorage?.setItem(STORE_KEY, id); } catch { /* Per-viewer convenience only. */ } };
 type StoreChoice = { store: Named; session: PdvSession | null };
-// Wabotia: a loja (a escolhida, a do localStorage ou a única) e o seu caixa, calculados do contexto como o efeito antigo fazia.
+// Vinki: a loja (a escolhida, a do localStorage ou a única) e o seu caixa, calculados do contexto como o efeito antigo fazia.
 const storeOf = (context: PdvContext, id: string | null): StoreChoice | null => {
   const found = context.stores.find(item => item.id === id) ?? (context.stores.length === 1 ? context.stores[0]! : null);
   return found ? { store: found, session: context.cash_sessions.find(item => item.account_id === found.id && item.own) ?? context.cash_sessions.find(item => item.account_id === found.id) ?? null } : null;
@@ -86,7 +86,7 @@ function adjustments(draft: Draft) {
  * Vendas › Frente de caixa (Origin pdv.php) com dados reais: tela cheia, abas Produto (Alt+Z), Cliente (Alt+C) e Pagamento (Alt+B),
  * coluna dos pedidos do caixa, Operações (Abrir caixa, Sangria, Suprimento, Fechar caixa, Imprimir, Reimprimir última operação,
  * Gerar devolução, QR code fixo) e os atalhos configurados em Preferências. A venda finalizada é um pedido de venda Atendido.
- * Wabotia: com Fiscal e Caixa / PDV ligados, o cupom fiscal (NFC-e) é pedido ao cofre logo depois da venda (web/erp/NfceBalcao.tsx),
+ * Vinki: com Fiscal e Caixa / PDV ligados, o cupom fiscal (NFC-e) é pedido ao cofre logo depois da venda (web/erp/NfceBalcao.tsx),
  * sem a venda esperar a nota; sem eles, a NFC-e segue pela tela de notas fiscais, a partir do pedido.
  */
 export default function RealPdv({ controller }: { controller: AccessController }) {
@@ -95,7 +95,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const scopeOf = (s: ReturnType<AccessController['getSnapshot']> | null) => s?.phase === 'ready' && s.membership ? `${s.membership.user_id}:${s.membership.role}` : '';
   const scope = tracked ? scopeOf(snapshot) : 'isolated', current = useRef(scope); current.current = scope;
   const role = tracked ? snapshot?.membership?.role ?? '' : 'admin';
-  // Wabotia: o A1 fica no cofre de emissão (NFapi), não no ERP: o selo lê o estado do cofre (web/erp/emissor.ts).
+  // Vinki: o A1 fica no cofre de emissão (NFapi), não no ERP: o selo lê o estado do cofre (web/erp/emissor.ts).
   const certificateBadge = emissorBadge(useEmissorView(erpPorts()?.emissor));
   const mayRead = () => current.current === scope && (!tracked || scopeOf(controller.getSnapshot()) === scope);
   const [loaded, setLoaded] = useState<{ scope: string; value: PdvContext | null; error: string }>({ scope: '', value: null, error: '' });
@@ -103,16 +103,16 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const mayWrite = () => mayRead() && ['admin', 'vendas'].includes(role) && Boolean(context?.permissions.operate);
   const mayCash = () => mayRead() && ['admin', 'financeiro'].includes(role);
   const [reload, setReload] = useState(0), [salesReload, setSalesReload] = useState(0);
-  // Wabotia: a loja sai do contexto já na renderização (held guarda a escolha feita para um contexto), sem efeito com setStore: a lista de vendas não sai antes sem a loja para ser refeita.
+  // Vinki: a loja sai do contexto já na renderização (held guarda a escolha feita para um contexto), sem efeito com setStore: a lista de vendas não sai antes sem a loja para ser refeita.
   const [held, setHeld] = useState<{ context: PdvContext; store: StoreChoice | null } | null>(null);
   const store = !context ? held?.store ?? null : held?.context === context ? held.store : storeOf(context, held?.store?.store.id ?? readStore());
   const [dialog, setDialog] = useState<Dialog | null>(null), [tab, setTab] = useState<Tab>('produto');
-  // Wabotia: sem rascunho guardado, a venda segue o contexto desde a primeira renderização (antes emptyDraft(null) e depois um efeito, o que relia as listas aplicáveis).
+  // Vinki: sem rascunho guardado, a venda segue o contexto desde a primeira renderização (antes emptyDraft(null) e depois um efeito, o que relia as listas aplicáveis).
   const [kept, keep] = useState<Draft | null>(null), latest = useRef(context); latest.current = context;
   const fresh = useMemo(() => emptyDraft(context), [context]), draft = kept ?? fresh;
   const setDraft = (next: Draft | ((previous: Draft) => Draft)) => keep(previous => typeof next === 'function' ? next(previous ?? emptyDraft(latest.current)) : next);
   const [product, setProduct] = useState<ProductForm>(() => emptyProduct(false));
-  // Wabotia: cada aba fica montada (escondida com hidden) depois da primeira visita na venda, para trocar de aba não reler listas, produtos, contatos e categorias.
+  // Vinki: cada aba fica montada (escondida com hidden) depois da primeira visita na venda, para trocar de aba não reler listas, produtos, contatos e categorias.
   const opened = useRef(new Set<Tab>()); opened.current.add(tab);
   const [barcode, setBarcode] = useState(false), [favoritesOpen, setFavoritesOpen] = useState(false), [favoritesGrid, setFavoritesGrid] = useState(true);
   const [favorites, setFavorites] = useState<{ key: string; items: PdvFavorite[] | null; error: string }>({ key: '', items: null, error: '' });
@@ -122,9 +122,9 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const [print, setPrint] = useState<PdvPrintJob | null>(null), [last, setLast] = useState<PdvPrintJob | null>(null), [pixConfirmed, setPixConfirmed] = useState(false);
   const [condition, setCondition] = useState(''), [method, setMethod] = useState('');
   const salesSearch = useRef<HTMLInputElement>(null);
-  // Wabotia: cupom fiscal do balcão. CPF/CNPJ opcional do fechamento, venda cujo cupom está sendo pedido e situação por venda.
+  // Vinki: cupom fiscal do balcão. CPF/CNPJ opcional do fechamento, venda cujo cupom está sendo pedido e situação por venda.
   const nfce = useNfcePort(), nfceEmitter = nfceCanEmit(nfce);
-  // Wabotia: maquininha integrada ao caixa (web/erp/MaquininhaCaixa.tsx); desligada ou fora do painel da área, null.
+  // Vinki: maquininha integrada ao caixa (web/erp/MaquininhaCaixa.tsx); desligada ou fora do painel da área, null.
   const terminal = useTerminalConfig(scope);
   const [consumerDoc, setConsumerDoc] = useState(''), [coupon, setCoupon] = useState<{ saleId: string; document: string | null } | null>(null);
   const [couponOf, setCouponOf] = useState<Record<string, string>>({});
@@ -144,7 +144,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
       .catch(failure => { if (!request.signal.aborted && mayRead()) setLoaded({ scope: key, value: null, error: pdvFailure(failure) }); });
     return () => request.abort();
   }, [controller, scope, reload]);
-  // Wabotia: casas decimais de Preferências › Empresa › Geral (web/erp/decimals.ts); sem leitura, null e o servidor confere.
+  // Vinki: casas decimais de Preferências › Empresa › Geral (web/erp/decimals.ts); sem leitura, null e o servidor confere.
   const [places, setPlaces] = useState<DecimalPlaces | null>(null);
   useEffect(() => {
     if (tracked && !scope) return; const request = new AbortController();
@@ -157,10 +157,10 @@ export default function RealPdv({ controller }: { controller: AccessController }
   // The loja (per-viewer convenience) and its caixa: with "Utilizar controle de caixa" the screen asks for the loja and the caixa.
   useEffect(() => {
     if (!context) return;
-    // Wabotia: sem rascunho guardado (null) a venda já segue o contexto; um rascunho vazio guardado volta ao contexto como antes.
+    // Vinki: sem rascunho guardado (null) a venda já segue o contexto; um rascunho vazio guardado volta ao contexto como antes.
     keep(previous => previous && !previous.cart.length && !previous.saleId ? emptyDraft(context, previous.kind, previous.table) : previous);
     setProduct(previous => previous.record ? previous : emptyProduct(context.settings.percent_discount));
-    // Wabotia: store já foi calculada na renderização; aqui só se guarda para este contexto e se abre "Selecione uma loja" como antes (held é a loja anterior).
+    // Vinki: store já foi calculada na renderização; aqui só se guarda para este contexto e se abre "Selecione uma loja" como antes (held é a loja anterior).
     const asks = context.permissions.operate || context.effects.cash;
     setHeld({ context, store });
     if (!store) { if (context.stores.length && asks) setDialog(current => current ?? { kind: 'store' }); return; }
@@ -214,7 +214,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   // ---------------------------------------------------------------- Ações da venda
   const say = (message: string) => { if (mayRead()) { setNotice(message); setError(''); } };
   const fail = (message: string) => { if (mayRead()) { setError(message); setNotice(''); } };
-  // Wabotia: venda nova, abas novas (Cliente e Pagamento voltam a montar na primeira visita, como antes).
+  // Vinki: venda nova, abas novas (Cliente e Pagamento voltam a montar na primeira visita, como antes).
   const freshTabs = () => { opened.current = new Set<Tab>(['produto']); };
   const newSale = (kind: 'balcao' | 'mesa' = 'balcao', table: number | null = null) => guard.confirmLeave(() => { freshTabs(); setConsumerDoc(''); setDraft(emptyDraft(context, kind, table)); setProduct(emptyProduct(Boolean(context?.settings.percent_discount))); setTab('produto'); setPixConfirmed(false); setCondition(''); setError(''); });
   const selectProduct = async (record: CatalogRecord | null) => {
@@ -238,7 +238,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
       return row.selected_position.state === 'no_movements' ? 0n : quantity === null ? null : decimal(quantity.replace('-', ''), 6, 12) * (quantity.startsWith('-') ? -1n : 1n);
     } catch { return null; }
   };
-  // Wabotia: stockRule diz se insert vai conferir o saldo; pending é o saldo já pedido pelo bipe (em paralelo com o preço da lista).
+  // Vinki: stockRule diz se insert vai conferir o saldo; pending é o saldo já pedido pelo bipe (em paralelo com o preço da lista).
   const stockRule = (record: CatalogRecord) => Boolean(context?.permissions.items && record.active === true && (context.settings.block_zero || !context.settings.negative_stock));
   const insert = async (form: ProductForm = product, pending?: Promise<bigint | null>): Promise<string | null> => {
     if (!context?.permissions.items) return 'Seu vendedor não pode registrar itens na frente de caixa.';
@@ -275,7 +275,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const onCode = (record: CatalogRecord) => {
     if (!barcode) { void selectProduct(record); return `Produto ${record.name} selecionado.`; }
     const quantity = product.quantity || '1';
-    // Wabotia: preço da lista e saldo saem juntos (1 RT em vez de 2); insert espera os dois e faz as mesmas conferências, na mesma ordem.
+    // Vinki: preço da lista e saldo saem juntos (1 RT em vez de 2); insert espera os dois e faz as mesmas conferências, na mesma ordem.
     void (async () => { const pending = stockRule(record) ? stockOf(record) : undefined; const { price, list } = await priceOf(record); if (!mayRead()) return; const message = await insert({ ...emptyProduct(Boolean(context?.settings.percent_discount)), record, quantity, price, listPrice: list }, pending); if (message) fail(message); })();
     return `Produto ${record.name} incluído.`;
   };
@@ -341,14 +341,14 @@ export default function RealPdv({ controller }: { controller: AccessController }
     if (!finishing) { say(record.kind === 'mesa' ? `Comanda da mesa ${record.table_number} guardada (pedido nº ${record.number}).` : `Pré-venda nº ${record.number} enviada para o caixa.`); return; }
     // 202610200267: a refused Lançar estoque / Lançar contas / baixa à vista no longer refuses the sale; the message says why it stayed pending.
     say(`Venda nº ${record.number} finalizada.${record.effects ? finishNotice(record.effects) : ''}`);
-    // Wabotia: a venda já está feita; o cupom é pedido em seguida e, se o cofre demorar ou falhar, fica pendente.
+    // Vinki: a venda já está feita; o cupom é pedido em seguida e, se o cofre demorar ou falhar, fica pendente.
     if (nfce && nfceEmitter) { setCoupon({ saleId: record.id, document: consumerDoc.trim() || null }); setConsumerDoc(''); }
     const operation = context?.settings.default_operation;
     if (operation === 'comprovante') setPrint(job);
     if ((operation === 'gerar_nfce' || operation === 'nfe_simplificada') && context?.effects.fiscal && !(nfce && operation === 'gerar_nfce')) { try { globalThis.window?.open(fiscalHref(record, operation === 'gerar_nfce' ? '65' : '55'), '_blank', 'noopener'); } catch { /* The link stays in the pedido panel. */ } }
   };
   const fiscalHref = (record: PdvSaleSummary, model: '55' | '65') => `/historico-fiscal?${new URLSearchParams({ modelo: model, origem: 'brufap', nota: 'nova', pedido: record.document_id })}`;
-  // Wabotia (maquininha): a venda salva para a cobrança continua na tela (com os ids dos itens gravados) até o pagamento ser aprovado.
+  // Vinki (maquininha): a venda salva para a cobrança continua na tela (com os ids dos itens gravados) até o pagamento ser aprovado.
   const terminalPaid = useRef<TerminalPayment | null>(null);
   const keepSaved = (record: PdvSale) => { const items = [...record.items].sort((a, b) => a.position - b.position);
     setDraft(previous => ({ ...previous, saleId: record.id, version: record.version, number: record.number, record, savedItems: Object.fromEntries(items.map(item => [item.id, item.quantity])),
@@ -379,7 +379,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const submit = (requested: 'finish' | 'save') => {
     if (!context) return;
     const mode = requested === 'finish' && (context.settings.default_operation === 'pre_venda' || !context.permissions.finish || !context.permissions.payments) ? 'save' : requested;
-    // Wabotia (maquininha): parcelas na forma de débito ou de crédito da maquininha do caixa vão para ela; a venda é salva antes e só
+    // Vinki (maquininha): parcelas na forma de débito ou de crédito da maquininha do caixa vão para ela; a venda é salva antes e só
     // é finalizada com o pagamento aprovado. Caixa sem maquininha (ou integração desligada) segue como antes.
     const device = mode === 'finish' && !sale.uncertain ? terminalForStore(terminal, store?.store.id) : null;
     if (device && terminal) {
@@ -467,7 +467,7 @@ export default function RealPdv({ controller }: { controller: AccessController }
   const salesState = sales?.key === salesKey ? sales : null;
   const detail = selected?.record ?? null;
   const tabButton = (id: Tab, label: string, action: PdvAction) => <button type="button" role="tab" aria-selected={tab === id} aria-controls={opened.current.has(id) ? `pdv-panel-${id}` : undefined} className={tab === id ? 'active' : ''} onClick={() => setTab(id)}>{label} ({hint(action)})</button>;
-  // Wabotia: aba já visitada fica montada; a inativa recebe hidden (display none), fora do foco, do teclado e da árvore de acessibilidade.
+  // Vinki: aba já visitada fica montada; a inativa recebe hidden (display none), fora do foco, do teclado e da árvore de acessibilidade.
   const panel = (id: Tab, label: string) => ({ id: `pdv-panel-${id}`, role: 'tabpanel', 'aria-label': label, hidden: tab !== id });
   return <div className="pdv-workspace real-pdv">
     <header className="pdv-topbar">

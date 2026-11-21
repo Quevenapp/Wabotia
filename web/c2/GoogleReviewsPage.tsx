@@ -31,7 +31,7 @@ export function prepareReviewReply(review: ChannelUiData, value: string, permiss
   const version = Number(review.version);
   if (operation === "suggest") return { type: "google.suggest", version };
   if (operation === "delete") return { type: "google.reply.delete", version };
-  if (!value.trim() || value.length > 4_000) throw new Error("A resposta deve ter de 1 a 4.000 caracteres, limite do Wabotia.");
+  if (!value.trim() || value.length > 4_000) throw new Error("A resposta deve ter de 1 a 4.000 caracteres, limite do Vinki.");
   return { type: "google.reply", version, text: value };
 }
 
@@ -87,7 +87,7 @@ function ReviewCard({ row, permissions, api, root, report, refresh }: ReviewCard
     {!report && !access.publish && <p>Você pode consultar esta avaliação, mas não tem permissão para publicar.</p>}
     {!report && access.publish && <div className="c2-review-editor">
       <label>Resposta pública<textarea value={reply} maxLength={4_000} disabled={!canPublish || locked} onChange={event => { setReply(event.target.value); setConfirmed(false); }} /></label>
-      <p>{reply.length} de 4.000 caracteres · limite do Wabotia</p>
+      <p>{reply.length} de 4.000 caracteres · limite do Vinki</p>
       <label><input type="checkbox" checked={confirmed} disabled={!canPublish || locked} onChange={event => setConfirmed(event.target.checked)} /> Revisei o texto e confirmo a ação pública no Google.</label>
       <div className="c2-actions">
         <button type="button" disabled={!canPublish || locked || !confirmed || !reply.trim()} onClick={() => void perform("reply")}>{row.reply_text ? "Substituir resposta" : "Publicar resposta"}</button>

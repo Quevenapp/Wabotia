@@ -1,4 +1,4 @@
-// erp_catalog_contact_field_page (Wabotia, campos próprios de contato; esquema
+// erp_catalog_contact_field_page (Vinki, campos próprios de contato; esquema
 // do ERP versão 20): a lista de contatos de erp_catalog_contact_page_tagged
 // (mesmos filtros, ordem, página e carteira do vendedor) com os filtros dos
 // campos próprios (p_fields: até 10 filtros de campos marcados como filtro;

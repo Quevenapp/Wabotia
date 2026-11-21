@@ -153,7 +153,7 @@ export async function webhook(
 }
 
 /**
- * Aprova no provedor a cobrança do Wabotia e manda o webhook. `repeat`
+ * Aprova no provedor a cobrança do Vinki e manda o webhook. `repeat`
  * reenvia o mesmo aviso (o Mercado Pago repete até receber 200).
  */
 export async function approve(

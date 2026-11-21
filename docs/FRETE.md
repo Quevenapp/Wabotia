@@ -48,7 +48,7 @@ classe nova de Durable Object; nenhuma dependência nova.
    etiqueta oficial (baixada em PDF e guardada no R2) e o código de rastreio
    vai para o pedido (etiqueta própria, romaneio e tela já o mostram).
    - **Resposta incerta** (rede caiu, tempo esgotado, erro 5xx do provedor):
-     o envio fica "Confirmando com o provedor". Na próxima tentativa o Wabotia
+     o envio fica "Confirmando com o provedor". Na próxima tentativa o Vinki
      **consulta o provedor primeiro** pela referência que mandou junto
      (observação da pré-postagem nos Correios; etiqueta interna do carrinho no
      Melhor Envio). Achou: usa esse envio. O provedor confirma que não existe:
@@ -110,7 +110,7 @@ configurar os provedores são só da tela.
    novo e ligar.
 
 Limites conhecidos: nos Correios cada volume é um objeto; o envio contratado
-pelo Wabotia leva **um volume** (pedido com mais volumes: recusa dizendo para
+pelo Vinki leva **um volume** (pedido com mais volumes: recusa dizendo para
 montar em um volume ou contratar pelo Melhor Envio). A consulta de uma
 pré-postagem incerta sem número procura nas 150 mais recentes do cartão.
 

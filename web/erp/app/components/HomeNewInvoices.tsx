@@ -8,7 +8,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 /** Leva H (PRF-252): card Notas Fiscais, "● N Novas NF-es": real notes synced from Origin (authorized or with DANFE) or received
  * from SEFAZ since this user's last view. Brufap drafts and homologation notes are never counted. */
-// Wabotia: a leitura vira um hook para o Início chamá-la no salto 1 (RealHome), com o cartão montado só quando o período chega.
+// Vinki: a leitura vira um hook para o Início chamá-la no salto 1 (RealHome), com o cartão montado só quando o período chega.
 export function useNewInvoices(controller: Partial<PlatformPort>, enabled = true) {
   const [value, setValue] = useState<NewInvoices | null>(null), [error, setError] = useState(''), [busy, setBusy] = useState(false), [reload, setReload] = useState(0);
   useEffect(() => {

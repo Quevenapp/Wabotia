@@ -14,7 +14,7 @@ import {
 // only the initiating server holds the random device secret and receives a key.
 export const pairingClients = {
   vinki: {
-    name: "Vinki",
+    name: "Vinki V4",
     scopes: [
       "routing:read",
       "routing:send",
@@ -100,17 +100,17 @@ export async function pairingStart(
   ip: string,
 ) {
   await rate(env, "pair-start:" + (await sha(ip)), 10, 600_000);
-  // O Fagoo virou o módulo ERP do próprio Wabotia (PLANO-FAGOO.md): não há
+  // O Fagoo virou o módulo ERP do próprio Vinki (PLANO-FAGOO.md): não há
   // mais Fagoo de fora para parear. Pedidos já gravados continuam legíveis.
   if (body?.client === "fagoo")
     throw new ApiError(
       410,
       "pairing_client_removed",
-      "O ERP agora faz parte do Wabotia. Ligue o módulo ERP em Gestão → Módulos; não é preciso parear.",
+      "O ERP agora faz parte do Vinki. Ligue o módulo ERP em Gestão → Módulos; não é preciso parear.",
     );
   requireValue(
     body && Object.hasOwn(pairingClients, body.client),
-    "Escolha Vinki ou Senhapp.",
+    "Escolha Vinki V4 ou Senhapp.",
   );
   requireValue(
     typeof body.instance_name === "string" &&

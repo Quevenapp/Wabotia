@@ -1,4 +1,4 @@
-**Desenho das telas de tipos de trabalho — painel web do Wabotia**
+**Desenho das telas de tipos de trabalho — painel web do Vinki**
 
 Data: 18/11/2026. Base: commit `efc7e54`, versão `0.21.1` (`package.json:3`). Documento de projeto. Nenhum arquivo foi alterado. Não houve acesso à rede nem execução de testes.
 

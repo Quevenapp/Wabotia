@@ -76,7 +76,7 @@ export function BotsPage() {
         <h2>Comece aqui: o bot para a equipe</h2>
         <p className="workspace-help">
           Além de atender clientes no WhatsApp, cada bot conversa com a equipe em{" "}
-          <strong>Equipe › Bots</strong>: consulta o Wabotia e propõe ações em nome
+          <strong>Equipe › Bots</strong>: consulta o Vinki e propõe ações em nome
           de quem pede, com o acesso dessa pessoa. Nada muda antes de ela tocar
           em Confirmar.
         </p>

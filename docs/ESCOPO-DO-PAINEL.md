@@ -1,6 +1,6 @@
 # Escopo e organização do painel
 
-O Wabotia conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e os detalhes técnicos sempre à mão em Gestão.
+O Vinki conecta o WhatsApp à operação de atendimento: recebe os telefones pela integração Zernio, direciona mensagens para pessoas ou bots, oferece menus e acompanha protocolos e avaliações. Também permite que sistemas externos usem linhas autorizadas. A configuração deve explicar essas tarefas em linguagem comum, com um assistente guiado e os detalhes técnicos sempre à mão em Gestão.
 
 Este documento descreve as capacidades verificadas no código e as dependências de configuração e homologação dos serviços externos.
 
@@ -36,16 +36,16 @@ O Bot Atendente conversa com o cliente. Para uma operação de sistema, ele sele
 ```text
 Cliente no WhatsApp
         ↓
-Wabotia → Bot Atendente no Hermes
+Vinki → Bot Atendente no Hermes
                   ↓ consulta interna autorizada
           Bot especialista no Hermes
                   ↓ credenciais do sistema
-             API do Fagoo, Vinki ou outro sistema
+             API do Fagoo, Vinki V4 ou outro sistema
                   ↓ resultado
           Especialista → Atendente → Cliente
 ```
 
-Por exemplo, a ação “segunda via de boleto” pode consultar um bot financeiro que já tem acesso à API do Fagoo. As credenciais financeiras pertencem ao especialista e à sua configuração no Hermes. O Wabotia guarda as credenciais necessárias para chamar o Hermes, a lista de especialistas autorizados e as condições de uso; cadastrar uma ação no painel não instala uma integração financeira no bot.
+Por exemplo, a ação “segunda via de boleto” pode consultar um bot financeiro que já tem acesso à API do Fagoo. As credenciais financeiras pertencem ao especialista e à sua configuração no Hermes. O Vinki guarda as credenciais necessárias para chamar o Hermes, a lista de especialistas autorizados e as condições de uso; cadastrar uma ação no painel não instala uma integração financeira no bot.
 
 O contrato existente usa `settings.attendant_bot` e `settings.capabilities`. Cada ação interna identifica o bot, a condição e as instruções. O especialista recebe a solicitação e o telefone do cliente; seu resultado volta a uma execução do Atendente. Ver [execução e consulta de especialistas](../src/engine.ts), [validação das configurações](../src/service.ts) e [conexão Hermes](../src/integrations.ts).
 
@@ -64,8 +64,8 @@ O JEV é opcional, controlado por `settings.jev_enabled` (padrão `false`). A ch
 | Menus, ações rápidas, conteúdo e encaminhamento | Implementado | Botões/listas interativas Meta, texto nos demais canais, submenus, conteúdo, links, protocolos, avaliações, bots e setores. Respeita linha, sessão e validade da apresentação. [Guia](MENUS-PROTOCOLOS.md). |
 | Protocolo com prazo e consulta pelo cliente | Implementado | Consulta por número completo e telefone verificado entre conversas da mesma área de atendimento, pelo cliente, menu, bot ou pessoa. Pesquisa no painel por protocolo/telefone. Prazo da primeira resposta e andamento público; notas internas não são enviadas. [Guia](MENUS-PROTOCOLOS.md). |
 | Sistema de avaliações | Implementado | Pesquisa de 1 a 5 com comentário após encerramento, consulta de resultados e convite associado a aplicativo. Depende de habilitação nas configurações. [Pesquisa e leitura de respostas](../src/engine.ts), [encerramento](../src/service.ts), [consulta](../src/index.ts). |
-| Roteamento para Vinki com janela de 24 horas | Implementado | Sem teto local de mensagens; Vinki continua restrito a respostas sem template. Janela renovada pela última mensagem recebida no mesmo telefone; remetente fixo. Totais mensais de mensagens entregues por categoria. [Regras operacionais](ROTEADOR.md). |
-| Parear Vinki e Fagoo sem digitar credenciais ou tokens | Fora do painel desde a 0.18.0; vínculos existentes seguem ativos e podem ser revogados | Código temporário com aprovação administrativa da área de atendimento, permissões, telefones, grupos e bots. Troca automática entre servidores, armazenamento protegido e revogação. Exige instalar também as alterações dos clientes Vinki/Fagoo. [Guia](PAREAMENTO.md). |
+| Roteamento para Vinki V4 com janela de 24 horas | Implementado | Sem teto local de mensagens; Vinki V4 continua restrito a respostas sem template. Janela renovada pela última mensagem recebida no mesmo telefone; remetente fixo. Totais mensais de mensagens entregues por categoria. [Regras operacionais](ROTEADOR.md). |
+| Parear Vinki V4 e Fagoo sem digitar credenciais ou tokens | Fora do painel desde a 0.18.0; vínculos existentes seguem ativos e podem ser revogados | Código temporário com aprovação administrativa da área de atendimento, permissões, telefones, grupos e bots. Troca automática entre servidores, armazenamento protegido e revogação. Exige instalar também as alterações dos clientes Vinki/Fagoo. [Guia](PAREAMENTO.md). |
 | Contatos | Implementado | Cadastro, busca, edição, importação CSV e vínculo com conversas. Telefones não unem clientes automaticamente. [Contatos](../src/contacts.ts), [guia](CONTATOS.md). |
 | Atualizações automáticas | Implementado | Ativação opcional, janela diária, publicação oficial verificada, bloqueio de concorrência e recuperação conservadora. Exige instalador direto e autorização Cloudflare configurada. QR e Hermes permanecem processos separados. [Guia](ATUALIZACOES.md). |
 | Ponte WhatsApp–Telegram | Removido | A equipe atende pelo painel e pelos aplicativos. Conexões Telegram antigas só podem ser excluídas; o webhook responde `410 telegram_removed`. |

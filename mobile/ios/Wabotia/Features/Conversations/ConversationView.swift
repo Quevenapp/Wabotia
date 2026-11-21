@@ -461,7 +461,7 @@ struct ConversationView: View {
             case "close": showCharge = false; showForms = false
             default: result = "passo desconhecido"
             }
-            print("[Wabotia] conversa: \(step) → \(result.isEmpty ? (vm.actionError ?? "ok") : result); estado \(vm.conversation?.state ?? "?"), cobranças \(vm.payments.count), links \(vm.webSteps.count)")
+            print("[Vinki] conversa: \(step) → \(result.isEmpty ? (vm.actionError ?? "ok") : result); estado \(vm.conversation?.state ?? "?"), cobranças \(vm.payments.count), links \(vm.webSteps.count)")
         }
     }
     #endif

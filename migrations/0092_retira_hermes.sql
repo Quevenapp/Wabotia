@@ -1,5 +1,5 @@
 -- Retirada do Hermes, passo 1 (nota sessao-F-retirada-hermes.md, §4): o
--- Wabotia passa a trabalhar só com bots internos (provedor de IA direto).
+-- Vinki passa a trabalhar só com bots internos (provedor de IA direto).
 -- Só dados, aditiva: não apaga tabela nem linha. O código anterior continua
 -- rodando com estes dados (conexão pausada já era um estado normal), se o
 -- publish falhar depois do migrate. O painel mostra o cartão "Hermes

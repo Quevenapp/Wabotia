@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala o plugin Wabotia no Hermes Agent e pareia com uma instalação Wabotia.
+# Instala o plugin Vinki no Hermes Agent e pareia com uma instalação Vinki.
 # Uso: install.sh https://SUA_INSTALACAO wabp_CODIGO [perfil ...]
 # Hermes em Docker: execute dentro do contêiner, com o usuário dono dos dados:
 #   curl -fsSL URL/hermes-plugin/install.sh | docker exec -i -u hermes CONTEINER bash -s -- URL CODIGO
@@ -19,7 +19,7 @@ ENV_FILE="$ROOT/.env"
 fail() { echo "Não concluído: $*" >&2; exit 1; }
 URL="${URL%/}"
 printf '%s' "$URL" | grep -Eq '^https://[A-Za-z0-9.-]+(:[0-9]+)?$' \
-  || fail "informe o endereço https da instalação Wabotia, sem caminho."
+  || fail "informe o endereço https da instalação Vinki, sem caminho."
 printf '%s' "$CODE" | grep -Eq '^wabp_[0-9a-f-]{36}_[0-9a-f]{32}$' \
   || fail "código de pareamento inválido. Gere outro no painel, em Conexões."
 command -v curl >/dev/null || fail "instale o curl."
@@ -37,13 +37,13 @@ trap 'rm -rf "$STAGE"' EXIT
 for file in plugin.yaml __init__.py adapter.py link.py; do
   curl -fsSL "$URL/hermes-plugin/$file" -o "$STAGE/$file" || fail "não foi possível baixar $file."
 done
-grep -q '^name: wabotia$' "$STAGE/plugin.yaml" || fail "o endereço não respondeu com o plugin Wabotia."
+grep -q '^name: wabotia$' "$STAGE/plugin.yaml" || fail "o endereço não respondeu com o plugin Vinki."
 
-echo "2/5 · Pareando com o Wabotia"
+echo "2/5 · Pareando com o Vinki"
 HOST="$(hostname 2>/dev/null | tr -cd 'A-Za-z0-9._-' | cut -c1-100)"
 RESPONSE="$(curl -sS -X POST -H 'Content-Type: application/json' \
   --data "{\"code\":\"$CODE\",\"host\":\"$HOST\",\"plugin_version\":\"1.1.0\"}" \
-  "$URL/api/hermes-link/pair")" || fail "o Wabotia não respondeu ao pareamento."
+  "$URL/api/hermes-link/pair")" || fail "o Vinki não respondeu ao pareamento."
 TOKEN="$(printf '%s' "$RESPONSE" | grep -Eo '"link_token":"wabl_[0-9a-f_-]+"' | cut -d'"' -f4 || true)"
 [ -n "$TOKEN" ] || fail "código recusado (usado ou expirado). Gere outro no painel."
 
@@ -88,7 +88,7 @@ cat <<'DONE'
 
 Pronto. Falta só:
   1. Reiniciar o gateway do Hermes pelo método que você já usa.
-  2. No painel do Wabotia, no cartão da conexão: Testar conexão, Descobrir bots e Ativar.
+  2. No painel do Vinki, no cartão da conexão: Testar conexão, Descobrir bots e Ativar.
 
 Perfis sem API_SERVER_KEY não aparecem como bots. Para incluir outros perfis,
 repita este comando com os nomes ao final (gere um código novo no painel).

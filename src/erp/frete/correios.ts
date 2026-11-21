@@ -108,7 +108,7 @@ export const correiosProvider: FreightProvider = {
       pesoInformado: String(Math.max(1, vol.weight_g)), codigoFormatoObjetoInformado: "2",
       comprimentoInformado: String(cmCeil(vol.length_mm)), larguraInformada: String(cmCeil(vol.width_mm)), alturaInformada: String(cmCeil(vol.height_mm)),
       cienteObjetoNaoProibido: 1, modalidadePagamento: "2",
-      // A referência do Wabotia volta na consulta (resposta incerta).
+      // A referência do Vinki volta na consulta (resposta incerta).
       observacao: req.reference,
       ...(req.invoice
         ? { chaveNFe: req.invoice.key, numeroNotaFiscal: req.invoice.number === null ? undefined : String(req.invoice.number) }
@@ -117,7 +117,7 @@ export const correiosProvider: FreightProvider = {
     const r = await callJson(http, NAME, `${base(conn)}/prepostagem/v1/prepostagens`, { method: "POST", headers: auth(t), body, write: true });
     if (!r.ok) throw new FreightError("freight_rejected", `Os Correios recusaram a pré-postagem: ${providerMessage(r.data) ?? "confira os endereços, o peso e as medidas"}.`, { status: 422 });
     if (typeof r.data?.id !== "string" && typeof r.data?.id !== "number")
-      throw new FreightError("freight_provider_unavailable", "Os Correios responderam sem o número da pré-postagem. O Wabotia consulta antes de tentar de novo.", { uncertain: true });
+      throw new FreightError("freight_provider_unavailable", "Os Correios responderam sem o número da pré-postagem. O Vinki consulta antes de tentar de novo.", { uncertain: true });
     return { provider_ref: String(r.data.id), tracking_code: typeof r.data.codigoObjeto === "string" ? r.data.codigoObjeto : null, price_cents: null };
   },
 
@@ -163,7 +163,7 @@ export const correiosProvider: FreightProvider = {
     if (!trackingCode) return [];
     const t = await token(http, conn);
     const r = await callJson(http, NAME, `${base(conn)}/srorastro/v1/objetos/${encodeURIComponent(trackingCode)}?resultado=T`, { method: "GET", headers: auth(t) });
-    if (!r.ok) throw new FreightError("freight_provider_unavailable", "Os Correios não devolveram o rastreio agora. O Wabotia tenta de novo mais tarde.");
+    if (!r.ok) throw new FreightError("freight_provider_unavailable", "Os Correios não devolveram o rastreio agora. O Vinki tenta de novo mais tarde.");
     const object = Array.isArray(r.data?.objetos) ? r.data.objetos[0] : null;
     const events: any[] = Array.isArray(object?.eventos) ? object.eventos : [];
     return events.map((e): TrackingEvent | null => {

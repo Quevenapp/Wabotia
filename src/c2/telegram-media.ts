@@ -12,7 +12,7 @@ export const TELEGRAM_PHOTO_MAX = 10_000_000;
 export const TELEGRAM_SEND_MAX = 50_000_000;
 const MiB = 1024 * 1024;
 const rule = (maxSendBytes: number, mimeTypes: readonly string[]) => ({ receive: true, send: true, maxSendBytes, mimeTypes });
-/** Política local conservadora compatível com formatos já aceitos pelo Wabotia. */
+/** Política local conservadora compatível com formatos já aceitos pelo Vinki. */
 export const TELEGRAM_MEDIA_POLICY: ChannelSpec["media"] = Object.freeze({
   image: rule(Math.min(TELEGRAM_PHOTO_MAX, 5 * MiB), ["image/jpeg", "image/png"]),
   video: rule(16 * MiB, ["video/mp4"]),

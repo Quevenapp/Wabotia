@@ -129,7 +129,7 @@ export function Login({ ready }: { ready: () => void | Promise<void> }) {
                 ? "Esqueci a senha"
                 : setup
                   ? "Crie sua conta de administrador"
-                  : "Entrar no Wabotia"}
+                  : "Entrar no Vinki"}
         </h1>
         <p>
           {setup

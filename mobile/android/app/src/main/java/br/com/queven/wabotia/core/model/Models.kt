@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
-// Modelos da API Wabotia (docs/API.md e docs/MOBILE.md). Datas são Unix em milissegundos.
+// Modelos da API Vinki (docs/API.md e docs/MOBILE.md). Datas são Unix em milissegundos.
 // Campos do banco que chegam como JSON em string (attachments, content, tags, profiles) são mantidos como String
 // e lidos com os auxiliares de Json.kt.
 

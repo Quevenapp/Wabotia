@@ -19,7 +19,7 @@ export const IMPORT_FILE_BYTES=20*1024*1024;
 // 265: composições, campos customizados and fornecedores de produtos (Origin "Importações: composições · Campos Customizados ·
 // fornecedores de produto"; the Lista de Preços import lives in Cadastros › Listas de preços, ⋮ Importar).
 // 300: Lotes (Origin "Importações: … Lista de Preços · Lotes"), through erp_stock_lot_import of the stock lane (277).
-// Wabotia (versão 28 do esquema do ERP): dados fiscais dos produtos, naturezas de operação com as regras fiscais e saldos iniciais
+// Vinki (versão 28 do esquema do ERP): dados fiscais dos produtos, naturezas de operação com as regras fiscais e saldos iniciais
 // das contas financeiras.
 export const IMPORT_KINDS=Object.freeze(['products','contacts','purchase_orders','stock_movements','receivables','payables','sales_orders','nfe','compositions','custom_fields','product_suppliers','lots',
  'product_taxes','natures','opening_balances']);
@@ -48,14 +48,14 @@ export const foldHeader=value=>String(value??'').normalize('NFD').replace(/[̀-�
 
 // ---- Column grammar ----
 // t: text (max, multiline), digits (lengths), decimal (int digits, scale, signed), integer (max), date, bool, option (values).
-// Wabotia (alteração local, web/erp/ORIGEM.json): CPF/CNPJ of a contato: 11 or 14 digits as before, or the CNPJ alfanumérico (12 [0-9A-Z] + 2 digits) of the contact
+// Vinki (alteração local, web/erp/ORIGEM.json): CPF/CNPJ of a contato: 11 or 14 digits as before, or the CNPJ alfanumérico (12 [0-9A-Z] + 2 digits) of the contact
 // registry, upper-cased and checked with its check digits (validCnpj, erp_catalog.valid_cnpj).
 const text=(max,extra={})=>({t:'text',max,...extra}),area=max=>({t:'text',max,multiline:true}),digits=(...lengths)=>({t:'digits',lengths}),
  personDocument=()=>({t:'digits',lengths:[11,14],cnpj:true}),
  alnumCnpj=v=>typeof v==='string'&&/[A-Z]/.test(v)&&validCnpj(v),
  decimal=(intDigits,scale,extra={})=>({t:'decimal',int:intDigits,scale,...extra}),integer=max=>({t:'integer',max}),DATE={t:'date'},BOOL={t:'bool'},
  option=(...values)=>({t:'option',options:values.map(([value,label,...aliases])=>({value,label,aliases}))});
-// Wabotia (versão 28): code (one text matched by a pattern, `strip` drops dots, dashes and spaces, `upper` upper-cases) and list
+// Vinki (versão 28): code (one text matched by a pattern, `strip` drops dots, dashes and spaces, `upper` upper-cases) and list
 // (values separated by comma or semicolon, each with the `item` grammar, distinct, up to `max`).
 const code=(pattern,hint,extra={})=>({t:'code',pattern,hint,...extra}),list=(item,max,hint)=>({t:'list',item,max,hint});
 const col=(label,key,grammar,extra={})=>Object.freeze({label,key,...grammar,...extra});
@@ -99,7 +99,7 @@ const financeColumns=role=>[col(role==='supplier'?'Fornecedor':'Cliente','contac
  * and one of `itemOneOf` when given; `contact` asks the contato of the document; `max` lines per item (default 250; the composições
  * follow the 100 components of the Estrutura, erp_stock_product_compose). */
 const ORDER_GROUP=Object.freeze({key:'number',unit:'pedido',tooMany:'O pedido tem mais de 250 itens',itemRequired:Object.freeze(['quantity']),itemOneOf:Object.freeze(['code','description']),contact:true});
-// ---- Wabotia (versão 28): fiscal dos produtos, naturezas e regras fiscais, saldos iniciais ----
+// ---- Vinki (versão 28): fiscal dos produtos, naturezas e regras fiscais, saldos iniciais ----
 // The codes are the ones of the natureza rules (erp_fiscal_invoices.nature_specs); the server checks again against the regime
 // (CST or CSOSN) and the direction (IPI) of the natureza. NCM and CEST: the format (8 and 7 digits); the repository has no table of
 // valid codes.
@@ -227,7 +227,7 @@ export const IMPORT_TEMPLATES=Object.freeze({
   columns:Object.freeze([col('Código do produto','code',text(100),{required:true}),col('Lote','lot',text(60),{required:true}),col('Data de fabricação','manufactured_on',DATE),
    col('Data de validade','expires_on',DATE),col('Obs.','note',text(500))]),
   rule:'Um lote por linha. O produto é encontrado pelo Código e precisa ter Controle de lote (aba Estoque do produto). Um Lote novo é incluído no produto; um Lote que o produto já tem atualiza só as datas e a Obs. preenchidas. Valem as datas obrigatórias de Preferências › Cadastros › Controle de lotes e a fabricação até a validade. Nenhum saldo é lançado: o lote recebe estoque pelos lançamentos.'}),
- // Wabotia (versão 28): the preview (Validar) says what changes in each record; Importar writes through the screens' own rules.
+ // Vinki (versão 28): the preview (Validar) says what changes in each record; Importar writes through the screens' own rules.
  product_taxes:Object.freeze({kind:'product_taxes',title:'Importar dados fiscais dos produtos',noun:['produto','produtos'],file:'modelo-fiscal-produtos',columns:Object.freeze(PRODUCT_TAX_COLUMNS),
   readOnly:Object.freeze(['Descrição','Unidade']),oneOf:Object.freeze(['code','gtin']),oneOfText:'informe o Código ou o GTIN/EAN do produto',check:productTaxProblems,
   rule:'Um produto por linha, encontrado pelo Código ou, sem ele, pelo GTIN/EAN. A linha atualiza só as colunas preenchidas: NCM, CEST, Origem e GTIN/EAN tributável no cadastro do produto; CST/CSOSN, CFOP, alíquotas e benefício fiscal numa regra só deste produto na natureza informada (vazia: a natureza com o Padrão venda). As outras regras da natureza não mudam. A validação mostra o que muda em cada produto antes de importar.'}),
@@ -238,7 +238,7 @@ export const IMPORT_TEMPLATES=Object.freeze({
  opening_balances:Object.freeze({kind:'opening_balances',title:'Importar saldos iniciais das contas financeiras',noun:['saldo','saldos'],file:'modelo-saldos-iniciais',columns:Object.freeze(OPENING_COLUMNS),readOnly:Object.freeze([]),
   rule:'Um saldo por linha: a conta financeira (pelo nome), o dia e o saldo no fim desse dia. O ERP lança a diferença entre esse saldo e o saldo da conta no dia, como entrada ou saída de caixa com o histórico de saldo inicial (o mesmo lançamento do Financeiro). Importar a mesma planilha de novo não lança nada: o saldo já está igual.'}),
 });
-/** Planilha modelo: the instructions of the first sheet (Wabotia): title, rule and one row per column with how to fill and an example. */
+/** Planilha modelo: the instructions of the first sheet (Vinki): title, rule and one row per column with how to fill and an example. */
 export function templateInstructions(kind){
  const t=IMPORT_TEMPLATES[kind];need(t&&t.columns,400,'ERP_INVALID_INPUT');
  const kinds={text:'Texto',digits:'Número',decimal:'Número',integer:'Número inteiro',date:'Data',bool:'Sim ou Não',option:'Opção',code:'Código',list:'Lista'};

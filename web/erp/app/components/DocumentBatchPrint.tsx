@@ -17,7 +17,7 @@ import './document-list.css';
 /** `receipt` prints the Origin "Comprovantes selecionados"; `options` carries the "Opções de impressão". */
 type BatchPrintProps = { records: readonly DocumentRecord[]; controller: CompanyController; onClose: () => void; receipt?: boolean; options?: PrintOptions };
 export default function DocumentBatchPrint({ records, controller, onClose, receipt = false, options = {} }: BatchPrintProps) {
-  // Wabotia: Origin fora (motor 91213b8): sem espelhos, todos os registros são nativos.
+  // Vinki: Origin fora (motor 91213b8): sem espelhos, todos os registros são nativos.
   const nativeRecords = records;
   const dialog = useRef<HTMLDivElement>(null), close = useRef<HTMLButtonElement>(null), onCloseRef = useRef(onClose);
   const [printError, setPrintError] = useState(false);

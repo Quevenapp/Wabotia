@@ -38,7 +38,7 @@ struct DeviceServices {
     }
 }
 
-/// O aparelho diante do Wabotia (porta do `DeviceViewModel` do Android): pareamento, a fila ao vivo, a emissão com
+/// O aparelho diante do Vinki (porta do `DeviceViewModel` do Android): pareamento, a fila ao vivo, a emissão com
 /// impressão e a voz das chamadas. A fila nunca é decidida aqui: ordem, número e espera vêm do servidor.
 @MainActor
 final class DeviceViewModel: ObservableObject {
@@ -48,9 +48,9 @@ final class DeviceViewModel: ObservableObject {
         var busy = false
     }
 
-    static let revokedNotice = "Este aparelho foi desconectado no Wabotia. Desfaça o pareamento nos ajustes e conecte de novo."
+    static let revokedNotice = "Este aparelho foi desconectado no Vinki. Desfaça o pareamento nos ajustes e conecte de novo."
     static let operateNotice = "O administrador liberou também “Chamar e transferir senhas”, que o modo aparelho não usa. Para um totem mais seguro, revogue e aprove de novo só Ler e Emitir."
-    static let moduleOffNotice = "A fila de senhas está desligada neste Wabotia. Um administrador liga em Módulos."
+    static let moduleOffNotice = "A fila de senhas está desligada neste Vinki. Um administrador liga em Módulos."
 
     @Published private(set) var config: DeviceConfig?
     @Published private(set) var serverURL: String?
@@ -59,7 +59,7 @@ final class DeviceViewModel: ObservableObject {
     @Published private(set) var overview: QueueOverview?
     /// WebSocket aberto: as chamadas chegam na hora.
     @Published private(set) var live = false
-    /// Sem resposta do Wabotia: o totem não emite.
+    /// Sem resposta do Vinki: o totem não emite.
     @Published private(set) var offline = false
     @Published private(set) var busy = false
     /// Fila tocada no totem, esperando Normal ou Preferencial.
@@ -106,7 +106,7 @@ final class DeviceViewModel: ObservableObject {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let base = demo ? (services.serverURL ?? url) : url
         guard !base.trimmingCharacters(in: .whitespaces).isEmpty, !trimmedName.isEmpty else {
-            pairing = PairingUI(error: "Informe o endereço do Wabotia e um nome para este aparelho.")
+            pairing = PairingUI(error: "Informe o endereço do Vinki e um nome para este aparelho.")
             return
         }
         let normalized = QueueHTTP.normalize(base)
@@ -120,11 +120,11 @@ final class DeviceViewModel: ObservableObject {
                 let config = try await flow.run(baseURL: normalized, name: trimmedName, demo: self?.demo ?? false) { start in
                     self?.pairing = PairingUI(userCode: start.userCode, busy: true)
                     #if DEBUG
-                    print("[Wabotia] aparelho: código de pareamento \(start.userCode) (escopos pedidos: \(DeviceScopes.requested.joined(separator: ",")))")
+                    print("[Vinki] aparelho: código de pareamento \(start.userCode) (escopos pedidos: \(DeviceScopes.requested.joined(separator: ",")))")
                     #endif
                 }
                 #if DEBUG
-                print("[Wabotia] aparelho: pareado com a área \(config.profileId), escopos \(config.scopes?.joined(separator: ",") ?? "-")")
+                print("[Vinki] aparelho: pareado com a área \(config.profileId), escopos \(config.scopes?.joined(separator: ",") ?? "-")")
                 #endif
                 guard let self, !Task.isCancelled else { return }
                 self.services.store.save(config)
@@ -204,7 +204,7 @@ final class DeviceViewModel: ObservableObject {
         Task { [weak self] in
             if let found = try? await client.establishment() { self?.establishment = found }
             #if DEBUG
-            print("[Wabotia] aparelho: estabelecimento \(self?.establishment.map { "\"\($0.name ?? "")\" configurado=\($0.configured ?? false)" } ?? "indisponível (rota ausente?)")")
+            print("[Vinki] aparelho: estabelecimento \(self?.establishment.map { "\"\($0.name ?? "")\" configurado=\($0.configured ?? false)" } ?? "indisponível (rota ausente?)")")
             #endif
         }
     }
@@ -219,10 +219,10 @@ final class DeviceViewModel: ObservableObject {
     func handle(_ event: QueueLiveFeed.Event) {
         #if DEBUG
         switch event {
-        case .live(let on): print("[Wabotia] aparelho: WebSocket \(on ? "aberto" : "fechado")")
-        case .failure(let e): print("[Wabotia] aparelho: leitura falhou (\(e.status) \(e.code))")
-        case .call(let call): print("[Wabotia] aparelho: quadro call \(call.code ?? "?") \(call.counterName ?? "")")
-        case .snapshot(let o): if overview == nil || offline { print("[Wabotia] aparelho: fila lida (\(o.kioskQueues.count) fila(s) no totem, \(o.recentCalls?.count ?? 0) chamada(s))") }
+        case .live(let on): print("[Vinki] aparelho: WebSocket \(on ? "aberto" : "fechado")")
+        case .failure(let e): print("[Vinki] aparelho: leitura falhou (\(e.status) \(e.code))")
+        case .call(let call): print("[Vinki] aparelho: quadro call \(call.code ?? "?") \(call.counterName ?? "")")
+        case .snapshot(let o): if overview == nil || offline { print("[Vinki] aparelho: fila lida (\(o.kioskQueues.count) fila(s) no totem, \(o.recentCalls?.count ?? 0) chamada(s))") }
         }
         #endif
         switch event {
@@ -254,7 +254,7 @@ final class DeviceViewModel: ObservableObject {
 
     #if DEBUG
     func debugDropSocket() {
-        print("[Wabotia] aparelho: WebSocket cortado (teste de reconexão)")
+        print("[Vinki] aparelho: WebSocket cortado (teste de reconexão)")
         feed?.debugDropSocket()
     }
     #endif
@@ -335,14 +335,14 @@ final class DeviceViewModel: ObservableObject {
                 self.issued = ticket
                 self.couponPrint = .printing
                 #if DEBUG
-                print("[Wabotia] aparelho: senha emitida \(ticket.code ?? "?") (\(ticket.source ?? "-"))")
+                print("[Vinki] aparelho: senha emitida \(ticket.code ?? "?") (\(ticket.source ?? "-"))")
                 #endif
                 await self.printIssued()
                 self.scheduleIssuedDismiss()
             } catch {
                 guard let self else { return }
                 #if DEBUG
-                print("[Wabotia] aparelho: emissão recusada (\((error as? QueueError)?.code ?? "\(error)"))")
+                print("[Vinki] aparelho: emissão recusada (\((error as? QueueError)?.code ?? "\(error)"))")
                 #endif
                 self.busy = false
                 self.notice = QueueError.describe(error)
@@ -355,7 +355,7 @@ final class DeviceViewModel: ObservableObject {
 
     private func printIssued() async {
         guard let issued else { return }
-        let header = config?.name.isEmpty == false ? config!.name : "Wabotia"
+        let header = config?.name.isEmpty == false ? config!.name : "Vinki"
         couponPrint = await services.printer.print(CouponData.of(issued, header: header, establishment: establishment))
     }
 
@@ -423,7 +423,7 @@ final class DeviceViewModel: ObservableObject {
     }
 
     /// Credencial revogada no servidor: ela não vale mais nada, então os ajustes abrem sem PIN para desfazer o
-    /// pareamento e parear de novo (é o caminho de quem esqueceu o PIN: revogar no Wabotia).
+    /// pareamento e parear de novo (é o caminho de quem esqueceu o PIN: revogar no Vinki).
     var settingsNeedPin: Bool { pinSet && !revoked }
 
     func unlock(_ pin: String) -> Bool {

@@ -1,14 +1,14 @@
 # WhatsApp pela Zernio
 
-O Wabotia importa telefones WhatsApp já cadastrados na Zernio, que intermedeia o envio e o recebimento das mensagens. O cadastro e a autorização do telefone são gerenciados fora do Wabotia, no painel Zernio. QR e WhatsApp pelo Hermes continuam disponíveis.
+O Vinki importa telefones WhatsApp já cadastrados na Zernio, que intermedeia o envio e o recebimento das mensagens. O cadastro e a autorização do telefone são gerenciados fora do Vinki, no painel Zernio. QR e WhatsApp pelo Hermes continuam disponíveis.
 
 ## Importar telefones da Zernio
 
 1. Abra [API Keys da Zernio](https://zernio.com/dashboard/api-keys), clique em **Create API key** e copie a chave imediatamente: ela é exibida uma vez. Consulte as [instruções oficiais](https://docs.zernio.com/quickstart#create-an-api-key).
-2. No [painel Zernio](https://zernio.com), abra **Connections** para conferir os telefones já cadastrados. O **Account ID** identifica o telefone; o ID empresarial da Meta identifica a conta WhatsApp Business. O Wabotia encontra o ID da integração usando a API key, sem precisar copiá-lo do painel Zernio.
+2. No [painel Zernio](https://zernio.com), abra **Connections** para conferir os telefones já cadastrados. O **Account ID** identifica o telefone; o ID empresarial da Meta identifica a conta WhatsApp Business. O Vinki encontra o ID da integração usando a API key, sem precisar copiá-lo do painel Zernio.
 3. Crie uma senha aleatória longa para o **Segredo de assinatura do webhook Zernio** e guarde-a. A Zernio não gera esse segredo: use o mesmo valor nos dois sistemas. [Documentação de webhooks](https://docs.zernio.com/webhooks).
-4. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, fuso, API key e segredo do webhook. Pode deixar **ID da integração na Zernio** vazio. Salve e clique em **Encontrar ID na Zernio**. Escolha pelo nome, confira o ID encontrado e clique em **Usar esta integração**. Isso usa a chave já salva e não cria cadastros na Zernio. Se tiver informado um Account ID por engano, o Wabotia consegue reconhecer a integração à qual aquele telefone pertence. A correção só é permitida antes de vincular telefones ou grupos, preservando as credenciais e a URL do webhook.
-5. Confira se o telefone desejado já está disponível na Zernio. Se estiver ausente, gerencie o cadastro diretamente no painel Zernio antes de refazer a busca no Wabotia.
+4. Abra **Canais → Integração Zernio → Nova integração**. Informe nome, fuso, API key e segredo do webhook. Pode deixar **ID da integração na Zernio** vazio. Salve e clique em **Encontrar ID na Zernio**. Escolha pelo nome, confira o ID encontrado e clique em **Usar esta integração**. Isso usa a chave já salva e não cria cadastros na Zernio. Se tiver informado um Account ID por engano, o Vinki consegue reconhecer a integração à qual aquele telefone pertence. A correção só é permitida antes de vincular telefones ou grupos, preservando as credenciais e a URL do webhook.
+5. Confira se o telefone desejado já está disponível na Zernio. Se estiver ausente, gerencie o cadastro diretamente no painel Zernio antes de refazer a busca no Vinki.
 6. Abra **Telefones → Buscar telefones na Zernio**. Cada telefone tem seu próprio **ID do telefone na Zernio**, identificado pelo campo **Account ID** no provedor.
 7. Selecione o telefone, dê um nome e adicione. Não é necessário informar consumo anterior ou limite local. A linha começa pausada.
 
@@ -16,7 +16,7 @@ O Wabotia importa telefones WhatsApp já cadastrados na Zernio, que intermedeia 
 
 Copie a URL **Webhook único desta integração**, no domínio HTTPS da sua instalação, terminada em /webhooks/zernio-accounts/ID_DA_CONTA.
 
-Cadastre essa URL em [Webhooks da Zernio](https://zernio.com/dashboard/webhooks), com o mesmo segredo de assinatura salvo no Wabotia. Selecione eventos de mensagem recebida, enviada, entregue, lida e falha. A assinatura é validada antes de aceitar o evento. Os eventos precisam pertencer a um telefone cadastrado nessa integração.
+Cadastre essa URL em [Webhooks da Zernio](https://zernio.com/dashboard/webhooks), com o mesmo segredo de assinatura salvo no Vinki. Selecione eventos de mensagem recebida, enviada, entregue, lida e falha. A assinatura é validada antes de aceitar o evento. Os eventos precisam pertencer a um telefone cadastrado nessa integração.
 
 Ative a linha, selecione o bot ou a equipe responsável e faça um teste de recebimento, resposta e confirmação de entrega. Uma mensagem na fila ou aceita pelo provedor ainda não comprova a entrega ao cliente.
 
@@ -24,15 +24,15 @@ Também é possível cadastrar uma conexão individual em **Conexões → WhatsA
 
 ## Migrar da conexão direta com a Meta
 
-As linhas Meta anteriores são pausadas pela atualização. Não ocorre conversão automática de credenciais ou transferência de telefones no provedor. Resolva envios em andamento ou sem confirmação e ligações abertas, exclua a linha antiga do Wabotia e importe o telefone já cadastrado na Zernio. O histórico anterior permanece disponível, desvinculado da nova conexão.
+As linhas Meta anteriores são pausadas pela atualização. Não ocorre conversão automática de credenciais ou transferência de telefones no provedor. Resolva envios em andamento ou sem confirmação e ligações abertas, exclua a linha antiga do Vinki e importe o telefone já cadastrado na Zernio. O histórico anterior permanece disponível, desvinculado da nova conexão.
 
 Não mantenha dois sistemas respondendo pelo mesmo telefone. Gerencie o cadastro do telefone no [painel Zernio](https://zernio.com).
 
 ## Excluir um telefone
 
-Use **Excluir telefone** em **Telefones** ou **Conexões** e confira a confirmação. A ação exige administrador e resolve apenas o cadastro local. O Wabotia preserva conversas, mensagens e protocolos e remove credenciais e vínculos de roteamento. Mensagens e operações de grupo ainda na fila são canceladas atomicamente. Envios e operações de grupo em andamento ou sem confirmação e ligações abertas impedem a exclusão até serem resolvidos.
+Use **Excluir telefone** em **Telefones** ou **Conexões** e confira a confirmação. A ação exige administrador e resolve apenas o cadastro local. O Vinki preserva conversas, mensagens e protocolos e remove credenciais e vínculos de roteamento. Mensagens e operações de grupo ainda na fila são canceladas atomicamente. Envios e operações de grupo em andamento ou sem confirmação e ligações abertas impedem a exclusão até serem resolvidos.
 
-Excluir no Wabotia não cancela o telefone, a conta nem serviços e cobranças da Zernio. Para desconectar ou cancelar remotamente, use o provedor.
+Excluir no Vinki não cancela o telefone, a conta nem serviços e cobranças da Zernio. Para desconectar ou cancelar remotamente, use o provedor.
 
 ## Excluir uma integração
 
@@ -53,7 +53,7 @@ Nas linhas oficiais (Zernio), os módulos e o atendimento automático podem usar
 | Produto, lista de produtos (até 30 itens) e catálogo | Cartões do catálogo da Meta | Texto da mensagem e, quando informados, texto e link alternativos (por exemplo, a loja ou o passo web) |
 | Flow publicado | Botão que abre o formulário dentro do WhatsApp | Texto da mensagem e o link alternativo, quando informado |
 
-### Onde o Wabotia usa o botão com link
+### Onde o Vinki usa o botão com link
 
 Toda mensagem do núcleo e dos módulos que leva o cliente a uma página usa o botão com link na linha oficial (com a janela de 24 horas aberta) e o texto com o link na linha QR:
 
@@ -73,19 +73,19 @@ Os limites do WhatsApp são conferidos antes do envio, em todas as linhas, para 
 ### O que depende de configuração na Meta
 
 - **Produto, lista de produtos e catálogo** exigem um catálogo da Meta ligado à conta WhatsApp Business no [Commerce Manager](https://business.facebook.com/commerce/), com os produtos cadastrados pelo **ID do produto** (Content ID ou SKU) usado na mensagem. O carrossel de imagens ou vídeos não depende de catálogo.
-- **Flows** precisam ser criados e publicados na conta WhatsApp Business. O Wabotia cria o rascunho, envia o JSON do Flow no formato da Meta, publica e lista os Flows pela Zernio. A publicação é definitiva: um Flow publicado não pode ser alterado; para mudar, crie uma nova versão a partir dele. Se a Meta recusar o JSON, os erros voltam com linha e coluna e a publicação é bloqueada até a correção.
-- Flows com endpoint próprio (`data_exchange`) exigem endpoint HTTPS e chave pública registrada no número. O Wabotia ainda não hospeda esse endpoint: use Flows de navegação (`navigate`), que funcionam só com o JSON publicado.
+- **Flows** precisam ser criados e publicados na conta WhatsApp Business. O Vinki cria o rascunho, envia o JSON do Flow no formato da Meta, publica e lista os Flows pela Zernio. A publicação é definitiva: um Flow publicado não pode ser alterado; para mudar, crie uma nova versão a partir dele. Se a Meta recusar o JSON, os erros voltam com linha e coluna e a publicação é bloqueada até a correção.
+- Flows com endpoint próprio (`data_exchange`) exigem endpoint HTTPS e chave pública registrada no número. O Vinki ainda não hospeda esse endpoint: use Flows de navegação (`navigate`), que funcionam só com o JSON publicado.
 
 ### Respostas recebidas
 
 - **Formulário (Flow) e endereço**: chegam com os campos preenchidos e o token de correlação do envio. O texto da mensagem mostra um resumo, como "Formulário enviado." seguido de cada campo.
 - **Carrinho do catálogo**: chega com o catálogo, os itens (ID do produto, quantidade, preço unitário e moeda), a observação do cliente e o total, quando todos os itens têm preço na mesma moeda. O texto mostra o pedido; a Meta não envia o nome do produto, só o ID.
-- **Localização enviada pelo cliente**: latitude e longitude numéricas, nome e endereço, no mesmo formato da localização enviada pelo Wabotia.
+- **Localização enviada pelo cliente**: latitude e longitude numéricas, nome e endereço, no mesmo formato da localização enviada pelo Vinki.
 - **Pergunta sobre produto** ("Enviar mensagem à empresa" num produto) e **contato compartilhado a pedido** são identificados no conteúdo da mensagem.
 
 Toques em botões e listas continuam funcionando como antes.
 
-O atendimento trata o formulário e o carrinho antes do menu e do bot: a resposta de um formulário enviado pelo Wabotia (passo web entregue como Flow) é casada pelo token e conclui o formulário; um carrinho, ou um formulário sem envio correspondente, vai para o módulo que o trata ou, sem módulo, para a equipe com o resumo. O resumo nunca abre o menu. Detalhes em [MODULOS.md](MODULOS.md), seção "Passo web".
+O atendimento trata o formulário e o carrinho antes do menu e do bot: a resposta de um formulário enviado pelo Vinki (passo web entregue como Flow) é casada pelo token e conclui o formulário; um carrinho, ou um formulário sem envio correspondente, vai para o módulo que o trata ou, sem módulo, para a equipe com o resumo. O resumo nunca abre o menu. Detalhes em [MODULOS.md](MODULOS.md), seção "Passo web".
 
 > **Teste numa linha Zernio real antes de publicar:** listas e demais interativos (exceto botões de resposta) passaram a sair só com o `interactive`, sem o texto numerado junto. Isso vale para os menus e a fila já publicados. Os testes locais conferem o pedido montado, não a exibição no WhatsApp.
 
@@ -104,6 +104,6 @@ O atendimento trata o formulário e o carrinho antes do menu e do bot: a respost
 - Abra **Templates da Zernio** no telefone para buscar os modelos já cadastrados por nome, texto, idioma, categoria e status. Consultar não envia mensagens nem cria templates. A gestão e aprovação continuam no provedor.
 - Os tipos de mensagem e operações disponíveis são apresentados conforme as capacidades da conexão.
 - Grupos empresariais exigem telefone elegível sem coexistência com o aplicativo. Confira a Zernio antes de habilitar o recurso e sincronize os grupos em **Grupos WhatsApp** antes de receber mensagens deles, para que sejam identificados corretamente.
-- O áudio de chamadas pelo navegador do Wabotia não está disponível na integração Zernio. Históricos anteriores são mantidos; as [opções de chamada da Zernio](https://docs.zernio.com/platforms/whatsapp/calling) possuem configuração própria.
+- O áudio de chamadas pelo navegador do Vinki não está disponível na integração Zernio. Históricos anteriores são mantidos; as [opções de chamada da Zernio](https://docs.zernio.com/platforms/whatsapp/calling) possuem configuração própria.
 
 Referências: [WhatsApp Zernio](https://docs.zernio.com/platforms/whatsapp), [telefones cadastrados](https://docs.zernio.com/accounts/list-accounts), [inbox](https://docs.zernio.com/platforms/whatsapp/inbox), [enviar mensagem](https://docs.zernio.com/messages/send-inbox-message), [Flows](https://docs.zernio.com/platforms/whatsapp/flows), [grupos](https://docs.zernio.com/platforms/whatsapp/groups).

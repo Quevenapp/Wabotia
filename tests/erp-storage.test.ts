@@ -384,7 +384,7 @@ describe("armazenamento do ERP no R2", () => {
       (await storage(f.profile, "POST", "brufap-received-dfe/objects/a", octet))
         .status,
     ).toBe(200);
-    // Certificado A1: nunca no Wabotia (fica no cofre da NFapi). Mesmo com o
+    // Certificado A1: nunca no Vinki (fica no cofre da NFapi). Mesmo com o
     // erp-fiscal ligado, gravar, ler, apagar e assinar dão 404, e nada vai
     // para o R2.
     const vault = "brufap-a1-vault/certificates/a1.json";

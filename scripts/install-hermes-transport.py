@@ -2,7 +2,7 @@
 """Install into an explicitly selected Hermes profile without changing its bots."""
 import argparse, getpass, json, shutil, os
 from pathlib import Path
-p=argparse.ArgumentParser(description='Instalar transporte Wabotia em um perfil Hermes existente')
+p=argparse.ArgumentParser(description='Instalar transporte Vinki em um perfil Hermes existente')
 p.add_argument('--profile-home', required=True, type=Path)
 p.add_argument('--url', required=True)
 p.add_argument('--connection-id', required=True)
@@ -23,4 +23,4 @@ with os.fdopen(fd,'w') as f:json.dump({'url':a.url,'connection_id':a.connection_
 if not any(r['platform']==a.platform for r in rows):rows.append({'platform':a.platform,'consumer':'wabotia_transport'})
 if binding.exists():shutil.copy2(binding,binding.with_suffix('.json.backup'))
 binding.write_text(json.dumps(rows,indent=2));binding.chmod(0o600)
-print('Instalado. Aplique a extensão compatível no checkout Hermes com o gateway parado e habilite wabotia_transport em modo in_process. Reinicie e teste no Wabotia. Não removemos bots nem dados.')
+print('Instalado. Aplique a extensão compatível no checkout Hermes com o gateway parado e habilite wabotia_transport em modo in_process. Reinicie e teste no Vinki. Não removemos bots nem dados.')

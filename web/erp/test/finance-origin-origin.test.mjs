@@ -14,9 +14,9 @@ test('039 provenance binds exact title and direction, preserves large versions a
  assert.equal(financeOriginOrigin(envelope(false),id,'receivable'),null);
  for(const mutate of[v=>v.title_id=other,v=>v.origin.entity='payables',v=>v.read_only=false,v=>v.origin.core_fields_locked=false,v=>v.origin.cnab_reservation_blocked=false,v=>v.origin.source_version=9007199254740993,v=>v.origin.source_version='9223372036854775808',v=>v.origin.source_id='0',v=>v.origin.imported_at='invalid',v=>delete v.origin]){const v=envelope();mutate(v);assert.throws(()=>financeOriginOrigin(v,id,'receivable'));}
 });
-// Wabotia: a importação financeira do Origin saiu (item 17) e o motor responde 404 em /v1/importacao-financeira-origin;
+// Vinki: a importação financeira do Origin saiu (item 17) e o motor responde 404 em /v1/importacao-financeira-origin;
 // a conferência de origem do título fica desligada (RealFinance, ORIGIN_FINANCE_IMPORT). Os testes 039 da tela saíram com ela.
-test('Wabotia: o título abre sem pedir a origem do Origin e a edição fica liberada',async()=>{
+test('Vinki: o título abre sem pedir a origem do Origin e a edição fica liberada',async()=>{
  let reads=0;const controller={async financialImportOrigin(){reads++;return envelope();},async finance(){throw Error('No mutation');}};
  const ui=await mountComponent('RealFinance.tsx',{controller,entity:'titles',record:title,writable:true,onClose(){},onEdit(){}},{componentName:'FinanceDetail'});
  try{assert.equal(reads,0);assert.equal(ui.button('Editar título').disabled,false);assert.doesNotMatch(ui.text(),/Importado do Origin|Conferindo a origem/);}finally{ui.unmount();}

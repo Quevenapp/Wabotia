@@ -7,7 +7,7 @@ import retrofit2.Response
 import retrofit2.http.*
 
 /**
- * Contrato REST do Wabotia consumido pelo aplicativo (docs/API.md + docs/MOBILE.md).
+ * Contrato REST do Vinki consumido pelo aplicativo (docs/API.md + docs/MOBILE.md).
  * Escritas exigem Idempotency-Key: gere uma chave por intenção e reutilize a mesma ao repetir após falha de rede.
  */
 interface WabotiaApi {

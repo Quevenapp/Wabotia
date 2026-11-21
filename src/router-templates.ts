@@ -260,7 +260,7 @@ export async function paidTemplate(
         supplied?.parameters?.length === 1 &&
           supplied.parameters[0]?.type === kind &&
           typeof supplied.parameters[0].media_id === "string",
-        "O cabeçalho exige um media_id privado do Wabotia.",
+        "O cabeçalho exige um media_id privado do Vinki.",
       );
       const media = await authorizedMedia(
         env,

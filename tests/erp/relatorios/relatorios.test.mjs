@@ -1,4 +1,4 @@
-// Relatórios do ERP (Wabotia, sem função no oráculo): DRE gerencial por caixa
+// Relatórios do ERP (Vinki, sem função no oráculo): DRE gerencial por caixa
 // e competência com Custos, comparação e detalhe; gráficos de vendas,
 // financeiro e estoque; lotes vencendo; pagamento da equipe e comissão do
 // vendedor; parte desligada recusa antes de ler; argumentos e contrato das

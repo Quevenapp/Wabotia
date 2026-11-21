@@ -1,5 +1,5 @@
 // "Confirme que é você" dentro do ERP: o código do aplicativo autenticador (ou
-// um código de recuperação) confirma a sessão do Wabotia (POST
+// um código de recuperação) confirma a sessão do Vinki (POST
 // /api/v1/account/mfa/challenge, porta `challenge`). Usado quando a política
 // de segundo fator do ERP pede (ERP_MFA_REQUIRED) e para mudar essa política.
 // Quando a casca tiver o próprio pedido de código (origin/feat/login-mfa,

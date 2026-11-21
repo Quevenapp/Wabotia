@@ -59,7 +59,7 @@ const val PRINTER_INTRO =
     "A impressora fica neste aparelho: o totem imprime nela o cupom de cada senha. " +
         "Escolha a impressora (Bluetooth, USB ou Wi-Fi) e confirme o comprovante de teste no papel."
 
-/** O tema do kit montado a partir dos tokens do Wabotia (DESIGN.md, seção 1): só cores, nunca componentes. */
+/** O tema do kit montado a partir dos tokens do Vinki (DESIGN.md, seção 1): só cores, nunca componentes. */
 @Composable
 fun wabotiaThermalPrinterTheme(): ThermalPrinterTheme {
     val c = Wb.colors

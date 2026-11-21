@@ -96,7 +96,7 @@ describe("cn-web — apresentação compatível e canais conhecidos", () => {
     expect(channelNotificationTitle("Ana", "instagram", true)).toBe("Instagram · Ana");
     expect(channelNotificationTitle("Instagram · Ana", "instagram", true)).toBe("Instagram · Ana");
     expect(channelNotificationTitle("Ana", "whatsapp", false)).toBe("Ana");
-    expect(channelNotificationTitle("Ana", "instagram", true, true)).toBe("Wabotia");
+    expect(channelNotificationTitle("Ana", "instagram", true, true)).toBe("Vinki");
   });
 });
 

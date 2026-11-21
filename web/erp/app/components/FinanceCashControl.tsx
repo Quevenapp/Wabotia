@@ -147,7 +147,7 @@ function CashSessionDetail({ controller, record, methods, writable, send, mayWri
   onMove: (move: 'withdrawal' | 'supply') => void; onConfirm: (action: Extract<Panel, { kind: 'confirm' }>['action'], title: string, text: string, moveId?: string) => void }) {
   const open = record.state === 'open';
   // Frente de caixa (202610200206): vendas registradas neste caixa por forma e por grupo de produtos.
-  // Wabotia: sem o bloco Caixa / PDV (web/erp/blocks.ts) o resumo da Frente de caixa não é pedido: registrado zero.
+  // Vinki: sem o bloco Caixa / PDV (web/erp/blocks.ts) o resumo da Frente de caixa não é pedido: registrado zero.
   const pdvOn = blockEnabled('erp-pdv'), pdvPort = pdvOn ? controller : {};
   const pdv = usePdvCashSummary(pdvPort, record.id), cashSales = (pdv?.summary?.methods ?? []).filter(item => item.payment_type === '01').reduce((sum, item) => sum + BigInt(item.registered_cents), 0n) - BigInt(pdv?.summary?.returns_cents ?? '0');
   const [values, setValues] = useState(() => (record.values ?? []).map(item => ({ method: item.payment_method_id, amount: centsInput(item.amount_cents) })));

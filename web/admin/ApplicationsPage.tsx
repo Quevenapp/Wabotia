@@ -379,7 +379,7 @@ export function ApplicationsPage() {
             empty={
               <Empty
                 icon={<Link2 size={28} />}
-                title="O Wabotia dentro dos seus sistemas"
+                title="O Vinki dentro dos seus sistemas"
                 description="Cadastre uma aplicação para integrar mensagens, protocolos e bots à sua operação."
               />
             }
@@ -490,7 +490,7 @@ export function ApplicationsPage() {
             type="url"
             value={url}
             onChange={setUrl}
-            placeholder="https://seusistema.com/wabotia"
+            placeholder="https://seusistema.com/vinki"
             required
           />
           <p>

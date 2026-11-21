@@ -100,7 +100,7 @@ test('in place (QA route), switching the entity keeps the same hooks in the same
     pencil().props.onClick({ stopPropagation() {} }); await view.flush();
     assert.equal(view.input('catalog-inline-price').props.value, '1,50', 'a new inline price starts from the stored price');
 
-    // Wabotia: os depósitos só são lidos quando o filtro de Estoque é usado, e não ao abrir a lista de produtos.
+    // Vinki: os depósitos só são lidos quando o filtro de Estoque é usado, e não ao abrir a lista de produtos.
     assert.deepEqual(withoutTaxonomies(calls), ['/v1/cadastros', list('products'), list('warehouses'), list('products')]);
     assert.deepEqual(calls.filter(path => path.includes('/taxonomias/')), [...TAXONOMIES, ...TAXONOMIES], 'the product list reads its filter options each time it is shown');
     const all = renders(globalThis[HOOK_LOG]);
@@ -204,7 +204,7 @@ test('products: the routed list mounts and the routed editor creates, edits and 
   try {
     const paths = () => withoutTaxonomies(calls.map(call => call.method ? `${call.method} ${call.path}` : call.path));
     assert.deepEqual(headers(view), EXPECT.products.headers);
-    // Wabotia: sem a leitura dos depósitos na abertura (só com o filtro de Estoque).
+    // Vinki: sem a leitura dos depósitos na abertura (só com o filtro de Estoque).
     assert.deepEqual(paths(), ['/v1/cadastros', list('products')]);
     let mounted = paths().length;
     await view.click('Incluir cadastro');
@@ -235,7 +235,7 @@ test('products: the routed list mounts and the routed editor creates, edits and 
   } finally { view.unmount(); }
 });
 
-// Wabotia (latência, 9.6): o catálogo roda os hooks de produtos para toda entidade; fora de Produtos a porta das preferências
+// Vinki (latência, 9.6): o catálogo roda os hooks de produtos para toda entidade; fora de Produtos a porta das preferências
 // fica desligada. Em Produtos, permissões e preferências saem juntas e a primeira página só depois das duas, uma vez; a sacola
 // (contador) sai depois da lista e os depósitos só com o filtro de Estoque.
 const latencyController = (calls, gate) => ({
@@ -243,7 +243,7 @@ const latencyController = (calls, gate) => ({
   async listPreferences(path) { calls.push(`prefs ${path}`); await gate; return { scope: 'list_preferences', data_mode: 'erp_native', list_id: path.split('/').at(-1), version: 1, columns: null, filters: { q: 'Cadastro' }, updated_at: '2026-10-19T12:00:00Z' }; },
   async documents(path) { calls.push(`documents ${path}`); throw new Error('synthetic: no bag'); },
 });
-test('Wabotia: contatos não leem as preferências de lista de produtos nem a sacola', async () => {
+test('Vinki: contatos não leem as preferências de lista de produtos nem a sacola', async () => {
   const calls = [], view = await mountComponent('RealCatalog.tsx', { controller: latencyController(calls, Promise.resolve()), initialEntity: 'contacts' });
   try {
     for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
@@ -251,7 +251,7 @@ test('Wabotia: contatos não leem as preferências de lista de produtos nem a sa
     assert.deepEqual(calls.filter(path => path.startsWith('prefs ') || path.startsWith('documents ')), [], 'no /v1/preferencias-listas/cadastros.produtos and no sacola outside products');
   } finally { view.unmount(); }
 });
-test('Wabotia: produtos pedem a primeira página uma vez, depois das preferências; sacola depois da lista; depósitos só no filtro de Estoque', async () => {
+test('Vinki: produtos pedem a primeira página uma vez, depois das preferências; sacola depois da lista; depósitos só no filtro de Estoque', async () => {
   let release; const gate = new Promise(resolve => { release = resolve; });
   const calls = [], view = await mountComponent('RealCatalog.tsx', { controller: latencyController(calls, gate), initialEntity: 'products' }, { expandChildren: ['NativeListLayout'] });
   try {

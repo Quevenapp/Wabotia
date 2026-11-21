@@ -15,7 +15,7 @@ import org.junit.Test
 
 /**
  * O cliente da fila e o do pareamento contra respostas no formato do contrato (docs/FILA-SENHAS.md e
- * docs/PAREAMENTO.md). O Wabotia de verdade é provado nos testes do servidor e no roteiro de bancada.
+ * docs/PAREAMENTO.md). O Vinki de verdade é provado nos testes do servidor e no roteiro de bancada.
  */
 class QueueClientTest {
     private lateinit var server: MockWebServer

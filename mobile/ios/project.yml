@@ -41,8 +41,8 @@ targets:
     info:
       path: Wabotia/Info.plist
       properties:
-        CFBundleDisplayName: Wabotia
-        CFBundleName: Wabotia
+        CFBundleDisplayName: Vinki
+        CFBundleName: Vinki
         CFBundleDevelopmentRegion: pt-BR
         CFBundleLocalizations: [pt-BR]
         CFBundleShortVersionString: $(MARKETING_VERSION)

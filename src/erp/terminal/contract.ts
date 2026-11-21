@@ -25,7 +25,7 @@ export const TERMINAL_KIND_LABELS: Readonly<Record<TerminalCardKind, string>> = 
 export type TerminalInstallmentsCost = "loja" | "cliente";
 export const TERMINAL_MAX_INSTALLMENTS = 12;
 
-/** Situação do pagamento no Wabotia (migrations/0270_erp_maquininha.sql). */
+/** Situação do pagamento no Vinki (migrations/0270_erp_maquininha.sql). */
 export type TerminalStatus = "enviando" | "aguardando" | "processando" | "aprovado" | "recusado" | "cancelado" | "incerto" | "erro";
 export const TERMINAL_STATUS_LABELS: Readonly<Record<TerminalStatus, string>> = Object.freeze({
   enviando: "Enviando para a maquininha", aguardando: "Aguardando pagamento na maquininha", processando: "A maquininha está processando o cartão",
@@ -115,7 +115,7 @@ export const ERP_TERMINAL_OPERATIONS: readonly ErpTerminalOperation[] = Object.f
 ]);
 
 const propertySchemas: Record<string, Record<string, unknown>> = {
-  id: { type: "string", format: "uuid", description: "Pagamento da maquininha no Wabotia." },
+  id: { type: "string", format: "uuid", description: "Pagamento da maquininha no Vinki." },
 };
 
 /** Parâmetros (caminho e corpo) num objeto, para o catálogo do bot. */

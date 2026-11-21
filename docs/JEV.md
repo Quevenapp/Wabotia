@@ -5,7 +5,7 @@ O JEV (TypeSafe, [System One](https://docs.typesafe.ai/api/system-one)) não ger
 - `choice`: a opção, as probabilidades e a confiança;
 - `noul`: sim ou não, como probabilidade de 0 a 1.
 
-No Wabotia ele decide **julgamento**: se a ação proposta pelo Atendente pode seguir, se o cliente pede cancelamento, qual produto o cliente quis dizer. **Regra de política, conta, data, janela de atendimento e valor continuam conferidos por código, nunca por ele.** O JEV nunca libera sozinho uma ação sensível.
+No Vinki ele decide **julgamento**: se a ação proposta pelo Atendente pode seguir, se o cliente pede cancelamento, qual produto o cliente quis dizer. **Regra de política, conta, data, janela de atendimento e valor continuam conferidos por código, nunca por ele.** O JEV nunca libera sozinho uma ação sensível.
 
 ## Ligar
 

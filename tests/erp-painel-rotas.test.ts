@@ -622,7 +622,7 @@ describe("painel do ERP contra a rota real", () => {
     { timeout: 120_000 },
     async () => {
       // A Frente de caixa mostrava "Certificado inválido" (o A1 do Fagoo); no
-      // Wabotia o certificado fica no cofre NFapi (web/erp/emissor.ts).
+      // Vinki o certificado fica no cofre NFapi (web/erp/emissor.ts).
       const { f, get } = await setup();
       const response = await get(await bearer(f.admin), "/erp-emissor");
       expect(response.status).toBe(200);

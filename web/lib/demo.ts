@@ -291,7 +291,7 @@ const team: Row[] = [
     bot_id: "demo-bot",
     line_ids: null,
     connection_kind: "ai",
-    does: "Bot interno: consulta o Wabotia e propõe ações com o acesso de quem pede.",
+    does: "Bot interno: consulta o Vinki e propõe ações com o acesso de quem pede.",
   },
   {
     id: "bot:demo-ia",
@@ -303,7 +303,7 @@ const team: Row[] = [
     line_ids: [],
     connection_kind: "ai",
     connection_status: "active",
-    does: "Consulta o Wabotia e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.",
+    does: "Consulta o Vinki e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.",
   },
 ];
 const tickets: Row[] = [
@@ -382,7 +382,7 @@ const internalMessages: Row[] = [
   {
     id: "i1",
     author: "demo-ana",
-    text: "Esta conversa acontece dentro do Wabotia. As mensagens não são enviadas ao cliente no WhatsApp.",
+    text: "Esta conversa acontece dentro do Vinki. As mensagens não são enviadas ao cliente no WhatsApp.",
     created: t(30 * M),
     status: null,
   },

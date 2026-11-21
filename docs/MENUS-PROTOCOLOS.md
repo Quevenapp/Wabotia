@@ -25,7 +25,7 @@ A exclusão de um ramo pede confirmação mostrando os itens envolvidos. Se outr
 
 No fim da tela de menus, abra **Setores de atendimento → Adicionar setor**, dê um nome e selecione pessoas com acesso ao perfil. Depois escolha esse setor no destino **Equipe humana** de uma opção.
 
-O encaminhamento coloca a conversa na fila do setor e pausa o bot. Somente membros autorizados do setor ou administradores podem assumir, responder, transferir ou atualizar seus protocolos. A presença continua manual. Se nenhum membro estiver disponível, o Wabotia cria um protocolo com o prazo padrão configurado e informa ao cliente como consultá-lo.
+O encaminhamento coloca a conversa na fila do setor e pausa o bot. Somente membros autorizados do setor ou administradores podem assumir, responder, transferir ou atualizar seus protocolos. A presença continua manual. Se nenhum membro estiver disponível, o Vinki cria um protocolo com o prazo padrão configurado e informa ao cliente como consultá-lo.
 
 Administradores podem intervir em qualquer setor. Setores organizam responsabilidade e filas dentro de um perfil; não substituem os perfis como separação de acesso aos dados. Desativar um setor retira seus destinos dos menus. As conversas já encaminhadas continuam identificadas, para o administrador realocá-las.
 
@@ -60,7 +60,7 @@ Desde a 0.14.0 o cliente pode registrar um pedido sem entrar na fila humana:
 - escolhendo uma opção de menu do tipo **Abrir protocolo** (`type: "ticket"`);
 - escrevendo **PROTOCOLO**, **ABRIR PROTOCOLO** ou **NOVO PROTOCOLO**, sozinho na mensagem, sem diferenciar maiúsculas, acentos e pontuação final. **MEUS PROTOCOLOS** e **CONSULTAR PROTOCOLO** continuam sendo consulta.
 
-O Wabotia envia a pergunta (a do destino, ou "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.") e aguarda a descrição por até 30 minutos. A próxima mensagem de texto vira o protocolo: os primeiros 300 caracteres formam o título e o texto completo entra como primeiro andamento público. O cliente recebe então a mensagem de confirmação.
+O Vinki envia a pergunta (a do destino, ou "Descreva em uma mensagem o que você precisa. Se puder, diga o que tentou e o que aconteceu.") e aguarda a descrição por até 30 minutos. A próxima mensagem de texto vira o protocolo: os primeiros 300 caracteres formam o título e o texto completo entra como primeiro andamento público. O cliente recebe então a mensagem de confirmação.
 
 O protocolo aparece em **Protocolos** como **Recebido**, sem responsável e com a categoria do destino, quando houver. A conversa **não** vai para a fila, o estado e o responsável não mudam, e um protocolo novo é sempre criado, mesmo que a conversa já tenha outro ativo. A regra de um protocolo ativo por conversa vale só para a abertura automática, quando a equipe está ausente.
 

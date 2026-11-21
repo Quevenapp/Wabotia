@@ -2,7 +2,7 @@
 
 ## Limites e arquitetura
 
-Este percurso atende uma venda nacional integral de mercadorias, de um pedido salvo, modelo 55 e finalidade normal. O ERP prepara no servidor, congela a revisão, acompanha o cofre e concilia estoque e títulos. A NFapi guarda certificado e senha, numera, assina, transmite, arquiva e fornece DANFE/XML. Certificado e senha são configurados diretamente no cofre: não passam pelo painel do Wabotia.
+Este percurso atende uma venda nacional integral de mercadorias, de um pedido salvo, modelo 55 e finalidade normal. O ERP prepara no servidor, congela a revisão, acompanha o cofre e concilia estoque e títulos. A NFapi guarda certificado e senha, numera, assina, transmite, arquiva e fornece DANFE/XML. Certificado e senha são configurados diretamente no cofre: não passam pelo painel do Vinki.
 
 O Worker orquestra chamadas entre transações síncronas do SQLite do `Coordinator` da área. Nenhuma transação aguarda a NFapi. A reivindicação durável precede o envio; o resultado fiscal é persistido antes dos efeitos. Estoque e financeiro têm transações e resultados independentes. Uma falha local nunca desfaz uma autorização.
 

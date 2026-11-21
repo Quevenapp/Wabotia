@@ -176,7 +176,7 @@ export async function cnabFixture() {
   // Rotas do Fagoo (workers/erp-api/src/cnab.mjs) com os RPCs da fixture dupla:
   // a homologação gera a remessa (cnab-core) e importa o retorno pelo app, como no Fagoo.
   // O bucket abaixo é o que o SQL do oráculo confere (erp_cnab.storage_check); no
-  // Wabotia os arquivos vão para o MEDIA da instalação, com prefixo do ERP (C2).
+  // Vinki os arquivos vão para o MEDIA da instalação, com prefixo do ERP (C2).
   await f.db.query(
     "insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values('brufap-cnab','brufap-cnab',false,4020000,$1) on conflict do nothing",
     [["application/octet-stream"]],

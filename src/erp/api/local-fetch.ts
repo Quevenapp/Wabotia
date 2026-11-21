@@ -10,7 +10,7 @@ import { partsMaintenance } from "./parts-maintenance.ts";
 // Supabase. O mesmo truque das fixtures do Fagoo (pos-fixture.mjs), agora
 // apontando para o motor:
 //   /rest/v1/rpc/<nome>  → objeto erp:<área>, /erp-rpc/<nome>
-//   /auth/v1/user        → o ator do Wabotia (já autenticado pelo Worker)
+//   /auth/v1/user        → o ator do Vinki (já autenticado pelo Worker)
 //   /storage/v1/…        → R2 (MEDIA), por área (src/erp-storage.ts)
 // Fase 0, prova 6.
 import { ApiError, type Actor, type Env } from "../../types";

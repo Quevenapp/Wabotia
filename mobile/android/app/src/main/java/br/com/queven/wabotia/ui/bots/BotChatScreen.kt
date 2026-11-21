@@ -434,7 +434,7 @@ private fun RunTurn(
                 Text(
                     when (run.status) {
                         "cancelled" -> "Execução cancelada."
-                        "unknown" -> "O Wabotia não conseguiu confirmar o resultado no Hermes."
+                        "unknown" -> "O Vinki não conseguiu confirmar o resultado no Hermes."
                         else -> "Sem resposta em texto."
                     },
                     style = MaterialTheme.typography.bodyMedium,

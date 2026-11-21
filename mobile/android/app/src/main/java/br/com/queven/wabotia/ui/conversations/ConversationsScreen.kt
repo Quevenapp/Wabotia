@@ -207,7 +207,7 @@ fun ConversationsScreen(
         } else {
             val profileName = vm.profiles.firstOrNull { it.id == profileId }?.name
             TabTopBar(
-                title = "Wabotia",
+                title = "Vinki",
                 subtitle = profileName,
                 onSubtitleClick = if (vm.profiles.size > 1) ({ profileSheet = true }) else null,
             ) {

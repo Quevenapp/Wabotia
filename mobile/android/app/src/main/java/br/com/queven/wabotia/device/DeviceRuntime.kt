@@ -12,7 +12,7 @@ import kotlinx.coroutines.delay
 
 /*
  * A ponte entre o contrato da fila e os quadros do painel que vieram do Senhapp (que vieram do Vinki): os quadros leem
- * `StationRuntime`; o Wabotia manda `QueueOverview`. Sem Android, para ser testado na JVM.
+ * `StationRuntime`; o Vinki manda `QueueOverview`. Sem Android, para ser testado na JVM.
  */
 
 /** O formato dos quadros do painel, já como "chamando". */
@@ -55,7 +55,7 @@ fun QueueOverview.toRuntime(displayName: String?): StationRuntime {
 }
 
 /**
- * Emite a senha do totem. Uma queda de rede (ou erro 5xx) repete uma vez com a **mesma** `Idempotency-Key`: o Wabotia
+ * Emite a senha do totem. Uma queda de rede (ou erro 5xx) repete uma vez com a **mesma** `Idempotency-Key`: o Vinki
  * devolve a mesma senha em vez de emitir outra. Recusa do contrato (`kiosk_rate`, `queue_closed`…) não repete. Se as
  * duas falharem, [TotemIssueKeys] guarda a chave para o próximo toque.
  */
@@ -81,7 +81,7 @@ data class PendingIssue(val queueId: String, val preferential: Boolean, val key:
  * A chave da emissão do totem, guardada entre toques. Se a emissão falha por rede (ou 5xx) mesmo depois da repetição
  * de [issueOnce], o servidor pode ter gravado a senha: um toque novo com outra chave emitiria uma segunda, e a primeira
  * ficaria na fila sem dono (o painel chamaria uma senha que ninguém tem). Por isso o pedido incerto fica guardado, e o
- * próximo toque na mesma fila e no mesmo tipo, dentro de [windowMs], repete a mesma chave: o Wabotia devolve a senha
+ * próximo toque na mesma fila e no mesmo tipo, dentro de [windowMs], repete a mesma chave: o Vinki devolve a senha
  * que já gravou. Sucesso ou recusa do contrato (`queue_closed`, `kiosk_rate`…) liberam a chave.
  */
 class TotemIssueKeys(

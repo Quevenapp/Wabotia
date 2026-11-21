@@ -34,7 +34,7 @@ enum DeviceRole: String, Codable, CaseIterable, Identifiable {
     var panel: Bool { self != .totem }
 }
 
-/// A ligação deste aparelho com o Wabotia, separada da sessão de pessoa: o token é `wab_…` do pareamento
+/// A ligação deste aparelho com o Vinki, separada da sessão de pessoa: o token é `wab_…` do pareamento
 /// (`client=senhapp`), nunca o `wabu_…` de quem entra no app. Sair da conta não desfaz o aparelho, e desfazer o
 /// aparelho não mexe na conta.
 struct DeviceConfig: Codable, Equatable, CustomStringConvertible {

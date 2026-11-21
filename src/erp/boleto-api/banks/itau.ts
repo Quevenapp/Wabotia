@@ -1,7 +1,7 @@
 // Itaú: API de Boletos (cash management v2) e boleto com Pix
 // (boletos_pix). OAuth client_credentials com certificado (mTLS) em todas as
 // chamadas; no sandbox do portal o registro roda como "simulacao". O nosso
-// número (8 dígitos) é escolhido pelo Wabotia; o id do boleto é
+// número (8 dígitos) é escolhido pelo Vinki; o id do boleto é
 // beneficiário (12) + carteira (3) + nosso número (8).
 // Contrato público: devportal.itau.com.br (Boletos, Boleto com Pix). Conferir
 // na homologação: docs/BOLETO-API.md.

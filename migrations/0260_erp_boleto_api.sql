@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS erp_boleto_api_accounts (
   secret_fields TEXT NOT NULL DEFAULT '[]',
   -- SHA-256 do código do endereço do aviso de pagamento (webhook) desta conta.
   webhook_hash TEXT,
-  -- Sequência do nosso número escolhido pelo Wabotia (Banco do Brasil e Itaú).
+  -- Sequência do nosso número escolhido pelo Vinki (Banco do Brasil e Itaú).
   next_number INTEGER NOT NULL DEFAULT 0,
   -- Última conferência das credenciais e o resultado, em português.
   checked_at INTEGER,

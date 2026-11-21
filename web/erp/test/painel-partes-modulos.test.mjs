@@ -1,4 +1,4 @@
-// Wabotia: Gestão → Módulos diz as dependências em palavras (falta de dois, cartão
+// Vinki: Gestão → Módulos diz as dependências em palavras (falta de dois, cartão
 // "Depende de" ligado ou desligado e aviso que fica depois de desligar em cascata).
 import test from 'node:test';
 import assert from 'node:assert/strict';

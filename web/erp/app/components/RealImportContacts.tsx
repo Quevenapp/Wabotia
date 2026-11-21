@@ -16,7 +16,7 @@ import './contacts.css';
 // Procurar arquivo > Validar > conferir registros > Importar. O servidor valida cada linha com as regras do formulário e
 // importa em lotes de 50, um comando por lote; um resultado incerto oferece "Conferir resultado" com o mesmo comando.
 type Result = { row: number; status: 'valid' | 'invalid' | 'created'; code?: string; field?: string; record_id?: string };
-// Wabotia: `fields` é o comando dos campos próprios do lote (o mesmo em "Conferir resultado"), gravados depois que o contato é criado.
+// Vinki: `fields` é o comando dos campos próprios do lote (o mesmo em "Conferir resultado"), gravados depois que o contato é criado.
 type Batch = { id: string; fields: string; rows: ImportRow[]; uncertain: boolean };
 const reason = (result: Result) => result.code === 'required' ? `Obrigatório pelas Preferências: ${API_FIELD_LABEL[result.field ?? ''] ?? result.field}` : result.code === 'duplicate_document' ? 'CPF/CNPJ duplicado não permitido'
   : result.code === 'not_visible' ? 'Fora da carteira do seu vendedor' : result.field ? `Confira ${API_FIELD_LABEL[result.field] ?? result.field}` : 'Linha recusada';

@@ -22,7 +22,7 @@ const originRow = (n, over = {}) => ({ origin: 'origin', id: String(9000 + n), v
   nature: null, status: 6, status_raw: '5', total: '100.10', total_known: true, environment: '1', issue_type: null, access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [], ...over });
 const nativeRow = (n, over = {}) => ({ ...originRow(n), origin: 'brufap', id: id(n), version: 2, number: null, status: 1, status_raw: null, environment: '2', issue_type: 'N', protocol_present: false, ...over });
 const listResponse = (path, rows, total) => { const q = new URLSearchParams(path.split('?')[1]), page = Number(q.get('page'));
-  // Wabotia: Origin fora (motor 91213b8): a lista grande é de registros do FAGOO.
+  // Vinki: Origin fora (motor 91213b8): a lista grande é de registros do FAGOO.
   if (total !== undefined) rows = Array.from({ length: Math.max(0, Math.min(100, total - (page - 1) * 100)) }, (_, i) => nativeRow(i + 1 + (page - 1) * 100, { number: 121 + i + (page - 1) * 100, status: 6 }));
   return { items: rows, origin: q.get('origin') ?? 'origin', model: q.get('model'), direction: q.get('direction') ?? '1', page: Number(q.get('page')), limit: 100,
   order: q.get('order') ?? 'date_desc', has_more: (total ?? rows.length) > Number(q.get('page')) * 100, total_count: total ?? rows.length, total_amount: '200.20', amount_unknown: 0, brufap_visible: true, show_totals: true,
@@ -67,7 +67,7 @@ const mountList = (srv, location = '/historico-fiscal?modelo=55', screen = 'nfe'
 test('Notas fiscais de saída: FAGOO records only, 100 per page, Origin labels, six-digit numbers and filtered totals', async () => {
   const srv = server({ total: 250 }), view = await mountList(srv);
   try {
-    // Wabotia: Origin fora (motor 91213b8): sem o seletor "Notas do Origin"; a lista pede sempre origin=brufap.
+    // Vinki: Origin fora (motor 91213b8): sem o seletor "Notas do Origin"; a lista pede sempre origin=brufap.
     assert.deepEqual(srv.lists(), ['/v1/notas-fiscais?model=55&origin=brufap&page=1']);
     const text = view.text();
     assert.equal(component(view, 'OriginListHeader').props.title, 'Notas Fiscais de Saída'); assert.equal(component(view, 'OriginListHeader').props.selector, undefined);
@@ -87,7 +87,7 @@ test('Notas fiscais de saída: FAGOO records only, 100 per page, Origin labels, 
   } finally { view.unmount(); }
 });
 
-// Wabotia: Origin fora (motor 91213b8): saiu o caso da nota do Origin em consulta; fica a consulta lendo os registros do FAGOO sem ações de escrita.
+// Vinki: Origin fora (motor 91213b8): saiu o caso da nota do Origin em consulta; fica a consulta lendo os registros do FAGOO sem ações de escrita.
 test('the ⋮ menu lists unavailable actions disabled with the reason; consulta only reads', async () => {
   const srv = server({ natives: [nativeRow(1, { status: 6 })] }), view = await mountList(srv);
   try {
@@ -263,7 +263,7 @@ const originNote = (over = {}) => ({ origin: 'origin', entity: 'nfe', source_id:
   items: [{ code: 'P-1', description: 'Peça sintética', unit: 'UN', quantity: '2', unit_price: '50', total: '100.00', cfop: '5102', ncm: '84713012', gtin: null }], installments: [], transport: { freight_by: null, carrier: null },
   additional_info: null, xml: null, events: [], observed_at: '2026-10-20T12:00:00Z', data_mode: 'origin_mirror_readonly', writable: false, ...over });
 
-// Wabotia: Origin fora (motor 91213b8): saiu o teste da nota do Origin aberta em leitura (FiscalOriginInvoiceView, ?nota=origin-<id>).
+// Vinki: Origin fora (motor 91213b8): saiu o teste da nota do Origin aberta em leitura (FiscalOriginInvoiceView, ?nota=origin-<id>).
 
 const guardPorts = () => {
   const flags = { changed: false, busy: false, bypass: 0 };
@@ -288,7 +288,7 @@ test('the first save opens the saved note through the confirmed navigation, neve
 
 test('a note saved from another list opens in the list where Origin shows it', async () => {
   for (const [location, screen, record, expected] of [
-    // Wabotia: Origin fora (motor 91213b8): sem o parâmetro ?origem=brufap.
+    // Vinki: Origin fora (motor 91213b8): sem o parâmetro ?origem=brufap.
     ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(5), model: '55', direction: '0' }, ['/notas-entrada', `?nota=${id(5)}`]],
     ['/historico-fiscal?modelo=65&nota=nova', 'nfce', { id: id(6), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&nota=${id(6)}`]],
     ['/historico-fiscal?modelo=55&nota=nova', 'nfe', { id: id(7), model: '55', direction: '1' }, ['/historico-fiscal', `?modelo=55&nota=${id(7)}`]],
@@ -301,7 +301,7 @@ test('a note saved from another list opens in the list where Origin shows it', a
   }
 });
 
-// Wabotia: Origin fora (motor 91213b8): saiu a parte da lista com notas do Origin; fica a abertura do formulário.
+// Vinki: Origin fora (motor 91213b8): saiu a parte da lista com notas do Origin; fica a abertura do formulário.
 test('a complementary opening fills the purpose and the referenced key', async () => {
   const form = await mountForm(server(), { opening: { kind: 'complementary', origin: originNote() } });
   try {
@@ -344,7 +344,7 @@ test('another row action during Imprimir listagem never leaves the list busy', a
   } finally { view.unmount(); }
 });
 
-// Wabotia: Origin fora (motor 91213b8): saíram os testes da cobertura do espelho (FiscalMirrorCoverage), da nota do Origin em leitura
+// Vinki: Origin fora (motor 91213b8): saíram os testes da cobertura do espelho (FiscalMirrorCoverage), da nota do Origin em leitura
 // (FiscalOriginInvoiceView) e do seletor "Notas do Origin" × "Registros do FAGOO"; a fonte de cada registro do FAGOO continua conferida.
 test('the FAGOO source keeps imported production XML distinct from marked homologation tests', async () => {
   const srv = server({ natives: [nativeRow(1), nativeRow(2, { issue_type: 'S', environment: null, status: 8, source_environment: '1', source_origin: 'xml_import', fiscal_status: 8, danfe_emitted: false })] });

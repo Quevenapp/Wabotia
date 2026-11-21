@@ -59,7 +59,7 @@ struct OrDivider: View {
     }
 }
 
-/// Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia, ou abre a demonstração.
+/// Primeira tela: a pessoa informa o endereço da SUA instalação Vinki, ou abre a demonstração.
 struct ServerView: View {
     @EnvironmentObject private var container: AppContainer
     @Environment(\.openURL) private var openURL
@@ -69,7 +69,7 @@ struct ServerView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        AuthScaffold(title: "Wabotia", subtitle: "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
+        AuthScaffold(title: "Vinki", subtitle: "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
             AuthField(label: "Endereço do seu servidor", error: error != nil) {
                 Text("https://").foregroundStyle(Theme.textSecondary)
                 TextField("wabotia.suaempresa.com.br", text: $input)
@@ -86,7 +86,7 @@ struct ServerView: View {
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             OrDivider().padding(.top, 4)
             SecondaryButton(title: "Conhecer o app (demonstração)", icon: "play.circle", disabled: busy, action: enterDemo)
-            Text("Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada.")
+            Text("Ainda não tem um servidor Vinki? Explore o app com dados fictícios, sem conta e sem enviar nada.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Button { if !busy { focused = false; container.openDemoDeviceMode() } } label: {
                 Label("Ver o modo painel ou totem (demonstração)", systemImage: "tv")
@@ -133,7 +133,7 @@ struct ServerView: View {
             do {
                 let client = container.client(for: url)
                 let health = try await client.health()
-                guard health.service == "wabotia" else { throw APIError(status: 200, code: "not_wabotia", message: "Este endereço não é um servidor Wabotia.") }
+                guard health.service == "wabotia" else { throw APIError(status: 200, code: "not_wabotia", message: "Este endereço não é um servidor Vinki.") }
                 let status = try await client.authStatus()
                 guard status.initialized else { throw APIError(status: 200, code: "setup_required", message: "Este servidor ainda não tem administrador. Conclua a instalação pelo navegador em \(url.absoluteString)/app.") }
                 container.session.serverURL = url

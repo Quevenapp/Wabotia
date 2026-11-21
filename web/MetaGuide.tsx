@@ -5,7 +5,7 @@ export function MetaGuide() {
       <div className="eyebrow">WHATSAPP OFICIAL · ZERNIO</div>
       <h2>Importe seus telefones da Zernio</h2>
       <p>
-        O Wabotia usa os telefones já cadastrados e conectados na Zernio. A API
+        O Vinki usa os telefones já cadastrados e conectados na Zernio. A API
         key permite encontrar a integração e suas linhas, além de enviar
         mensagens. Os eventos chegam pelo webhook da Zernio.
       </p>
@@ -66,7 +66,7 @@ export function MetaGuide() {
           </li>
           <li>
             Cadastre essa URL nos webhooks da Zernio, com o mesmo segredo
-            informado no Wabotia.
+            informado no Vinki.
           </li>
           <li>
             Habilite os eventos de recebimento, envio, entrega, leitura e falha
@@ -74,7 +74,7 @@ export function MetaGuide() {
           </li>
           <li>
             Selecione cada telefone encontrado e clique em{" "}
-            <strong>Adicionar telefone ao Wabotia</strong>. A linha entra
+            <strong>Adicionar telefone ao Vinki</strong>. A linha entra
             pausada, sem alterar seu cadastro na Zernio.
           </li>
           <li>
@@ -89,7 +89,7 @@ export function MetaGuide() {
           As conexões diretas são pausadas na atualização. As credenciais
           antigas não viram credenciais Zernio automaticamente. Resolva envios
           em andamento ou sem confirmação e ligações abertas, exclua a linha
-          antiga do Wabotia e importe o telefone já conectado na Zernio. O
+          antiga do Vinki e importe o telefone já conectado na Zernio. O
           histórico anterior permanece disponível, separado da nova conexão.
         </p>
         <p>

@@ -121,5 +121,5 @@ export function documentPdf(doc: PrintableDocument): Uint8Array {
     y += 2;
   }
   pages.forEach((item, index) => item.text(MARGIN + WIDTH, 290, `Página ${index + 1} de ${pages.length}`, { size: 7, align: "right", gray: 0.4 }));
-  return pdfDocument(pages, { title: `${doc.title} nº ${doc.number}`, producer: "Wabotia" });
+  return pdfDocument(pages, { title: `${doc.title} nº ${doc.number}`, producer: "Vinki" });
 }

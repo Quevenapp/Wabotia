@@ -10,17 +10,17 @@ Desde a versão 0.3, novas instalações baixam um pacote oficial já preparado 
 
 ## Retirada do Hermes: servidor e painel
 
-O MCP HTTP e a porta para agente externo foram removidos. O Wabotia trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Nas chaves, `conversations:all` deixa de valer. Uma chave antiga presa às conversas do bot (`conversations:bound`) fica sem permissão nenhuma em vez de ganhar a área inteira: emita uma chave nova se a integração ainda precisar dela. Quando a remoção automática apaga uma conexão do Hermes criada pela preparação na Cloudflare, as ações de especialista guardadas desligadas para os bots dela também saem; refaça-as num especialista interno. `conversations:bound` fica reservado ao ator interno do bot.
+O MCP HTTP e a porta para agente externo foram removidos. O Vinki trabalha com bots internos, conectados diretamente a um provedor de IA. A API v1 e a execução de bots por aplicação continuam disponíveis. Nas chaves, `conversations:all` deixa de valer. Uma chave antiga presa às conversas do bot (`conversations:bound`) fica sem permissão nenhuma em vez de ganhar a área inteira: emita uma chave nova se a integração ainda precisar dela. Quando a remoção automática apaga uma conexão do Hermes criada pela preparação na Cloudflare, as ações de especialista guardadas desligadas para os bots dela também saem; refaça-as num especialista interno. `conversations:bound` fica reservado ao ator interno do bot.
 
 A migração `0094_retira_cloudflare.sql` apaga a autorização da preparação Cloudflare e as credenciais dos jobs. As conexões criadas por esses jobs são pausadas e marcadas como **sendo removidas**; o processamento periódico as remove sozinho, preservando o histórico. Não podem ser religadas durante a remoção. O token das atualizações automáticas é independente e continua funcionando.
 
-**Os recursos que o Wabotia criou na sua conta Cloudflare não somem com a retirada. Revogue-os no painel da Cloudflare: aplicação Access, service token, túnel e registros DNS.** Os nomes e IDs ficam no aviso **Hermes retirado**, em Conexões, mesmo depois da remoção local. Nenhum segredo é copiado para esse aviso.
+**Os recursos que o Vinki criou na sua conta Cloudflare não somem com a retirada. Revogue-os no painel da Cloudflare: aplicação Access, service token, túnel e registros DNS.** Os nomes e IDs ficam no aviso **Hermes retirado**, em Conexões, mesmo depois da remoção local. Nenhum segredo é copiado para esse aviso.
 
 ## Usar o botão
 
 1. Abra **sua instalação → Sistema e atualizações**.
 2. Clique **Verificar atualização**. A consulta é armazenada por cinco minutos.
-3. Confira a versão e clique **Atualizar Wabotia**.
+3. Confira a versão e clique **Atualizar Vinki**.
 4. Acompanhe as etapas: baixar e verificar o pacote, preparar arquivos, migrar o banco e publicar.
 5. Espere **Atualização publicada e verificada**. Clique **Reabrir painel atualizado**.
 
@@ -42,7 +42,7 @@ A versão `0.10.0` inclui as migrações `0010` a `0013`: pareamento, trava de a
 
 A versão `0.11.0` substitui a integração direta Meta pela Zernio e permite excluir telefones preservando o histórico. Faça backup antes: a migração `0014_zernio.sql` pausa as conexões Meta existentes e cancela seus envios ainda pendentes. As credenciais antigas não são convertidas. Depois de atualizar, siga o [guia Zernio](ZERNIO-WHATSAPP.md) para cadastrar a conta intermediária e reconectar os números. O atendimento só deve ser ativado após conferir o recebimento e o envio com suas credenciais. Hermes e QR continuam disponíveis.
 
-A versão `0.12.0` simplifica o painel para **Área de atendimento → Integração Zernio → Telefones**. Cada instalação recebe automaticamente uma área compartilhada pela equipe, sem etapa de cadastro ou seleção. Nas instalações existentes, o Wabotia reutiliza o atendimento e mantém dados, permissões e credenciais; se não houver área, ela é preparada no primeiro acesso administrativo. Não há migração de banco nesta versão. Instalações antigas com várias áreas mantêm acesso aos dados anteriores, sem fusão automática nem ampliação de permissões.
+A versão `0.12.0` simplifica o painel para **Área de atendimento → Integração Zernio → Telefones**. Cada instalação recebe automaticamente uma área compartilhada pela equipe, sem etapa de cadastro ou seleção. Nas instalações existentes, o Vinki reutiliza o atendimento e mantém dados, permissões e credenciais; se não houver área, ela é preparada no primeiro acesso administrativo. Não há migração de banco nesta versão. Instalações antigas com várias áreas mantêm acesso aos dados anteriores, sem fusão automática nem ampliação de permissões.
 
 A versão `0.12.1` acrescenta à tela **Integração Zernio** links e instruções para obter a API key, copiar o ID da integração e definir o segredo do webhook. Depois de salvar, o painel orienta o cadastro da URL em Webhooks da Zernio. É uma atualização de ajuda da interface, sem migração de banco ou alteração das credenciais existentes.
 
@@ -68,9 +68,9 @@ Ligar o modo e iniciar uma atualização nele são feitos só pela pessoa admini
 
 ### Cofre do certificado na mesma conta
 
-Com o cofre do certificado e o Wabotia na mesma conta Cloudflare, quem conseguir executar código no Worker do Wabotia, ou obtiver o token de atualização, alcança também o cofre. A Cloudflare não oferece token restrito a um único Worker. As medidas de proteção (o token só digitado por pessoa, o token restrito no lugar do inicial, o modo "não guardar o token") reduzem essa chance; não a eliminam.
+Com o cofre do certificado e o Vinki na mesma conta Cloudflare, quem conseguir executar código no Worker do Vinki, ou obtiver o token de atualização, alcança também o cofre. A Cloudflare não oferece token restrito a um único Worker. As medidas de proteção (o token só digitado por pessoa, o token restrito no lugar do inicial, o modo "não guardar o token") reduzem essa chance; não a eliminam.
 
-Opcional: quem quiser separar de vez pode manter o cofre numa conta Cloudflare própria. Custa uma segunda conta e não é necessário para usar o Wabotia.
+Opcional: quem quiser separar de vez pode manter o cofre numa conta Cloudflare própria. Custa uma segunda conta e não é necessário para usar o Vinki.
 
 ## Se houver falha
 
@@ -117,13 +117,13 @@ Habilitar chamadas Meta ou grupos elegíveis é uma configuração posterior no 
 
 ## Atualização 0.6.0: roteador de números
 
-Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. A migração aditiva `0007_number_router.sql` cria contas Meta, grupos, permissões e contadores, mantendo conexões e histórico existentes. Ela não conecta números reais nem altera webhooks na Meta. Não é preciso reinstalar, criar outro túnel ou mudar Hermes/QR para usar o roteador Meta direto; os conectores 0.5 continuam adequados.
+Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. A migração aditiva `0007_number_router.sql` cria contas Meta, grupos, permissões e contadores, mantendo conexões e histórico existentes. Ela não conecta números reais nem altera webhooks na Meta. Não é preciso reinstalar, criar outro túnel ou mudar Hermes/QR para usar o roteador Meta direto; os conectores 0.5 continuam adequados.
 
 Depois, abra **Roteador de números** e siga o [guia da WABA, webhook e consumo inicial](ROTEADOR.md). Adotar um número já conectado exige pausa e entregas reconciliadas/confirmadas. A cobrança de modelos só é permitida por pedidos explícitos; notificações automáticas desses números não viram modelos pagos. O pacote oficial atualiza a Cloudflare, sem reconfigurar o aplicativo Meta.
 
 ## Atualização 0.6.1: conexão Meta e guia do primeiro número
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta revisão corrige uma opção de requisição incompatível com Workers, que impedia consultas à Meta e o download de anexos. Redirecionamentos continuam recusados sem encaminhar os tokens a outro endereço. Após atualizar, repita **Buscar números na Meta**, que é uma consulta. Não repita mensagens com resultado incerto sem conferir a entrega anterior.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Esta revisão corrige uma opção de requisição incompatível com Workers, que impedia consultas à Meta e o download de anexos. Redirecionamentos continuam recusados sem encaminhar os tokens a outro endereço. Após atualizar, repita **Buscar números na Meta**, que é uma consulta. Não repita mensagens com resultado incerto sem conferir a entrega anterior.
 
 Não há nova migração nem necessidade de reinstalar, trocar tokens ou refazer o webhook. O [guia ilustrado Meta](META-WHATSAPP.md) está no site, no PDF específico e no manual completo.
 
@@ -133,19 +133,19 @@ Corrige a tela em branco ao abrir Conversas depois de Conexões ou Protocolos. C
 
 ## Atualização 0.7.0: função e permissões por número
 
-Em **Roteador de números → Uso por número → Função e permissões**, escolha **Atendimento oficial**, **Integração com janela de 24 horas (Vinki)** ou ajuste cada opção: respostas de serviço, templates, atendentes, aplicações externas, menu, bots e grupos. As restrições valem para painel, Telegram e API; grupos e aplicações não podem ampliar as permissões do número. Alterações são verificadas novamente antes da entrega e bloqueiam respostas de bots desativados. Recebimento, histórico, contadores e webhooks são preservados.
+Em **Roteador de números → Uso por número → Função e permissões**, escolha **Atendimento oficial**, **Integração com janela de 24 horas (Vinki V4)** ou ajuste cada opção: respostas de serviço, templates, atendentes, aplicações externas, menu, bots e grupos. As restrições valem para painel, Telegram e API; grupos e aplicações não podem ampliar as permissões do número. Alterações são verificadas novamente antes da entrega e bloqueiam respostas de bots desativados. Recebimento, histórico, contadores e webhooks são preservados.
 
 O contador de templates entregues aparece separado do teto de serviço. Nenhuma função autoriza cobrança automática ou cria uma janela de 24 horas. Os números existentes mantêm o comportamento anterior até o administrador salvar suas opções. Não há migração de banco, novas credenciais ou alteração na Meta; esta atualização não ativa canais nem o perfil. Consulte [as opções e exemplos de uso](ROTEADOR.md#31-defina-o-que-cada-número-pode-fazer).
 
 ## Atualização 0.8.0: aplicativos Android e iOS
 
-Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. A migração aditiva `0008_mobile.sql` cria as tabelas de dispositivos, cursores de push e alertas de protocolo e acrescenta colunas à tabela de sessões; conversas, agenda, credenciais e histórico são preservados. Os aplicativos exigem esta versão: cada pessoa informa o endereço do seu servidor no aplicativo e entra com o e-mail e a senha de **Pessoas**; o token de sessão `wabu_` é separado das chaves de aplicação e não amplia o acesso de integrações.
+Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. A migração aditiva `0008_mobile.sql` cria as tabelas de dispositivos, cursores de push e alertas de protocolo e acrescenta colunas à tabela de sessões; conversas, agenda, credenciais e histórico são preservados. Os aplicativos exigem esta versão: cada pessoa informa o endereço do seu servidor no aplicativo e entra com o e-mail e a senha de **Pessoas**; o token de sessão `wabu_` é separado das chaves de aplicação e não amplia o acesso de integrações.
 
-Depois de atualizar, abra **Sistema e atualizações → Notificações dos aplicativos** e escolha o modo: **Gateway Wabotia** (padrão, sem entregar credenciais Firebase ao gateway), **FCM direto** (conta de serviço própria, para quem compila o próprio aplicativo) ou **Desligado**. Com o conteúdo **mínimo**, nomes e trechos de mensagens não passam pelo gateway. Use **Enviar teste** após entrar no aplicativo. Sem configurar, os aplicativos funcionam em primeiro plano, sem push. Nada muda em canais, Hermes, QR ou Meta. Consulte [o guia dos aplicativos](MOBILE.md).
+Depois de atualizar, abra **Sistema e atualizações → Notificações dos aplicativos** e escolha o modo: **Gateway Vinki** (padrão, sem entregar credenciais Firebase ao gateway), **FCM direto** (conta de serviço própria, para quem compila o próprio aplicativo) ou **Desligado**. Com o conteúdo **mínimo**, nomes e trechos de mensagens não passam pelo gateway. Use **Enviar teste** após entrar no aplicativo. Sem configurar, os aplicativos funcionam em primeiro plano, sem push. Nada muda em canais, Hermes, QR ou Meta. Consulte [o guia dos aplicativos](MOBILE.md).
 
 ## Atualização 0.14.0: central de atendimento por modelo
 
-Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. A migração aditiva `0016_service_center.sql` acrescenta a categoria e a origem dos protocolos, o estado "aguardando a descrição do protocolo" nas conversas e índices de consulta; nenhum protocolo, conversa ou configuração existente é alterado. Quem não usa os recursos novos continua com o comportamento da 0.13: prazo em horas corridas, sem categorias e sem modelo aplicado.
+Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. A migração aditiva `0016_service_center.sql` acrescenta a categoria e a origem dos protocolos, o estado "aguardando a descrição do protocolo" nas conversas e índices de consulta; nenhum protocolo, conversa ou configuração existente é alterado. Quem não usa os recursos novos continua com o comportamento da 0.13: prazo em horas corridas, sem categorias e sem modelo aplicado.
 
 O que passa a existir, tudo opcional: prazo da primeira resposta em dias úteis com horário e feriados; seis estados de protocolo (Recebido, Em análise, Aguardando cliente, Aguardando terceiro, Resolvido, Encerrado); categoria por aplicativo ou assunto; mensagem de confirmação configurável; o destino de menu **Abrir protocolo** e a palavra **PROTOCOLO**, que registram o pedido sem colocar a conversa na fila humana; a prévia da última mensagem na lista de conversas; e os **Modelos de atendimento**, que preenchem menus, setores, categorias, prazo e textos de uma vez. O contrato completo está em [Central de atendimento por modelo](CENTRAL-ATENDIMENTO.md).
 
@@ -153,13 +153,13 @@ Dois textos mudam para todos: a consulta do cliente e as notificações dos apli
 
 ## Atualização 0.15.0: servidor MCP para o Hermes Agent
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. A instalação passa a publicar um servidor MCP em `POST /api/mcp`, no mesmo Worker do painel, para o Hermes Agent e outros clientes MCP usarem conversas, protocolos, agenda, conhecimento, bots, presença, eventos, relatórios e o roteador como ferramentas nativas. Cada ferramenta chama a rota equivalente da API v1 com a chave de aplicação do cliente, com as mesmas permissões, namespaces, idempotência e limites por minuto.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco. A instalação passa a publicar um servidor MCP em `POST /api/mcp`, no mesmo Worker do painel, para o Hermes Agent e outros clientes MCP usarem conversas, protocolos, agenda, conhecimento, bots, presença, eventos, relatórios e o roteador como ferramentas nativas. Cada ferramenta chama a rota equivalente da API v1 com a chave de aplicação do cliente, com as mesmas permissões, namespaces, idempotência e limites por minuto.
 
-Depois de atualizar, abra **Integrações → Ferramentas do Wabotia no Hermes Agent (MCP)**, crie a aplicação e a chave e cole o bloco `mcp_servers` no `config.yaml` do perfil Hermes, com a chave no `.env`. Chaves já emitidas também funcionam, com as permissões que tiverem. Nada muda para quem não configurar o Hermes; o endpoint recusa sessões de usuário e tokens dos aplicativos. [Ferramentas e detalhes do protocolo](API.md#mcp-para-o-hermes-agent).
+Depois de atualizar, abra **Integrações → Ferramentas do Vinki no Hermes Agent (MCP)**, crie a aplicação e a chave e cole o bloco `mcp_servers` no `config.yaml` do perfil Hermes, com a chave no `.env`. Chaves já emitidas também funcionam, com as permissões que tiverem. Nada muda para quem não configurar o Hermes; o endpoint recusa sessões de usuário e tokens dos aplicativos. [Ferramentas e detalhes do protocolo](API.md#mcp-para-o-hermes-agent).
 
 ## Atualização 0.16.0: plugin do Hermes, instalação mais simples e atendimento após o protocolo
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco nem mudança de Durable Object.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco nem mudança de Durable Object.
 
 **Muda para todas as instalações ao atualizar:**
 
@@ -170,7 +170,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 **Passa a existir, sem efeito para quem não usar:**
 
-- **Hermes por plugin.** Em **Hermes e canais → Conectar Hermes**, a opção **Plugin no Hermes** gera um comando para a máquina do Hermes e dispensa túnel, Access, domínio e chaves do Hermes no Wabotia. Conexões por URL continuam como estão. [Contrato e limites](HERMES-PLUGIN.md).
+- **Hermes por plugin.** Em **Hermes e canais → Conectar Hermes**, a opção **Plugin no Hermes** gera um comando para a máquina do Hermes e dispensa túnel, Access, domínio e chaves do Hermes no Vinki. Conexões por URL continuam como estão. [Contrato e limites](HERMES-PLUGIN.md).
 - **Autorização de notificações** com os botões Autorizo / Não autorizo depois que um protocolo é aberto, somente com as notificações de protocolo ligadas.
 - **Liga/desliga do protocolo aberto na ausência da equipe.**
 - **Instalação:** link que abre o token da Cloudflare preenchido, link de primeiro acesso e o [instalador pelo navegador](INSTALACAO.md#caminho-a-pelo-navegador-sem-nodejs-nem-terminal), disponível só no site oficial.
@@ -179,19 +179,19 @@ As regras de atendimento novas estão em [Central de atendimento](CENTRAL-ATENDI
 
 ## Atualização 0.16.1: painel com um único modo
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O seletor **Simplificado / Avançado** deixa de existir no menu de Gestão e nas preferências: Consentimentos, Execuções de bots, Entregas de mensagens e Eventos para sistemas aparecem sempre, assim como o ID de conexões e bots. Quem usava o modo simplificado passa a ver essas páginas; nenhuma configuração é alterada. A Configuração guiada continua disponível.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e o servidor não muda. O seletor **Simplificado / Avançado** deixa de existir no menu de Gestão e nas preferências: Consentimentos, Execuções de bots, Entregas de mensagens e Eventos para sistemas aparecem sempre, assim como o ID de conexões e bots. Quem usava o modo simplificado passa a ver essas páginas; nenhuma configuração é alterada. A Configuração guiada continua disponível.
 
 ## Atualização 0.16.2: guia do site e textos do painel
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. A página `/install` passa a começar pelo instalador pelo navegador, com o terminal como caminho alternativo, ganha a seção de Regras de atendimento e atalhos para o guia em PDF, que foi refeito (65 páginas). No painel, o aviso depois de **Descobrir bots** cita **Atendente e especialistas** e os botões **Parear novamente** e **Revogar plugin** deixam de aparecer colados. Depois de atualizar, clique em **Reabrir painel atualizado** para carregar as telas novas.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e o servidor não muda. A página `/install` passa a começar pelo instalador pelo navegador, com o terminal como caminho alternativo, ganha a seção de Regras de atendimento e atalhos para o guia em PDF, que foi refeito (65 páginas). No painel, o aviso depois de **Descobrir bots** cita **Atendente e especialistas** e os botões **Parear novamente** e **Revogar plugin** deixam de aparecer colados. Depois de atualizar, clique em **Reabrir painel atualizado** para carregar as telas novas.
 
 ## Atualização 0.16.4: aviso de fila, privacidade do bot e memória por conversa
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O cliente passa a ser avisado toda vez que a conversa entra na fila; antes, uma segunda transferência na mesma sessão (depois de uma pessoa atender e devolver a conversa ao bot) não enviava nada. Quem já está na fila e já foi avisado não recebe o aviso repetido. Em **Equipe → Bots**, cada pessoa vê só as execuções que ela mesma pediu ao bot; o registro completo continua em **Execuções de bots**, para administradores. O Wabotia envia ao Hermes uma chave de sessão por conversa de cliente, por conversa interna e por pessoa, para o bot não misturar a memória de contatos diferentes. Com o plugin de saída, a chave só é repassada pelo plugin 1.1.0: siga o passo a passo [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin) no servidor do Hermes. Com o plugin anterior tudo continua funcionando, sem a separação de memória.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e o servidor não muda. O cliente passa a ser avisado toda vez que a conversa entra na fila; antes, uma segunda transferência na mesma sessão (depois de uma pessoa atender e devolver a conversa ao bot) não enviava nada. Quem já está na fila e já foi avisado não recebe o aviso repetido. Em **Equipe → Bots**, cada pessoa vê só as execuções que ela mesma pediu ao bot; o registro completo continua em **Execuções de bots**, para administradores. O Vinki envia ao Hermes uma chave de sessão por conversa de cliente, por conversa interna e por pessoa, para o bot não misturar a memória de contatos diferentes. Com o plugin de saída, a chave só é repassada pelo plugin 1.1.0: siga o passo a passo [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin) no servidor do Hermes. Com o plugin anterior tudo continua funcionando, sem a separação de memória.
 
 ## Atualização 0.16.5: comandos do plugin na janela de pareamento
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e o servidor não muda. Em **Conexões**, a janela aberta por **Gerar comando de instalação** ou **Parear novamente** traz, em **Meu Hermes roda em Docker**, os comandos para descobrir o nome do contêiner, instalar o plugin, reiniciar o contêiner e conferir a versão instalada, cada um com botão de copiar. Em uma conexão já pareada, a janela avisa que os bots ficam fora do ar entre a execução do comando e o reinício do gateway. O plugin continua na versão 1.1.0; quem já o atualizou não precisa repetir. O roteiro completo está em [Atualizar o plugin](HERMES-PLUGIN.md#21-atualizar-o-plugin). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Próxima versão: bots internos (rascunho)
 
@@ -199,7 +199,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
   - migração aditiva `0090_bot_runs_uso.sql` (coluna `bot_runs.usage`, com os tokens de cada execução em **Registros**);
   - a opção **O modelo entende PDF** na conexão, para Anthropic e OpenAI.
 - **Instruções personalizadas do bot: não precisa mexer.** O texto que você escreveu vai ao modelo igual.
-  - Muda só a ordem do que o Wabotia acrescenta: menus, ações e categorias de protocolo vão num bloco "dados da área" antes do ponto de cache.
+  - Muda só a ordem do que o Vinki acrescenta: menus, ações e categorias de protocolo vão num bloco "dados da área" antes do ponto de cache.
   - A situação da conversa (sem menu, retomada) vai depois do ponto de cache.
   - As respostas devem ser as mesmas. Se uma instrução sua dizia "veja o menu acima", ela continua valendo, porque os menus seguem antes da conversa.
 - **OpenAI pela Responses API:** conserta o bot com ferramentas (módulos, `decidir` do JEV) nos modelos atuais da OpenAI.
@@ -210,7 +210,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 ## Atualização 0.24.0: novos canais, módulos lançando no ERP, Ordem de Serviço por modelo e venda com NF-e
 
-Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 11 migrações aditivas (`0135`, `0140` a `0147`, `0150` e `0151`) e não cria recurso novo na Cloudflare: nenhum banco, fila, bucket ou classe de Durable Object. O banco do ERP de cada área também se atualiza sozinho, só com tabelas novas. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Vinki** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 11 migrações aditivas (`0135`, `0140` a `0147`, `0150` e `0151`) e não cria recurso novo na Cloudflare: nenhum banco, fila, bucket ou classe de Durable Object. O banco do ERP de cada área também se atualiza sozinho, só com tabelas novas. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
 
 **Quem só usa WhatsApp não vê diferença.** O atendimento pelo WhatsApp continua igual, com os mesmos menus, modelos, janela e módulos; as conversas abertas por aplicações de integração também. A única novidade nessas áreas é a ação **Enviar conversa por e-mail**, para quem tem a permissão.
 
@@ -251,9 +251,9 @@ Ordens antigas não mudam. Os aplicativos continuam funcionando como antes. Uma 
 
 Em **Preferências → Importações** dá para importar por planilha produtos, fornecedores de produto, composições, campos customizados, lotes, contatos, pedidos de compra e de venda, movimentações de estoque e contas a receber e a pagar. Há prévia antes de confirmar, até 10.000 linhas por arquivo. Pedidos importados não baixam estoque nem geram contas, e as contas entram abertas, sem baixa. Notas fiscais por planilha ainda não.
 
-**Venda com NF-e pela NFapi.** Num pedido de venda salvo do ERP, use **Preparar NF-e**, confira e **Emitir NF-e**. Depois dá para consultar ou retomar a emissão, abrir o DANFE e o XML e cancelar com justificativa. O certificado e a senha ficam no cofre da NFapi e nunca passam pelo Wabotia. No ERP você informa só o endereço e a chave do cofre, em Preferências, e a chave fica guardada cifrada. Tudo começa em homologação. Produção só depois de **Habilitar produção**, com confirmação do administrador. Vale para venda nacional de mercadorias (modelo 55). Ficam de fora NFC-e, NFS-e, devolução, carta de correção e inutilização. IBS/CBS/IS não são calculados, e a operação que os exija é bloqueada. Pedidos vindos dos módulos ainda não emitem nota por aqui. Revise a configuração com o seu contador antes da primeira nota: veja [Venda com NF-e](COMERCIAL-NFE.md).
+**Venda com NF-e pela NFapi.** Num pedido de venda salvo do ERP, use **Preparar NF-e**, confira e **Emitir NF-e**. Depois dá para consultar ou retomar a emissão, abrir o DANFE e o XML e cancelar com justificativa. O certificado e a senha ficam no cofre da NFapi e nunca passam pelo Vinki. No ERP você informa só o endereço e a chave do cofre, em Preferências, e a chave fica guardada cifrada. Tudo começa em homologação. Produção só depois de **Habilitar produção**, com confirmação do administrador. Vale para venda nacional de mercadorias (modelo 55). Ficam de fora NFC-e, NFS-e, devolução, carta de correção e inutilização. IBS/CBS/IS não são calculados, e a operação que os exija é bloqueada. Pedidos vindos dos módulos ainda não emitem nota por aqui. Revise a configuração com o seu contador antes da primeira nota: veja [Venda com NF-e](COMERCIAL-NFE.md).
 
-**Receber dados do Bling.** Em **ERP → Sistema → Receber dados do Bling**, desligado de fábrica. O Wabotia lê a sua conta do Bling e guarda um acervo de consulta histórica. Não cria cadastros, pedidos, contas nem saldos no ERP e não grava nada no Bling. Você usa um aplicativo próprio no Bling, e as credenciais ficam cifradas. Antes da primeira coleta real, siga o [roteiro da primeira coleta](RECEBER-BLING-PRIMEIRA-COLETA.md): cada recurso só é coletado depois de conferido na documentação oficial do Bling.
+**Receber dados do Bling.** Em **ERP → Sistema → Receber dados do Bling**, desligado de fábrica. O Vinki lê a sua conta do Bling e guarda um acervo de consulta histórica. Não cria cadastros, pedidos, contas nem saldos no ERP e não grava nada no Bling. Você usa um aplicativo próprio no Bling, e as credenciais ficam cifradas. Antes da primeira coleta real, siga o [roteiro da primeira coleta](RECEBER-BLING-PRIMEIRA-COLETA.md): cada recurso só é coletado depois de conferido na documentação oficial do Bling.
 
 **Backup do ERP em partes (base, ainda sem botão).** O backup do banco do ERP de cada área foi refeito em partes e sai inteiro em qualquer tamanho. Enquanto ele lê o banco, as alterações do ERP daquela área ficam suspensas e as consultas continuam. Medido na Cloudflare, isso leva cerca de 5 minutos por GiB. A restauração confere tudo antes e troca o banco de uma vez: ou ele fica igual ao backup, ou como estava. Nesta versão ela cobre até 64 MiB de dados exportados; acima disso a medição na Cloudflare mostrou que a troca não cabe na memória. A restauração de bancos maiores fica para a próxima versão. XML e anexos ficam no armazenamento de arquivos, fora desse backup. O backup e a restauração do ERP ainda não têm botão no painel nem rota para quem administra: a recuperação continua sendo a recuperação no tempo da Cloudflare (até 30 dias).
 
@@ -265,7 +265,7 @@ Esta versão foi verificada por testes automáticos, por revisão de código e p
 
 ## Atualização 0.23.0: gestão numa casa só, cadastro único e ERP em partes
 
-Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 5 migrações aditivas (`0130`, `0131`, `0132` e as duas `0133`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+Exige a 0.21.1 ou posterior (pacote assinado). Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Vinki** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 5 migrações aditivas (`0130`, `0131`, `0132` e as duas `0133`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
 
 **Gestão numa casa só.** O botão **ERP** do menu passa a ser a entrada de toda a gestão, inclusive Agenda, Trabalhos, Mensalidade, Pedido, Mesas, Reserva e os módulos de área. Ele está sempre no menu: com um módulo ligado, abre direto nele; com vários, mostra um cartão por grupo; com nada ligado, mostra "Nenhum módulo de gestão ligado" e o caminho para a tela Módulos. Os endereços antigos de `/app/gestao/...` continuam valendo e levam ao lugar novo. **Gestão** fica com a administração: Módulos, Pessoas, filas e modelos de área. O nome Fagoo saiu das telas; o ERP continua se chamando ERP.
 
@@ -279,9 +279,9 @@ Esta versão foi verificada por testes automáticos e por revisão de código, n
 
 ## Atualização 0.22.0: módulos por área, bots internos sem Hermes e mais ERP
 
-Exige a 0.21.1 instalada: é a primeira versão no pacote assinado. Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 24 migrações aditivas (`0090`, `0091`, `0092`, `0094` e `0100` a `0119`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
+Exige a 0.21.1 instalada: é a primeira versão no pacote assinado. Faça backup, use **Sistema e atualizações → Verificar atualização → Atualizar Vinki** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. Ela aplica 24 migrações aditivas (`0090`, `0091`, `0092`, `0094` e `0100` a `0119`) e não cria recurso novo na Cloudflare. Se o painel ficar na mesma etapa por mais de 15 minutos, siga a [saída de emergência](ATUALIZACOES-FORMATO.md#saída-de-emergência-trabalho-preso-em-atualizando).
 
-**Hermes retirado.** O Wabotia passa a trabalhar só com bots internos, ligados direto a um provedor de IA. As conexões do Hermes ficam pausadas e são removidas sozinhas, com o histórico preservado; as linhas que atendiam com um bot do Hermes voltam à regra da área, e o Atendente da área que era um bot do Hermes fica vago até você escolher um bot interno. O servidor MCP (`/api/mcp`) e o plugin deixam de funcionar. Os recursos criados na sua conta Cloudflare pela preparação antiga (aplicação Access, service token, túnel e DNS) **não** somem: revogue-os no painel da Cloudflare, pelos nomes do aviso **Hermes retirado**, em Conexões. Detalhes em [Retirada do Hermes](#retirada-do-hermes-servidor-e-painel).
+**Hermes retirado.** O Vinki passa a trabalhar só com bots internos, ligados direto a um provedor de IA. As conexões do Hermes ficam pausadas e são removidas sozinhas, com o histórico preservado; as linhas que atendiam com um bot do Hermes voltam à regra da área, e o Atendente da área que era um bot do Hermes fica vago até você escolher um bot interno. O servidor MCP (`/api/mcp`) e o plugin deixam de funcionar. Os recursos criados na sua conta Cloudflare pela preparação antiga (aplicação Access, service token, túnel e DNS) **não** somem: revogue-os no painel da Cloudflare, pelos nomes do aviso **Hermes retirado**, em Conexões. Detalhes em [Retirada do Hermes](#retirada-do-hermes-servidor-e-painel).
 
 **Bots internos.** Máscara de dados pessoais por bot (ligada também nos bots existentes), leitura de PDF como texto mascarado, com duas opções por bot desligadas de fábrica (mandar ao provedor o PDF que não der para ler; encaminhar imagens à equipe), cache de prompt, o especialista de decisão JEV disponível aos bots internos e a OpenAI pela Responses API, que conserta o bot com ferramentas nos modelos atuais. Detalhes nas seções [Máscara de dados pessoais por bot](#18112026--máscara-de-dados-pessoais-por-bot) e [bots internos](#próxima-versão-bots-internos-rascunho). A Responses API não foi testada nesta versão contra a API real.
 
@@ -295,7 +295,7 @@ Esta parte é nova e foi verificada por testes automáticos e por leitura de có
 
 ## Atualização 0.21.1: versão ponte para o pacote assinado
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. O atendimento continua no ar durante a atualização. Não há migração de banco nem recurso novo na Cloudflare, e o funcionamento é o da 0.21.0: muda só o atualizador.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki** e acompanhe até o fim; depois clique em **Reabrir painel atualizado**. O atendimento continua no ar durante a atualização. Não há migração de banco nem recurso novo na Cloudflare, e o funcionamento é o da 0.21.0: muda só o atualizador.
 
 **Por que ela existe.** As próximas versões saem em outro formato de pacote, dividido em arquivos e assinado, que a 0.21.0 não sabe ler. A 0.21.1 é o degrau entre os dois: chega no formato antigo e, instalada, só aceita versões assinadas pelo mantenedor. Toda versão depois dela exige a 0.21.1 instalada. Uma instalação na 0.17.0 ou anterior não lê este pacote (já não lia o da 0.21.0) e precisa ser reinstalada.
 
@@ -305,7 +305,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 ## Atualização 0.21.0: acesso por pessoa, segundo fator, ERP em implantação, fila mais rápida
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Faça backup antes: esta versão aplica as migrações `0059` a `0089` e acrescenta a flag de compatibilidade `global_fetch_strictly_public` ao Worker (o atualizador a aplica sozinho). Não há recurso novo na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Faça backup antes: esta versão aplica as migrações `0059` a `0089` e acrescenta a flag de compatibilidade `global_fetch_strictly_public` ao Worker (o atualizador a aplica sozinho). Não há recurso novo na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 **Licença.** A partir da 0.21.0 o servidor e o painel são distribuídos sob AGPL-3.0; `mobile/`, `connectors/` e `push-gateway/` seguem MIT. As versões até a 0.20.0 continuam sob MIT. O painel mostra o link do código-fonte do commit em execução.
 
@@ -321,9 +321,9 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 **Fila de senhas mais rápida:** emitir e chamar senha fazem 2 idas ao banco em vez de 16; o painel de TV mostra em destaque a senha que está sendo falada.
 
-**ERP (em implantação, desligado de fábrica).** O módulo **ERP** traz para dentro do Wabotia os cadastros, o estoque, o financeiro e os documentos do Fagoo, com os dados guardados na própria conta Cloudflare. Nesta versão já funcionam produtos e preços, lançamentos e conferência de estoque, contas a pagar e a receber, caixa, borderôs, dados da empresa, permissões, preferências, exportação da empresa e a gravação de propostas, pedidos de venda, pedidos de compra e ordens de serviço. Mudar a situação de um documento, lançar contas a partir dele, clientes e fornecedores, fiscal, cobrança bancária e frente de caixa ainda não estão nesta versão; as telas correspondentes ficam fora do menu ou avisam que a ação está em implantação. Ligue em **Gestão → Módulos** e dê um papel do ERP a cada pessoa em **Pessoas e acessos**. Aplicações podem receber os escopos `erp:read` e `erp:write`, com papel de consulta, vendas, estoque ou fiscal.
+**ERP (em implantação, desligado de fábrica).** O módulo **ERP** traz para dentro do Vinki os cadastros, o estoque, o financeiro e os documentos do Fagoo, com os dados guardados na própria conta Cloudflare. Nesta versão já funcionam produtos e preços, lançamentos e conferência de estoque, contas a pagar e a receber, caixa, borderôs, dados da empresa, permissões, preferências, exportação da empresa e a gravação de propostas, pedidos de venda, pedidos de compra e ordens de serviço. Mudar a situação de um documento, lançar contas a partir dele, clientes e fornecedores, fiscal, cobrança bancária e frente de caixa ainda não estão nesta versão; as telas correspondentes ficam fora do menu ou avisam que a ação está em implantação. Ligue em **Gestão → Módulos** e dê um papel do ERP a cada pessoa em **Pessoas e acessos**. Aplicações podem receber os escopos `erp:read` e `erp:write`, com papel de consulta, vendas, estoque ou fiscal.
 
-**O plano pago do Cloudflare (Workers Paid) passa a ser exigido.** Na 0.20.0 ele era recomendado para os verticais; a partir da 0.21.0 é requisito para rodar o Wabotia. No plano gratuito, o alarme de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por invocação e param no meio, com parte já gravada. Quem está no gratuito deve assinar o Workers Paid na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans); a instalação não muda e nada precisa ser refeito. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso: ele não confere o plano pela API, porque isso exigiria dar ao token acesso aos dados de cobrança da conta. Detalhes em [Limites do Cloudflare](LIMITES.md).
+**O plano pago do Cloudflare (Workers Paid) passa a ser exigido.** Na 0.20.0 ele era recomendado para os verticais; a partir da 0.21.0 é requisito para rodar o Vinki. No plano gratuito, o alarme de cada área e a conclusão do carrinho passam de 50 consultas ao D1 por invocação e param no meio, com parte já gravada. Quem está no gratuito deve assinar o Workers Paid na [página de planos do Workers](https://dash.cloudflare.com/?to=/:account/workers/plans); a instalação não muda e nada precisa ser refeito. O instalador pelo navegador pede a confirmação do plano antes de criar qualquer recurso: ele não confere o plano pela API, porque isso exigiria dar ao token acesso aos dados de cobrança da conta. Detalhes em [Limites do Cloudflare](LIMITES.md).
 
 **Cupom da senha configurável**, em **Gestão → Filas e guichês → Cupom da senha**: cada área liga ou desliga os dados do estabelecimento, a posição na fila, uma mensagem de rodapé e o QR do WhatsApp. Quando o QR não pode sair, o cartão diz o motivo: área sem linha de WhatsApp ou linha sem número registrado. Os aparelhos pareados recebem a mudança na hora; os aplicativos precisam da versão que lê o cupom (contrato em [Fila de espera com senha](FILA-SENHAS.md#cupom-da-senha)). Os aplicativos atuais continuam imprimindo como antes, e o QR desligado já some neles.
 
@@ -333,7 +333,7 @@ Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia
 
 ## Atualização 0.20.0: módulos, cobrança e verticais
 
-Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz as migrações aditivas `0020` a `0058`, aplicadas pelo próprio atualizador. Elas criam as tabelas dos módulos e nenhum dado existente é apagado ou convertido. Não há Worker, banco, bucket nem Durable Object novos; nada muda na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
+Faça backup e use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Esta versão traz as migrações aditivas `0020` a `0058`, aplicadas pelo próprio atualizador. Elas criam as tabelas dos módulos e nenhum dado existente é apagado ou convertido. Não há Worker, banco, bucket nem Durable Object novos; nada muda na Cloudflare. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 **Recomendação: plano pago do Cloudflare para usar os verticais.** No plano gratuito cada invocação pode fazer 50 consultas ao D1. O atendimento sozinho cabe nisso, mas com os módulos ligados o alarme da área com trabalho acumulado e a conclusão do carrinho com Pix passam de 50. Quando isso acontece, a invocação para no meio: o trabalho do alarme atrasa e se repete, e no carrinho o cliente pode ficar com o pedido criado e sem a cobrança. O plano pago (Workers Paid) aceita 1000 consultas por invocação. As medições e as alternativas para caber no gratuito estão em [Limites do Cloudflare](LIMITES.md).
 
@@ -365,12 +365,12 @@ Faça backup e use **Sistema e atualizações → Verificar atualização → At
   - a confirmação de pagamento é entregue até concluir;
   - CPF/CNPJ digitado nunca vincula telefone a um pagador;
   - dados pessoais e notas exigem `contacts:read` e `notes:read`;
-  - operações financeiras de integrações exigem a permissão nova `billing:write`, que o painel nunca dá ao Vinki nem ao Fagoo;
+  - operações financeiras de integrações exigem a permissão nova `billing:write`, que o painel nunca dá ao Vinki V4 nem ao Fagoo;
   - o webhook do Mercado Pago só aceita a consulta assinada.
   
   O endereço público da instalação fica fixo depois do primeiro valor e só o administrador troca, em **Gestão → Sistema**. Tabela completa em [Revisão de segurança](SEGURANCA-REVISAO-2026-11.md).
 
-**Para quem usa o Hermes com as ferramentas do Wabotia (MCP).** A chave criada em **Integrações → Ferramentas do Wabotia no Hermes Agent** passa a levar a permissão nova `conversations:bound`. Com ela, as ferramentas só alcançam as conversas que um bot da aplicação está atendendo (ou atendeu nos últimos 2 minutos), e o painel exige escolher o bot. Eventos, relatórios, presença e as outras conversas da área ficam de fora; para uma chave de área inteira, marque essa opção ao gerar a chave.
+**Para quem usa o Hermes com as ferramentas do Vinki (MCP).** A chave criada em **Integrações → Ferramentas do Vinki no Hermes Agent** passa a levar a permissão nova `conversations:bound`. Com ela, as ferramentas só alcançam as conversas que um bot da aplicação está atendendo (ou atendeu nos últimos 2 minutos), e o painel exige escolher o bot. Eventos, relatórios, presença e as outras conversas da área ficam de fora; para uma chave de área inteira, marque essa opção ao gerar a chave.
 
 **Chave do Hermes criada antes desta versão: confira depois de atualizar.** Ela continua alcançando todas as conversas da área, e um cliente que convença o bot pode levá-lo até a conversa de outro. Nada é rebaixado sozinho. Passo a passo:
 
@@ -402,13 +402,13 @@ Detalhes em [MCP para o Hermes Agent](API.md#mcp-para-o-hermes-agent).
 
 ## Atualização 0.19.3: resumo no protocolo já aberto
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. Com a equipe ausente, cada conversa tem um protocolo aberto por vez; quando o bot transfere de novo e já existe um, o cliente recebe o mesmo número e o resumo do novo pedido entra nesse protocolo como nota interna ("Nova solicitação nesta conversa"), visível só para a equipe. Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco. Com a equipe ausente, cada conversa tem um protocolo aberto por vez; quando o bot transfere de novo e já existe um, o cliente recebe o mesmo número e o resumo do novo pedido entra nesse protocolo como nota interna ("Nova solicitação nesta conversa"), visível só para a equipe. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.19.2: bot segue o atendimento, avaliação e notificações de protocolo
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e nada muda na Cloudflare.
 
-- **O bot não volta ao menu** quando o cliente responde a uma pergunta dele; se ainda assim escolher o menu, o Wabotia pede a resposta de novo, sem o menu.
+- **O bot não volta ao menu** quando o cliente responde a uma pergunta dele; se ainda assim escolher o menu, o Vinki pede a resposta de novo, sem o menu.
 - **Avaliação depois do protocolo de ausência** (Regras de atendimento, desligada por padrão): depois da confirmação do protocolo e da pergunta de autorização, o cliente recebe o pedido de nota.
 - **Notificações de protocolo pelo WhatsApp** agora se ligam em Regras de atendimento, com o nome e o idioma do modelo aprovado. Ligadas, o cliente recebe a pergunta de autorização ao abrir um protocolo.
 
@@ -416,7 +416,7 @@ Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.19.1: níveis de raciocínio, fila sem tempo de espera, bot de IA no menu
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0019_queue_wait_off.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Esta versão traz a migração de banco `0019_queue_wait_off.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
 
 - **Esforço de raciocínio**: a conexão de provedor de IA lista todos os níveis de cada provedor (DeepSeek: Sem raciocínio, Baixo, Alto, Máximo; Anthropic: Baixo a Máximo; OpenAI: de Sem raciocínio a Muito alto). Em Muito alto e Máximo cada resposta pode levar até 3 minutos.
 - **Fila**: o tempo de espera mostrado ao cliente pode ser **Desligado**; o WhatsApp, o painel e o totem mostram só quantas pessoas estão à frente. O Senhapp precisa tratar a ausência do tempo.
@@ -427,7 +427,7 @@ Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.19.0: protocolo fácil de digitar, bot com a equipe ausente, Conhecimento editável
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0018_knowledge_usage.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Esta versão traz a migração de banco `0018_knowledge_usage.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
 
 - **Protocolos novos só com dígitos**, em sequência a partir de 10001. O cliente consulta digitando o número (aceita `protocolo 10001`, `#10001`, espaços e pontos). Os protocolos antigos mantêm o número `WA-…` e continuam consultáveis, inclusive digitados em minúsculas ou com espaço.
 - **Com a equipe ausente, devolver a conversa ao bot** (Regras de atendimento, desligado por padrão): o protocolo é aberto, a conversa sai da fila e o Bot Atendente continua atendendo; a equipe acompanha pelo protocolo.
@@ -440,10 +440,10 @@ Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.18.0: fila de espera com senha, Senhapp, excluir setores
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Esta versão traz a migração de banco `0017_queue.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Esta versão traz a migração de banco `0017_queue.sql`, aplicada pelo próprio atualizador; nada muda na Cloudflare.
 
 - **Fila de espera com senha:** em **Gestão → Filas e guichês**, crie filas e guichês, ligue a fila no WhatsApp (item de menu do tipo fila e, se quiser, porta de entrada em que qualquer mensagem abre o menu), configure painéis de TV e a lista negra. A equipe chama, rechama e transfere senhas na área **Fila**; o painel de TV fica em `/painel`. Detalhes em [Fila de espera com senha](FILA-SENHAS.md).
-- **Senhapp:** o quadro de Integrações passa a ser **Parear Senhapp** (totem, painel ou guichê). Códigos do Vinki e do Fagoo são recusados pelo painel; os pareamentos já feitos continuam funcionando e podem ser revogados ali.
+- **Senhapp:** o quadro de Integrações passa a ser **Parear Senhapp** (totem, painel ou guichê). Códigos do Vinki V4 e do Fagoo são recusados pelo painel; os pareamentos já feitos continuam funcionando e podem ser revogados ali.
 - **Excluir setor**, em **Menus e ações → Setores de atendimento**: recusado enquanto um item de menu usa o setor; as conversas abertas dele voltam para a fila geral.
 - **DeepSeek:** o esforço de raciocínio pode ser Sem raciocínio, Baixo (padrão) ou Alto. Conexões DeepSeek já cadastradas raciocinam em Alto até serem editadas e salvas; abra a conexão e salve para passar a Baixo.
 
@@ -451,16 +451,16 @@ Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.17.1: excluir conexões Hermes e de IA
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare. Em **Hermes e canais**, o cartão de uma conexão Hermes ou de provedor de IA pausada ganha **Excluir conexão**, que apaga a conexão, os bots dela e a chave guardada; conversas, mensagens e execuções anteriores continuam no histórico. A exclusão é recusada, dizendo onde trocar, enquanto um bot da conexão for o Bot Atendente, especialista, item de menu, bot de uma linha ou estiver atendendo uma conversa, e enquanto houver execução em andamento. No Hermes por plugin, o token deixa de valer. O limite do pacote de atualização sobe de 20 MB para 24 MB; como as instalações até a 0.17.0 aceitam no máximo 20 MB, esta versão continua abaixo disso. Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e nada muda na Cloudflare. Em **Hermes e canais**, o cartão de uma conexão Hermes ou de provedor de IA pausada ganha **Excluir conexão**, que apaga a conexão, os bots dela e a chave guardada; conversas, mensagens e execuções anteriores continuam no histórico. A exclusão é recusada, dizendo onde trocar, enquanto um bot da conexão for o Bot Atendente, especialista, item de menu, bot de uma linha ou estiver atendendo uma conversa, e enquanto houver execução em andamento. No Hermes por plugin, o token deixa de valer. O limite do pacote de atualização sobe de 20 MB para 24 MB; como as instalações até a 0.17.0 aceitam no máximo 20 MB, esta versão continua abaixo disso. Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.17.0: bot por provedor de IA, sem Hermes
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e nada muda na Cloudflare. Em **Hermes e canais → Nova conexão**, o serviço **Provedor de IA (sem servidor)** liga o Wabotia direto à Anthropic, à OpenAI, à DeepSeek ou a uma API compatível com a OpenAI, com uma chave de API: sem VPS, Docker ou Hermes. O formulário busca os modelos da conta e permite escolher o esforço de raciocínio. **Testar conexão** cria o bot, que pode ser Atendente, bot de linha, destino de transferência e conversa com a equipe; ele só conversa, então não pode ser especialista nem item de menu do tipo bot. A opção **Apenas mensagens**, ligada por padrão, responde a áudio e vídeo com um aviso pedindo texto e mantém a conversa com o bot. As conexões Hermes não mudam. O custo é cobrado pelo provedor, por uso. Detalhes em [Bot por provedor de IA](PROVEDOR-IA.md). Depois de atualizar, clique em **Reabrir painel atualizado**.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e nada muda na Cloudflare. Em **Hermes e canais → Nova conexão**, o serviço **Provedor de IA (sem servidor)** liga o Vinki direto à Anthropic, à OpenAI, à DeepSeek ou a uma API compatível com a OpenAI, com uma chave de API: sem VPS, Docker ou Hermes. O formulário busca os modelos da conta e permite escolher o esforço de raciocínio. **Testar conexão** cria o bot, que pode ser Atendente, bot de linha, destino de transferência e conversa com a equipe; ele só conversa, então não pode ser especialista nem item de menu do tipo bot. A opção **Apenas mensagens**, ligada por padrão, responde a áudio e vídeo com um aviso pedindo texto e mantém a conversa com o bot. As conexões Hermes não mudam. O custo é cobrado pelo provedor, por uso. Detalhes em [Bot por provedor de IA](PROVEDOR-IA.md). Depois de atualizar, clique em **Reabrir painel atualizado**.
 
 ## Atualização 0.16.6: uma só conversa com cada bot
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco. A tela do bot (**Pergunte ao bot**, no painel e nos aplicativos) e a conversa interna com o mesmo bot guardavam históricos separados, e cada aplicativo abria um deles. A pergunta feita pela tela do bot passa a ser gravada na conversa interna da pessoa com esse bot: os dois caminhos mostram a mesma conversa, em qualquer aparelho, e a memória do bot no Hermes é uma só para ela. Cada pessoa continua com a própria conversa, que os colegas não veem; por isso essas perguntas deixam de aparecer para o administrador em **Execuções de bots**. Arquivos devolvidos pelo bot aparecem na tela do bot; a conversa interna mostra só o texto. As perguntas diretas anteriores não são migradas: continuam na tela do bot, fora da conversa interna. Os aplicativos publicados não precisam de versão nova.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco. A tela do bot (**Pergunte ao bot**, no painel e nos aplicativos) e a conversa interna com o mesmo bot guardavam históricos separados, e cada aplicativo abria um deles. A pergunta feita pela tela do bot passa a ser gravada na conversa interna da pessoa com esse bot: os dois caminhos mostram a mesma conversa, em qualquer aparelho, e a memória do bot no Hermes é uma só para ela. Cada pessoa continua com a própria conversa, que os colegas não veem; por isso essas perguntas deixam de aparecer para o administrador em **Execuções de bots**. Arquivos devolvidos pelo bot aparecem na tela do bot; a conversa interna mostra só o texto. As perguntas diretas anteriores não são migradas: continuam na tela do bot, fora da conversa interna. Os aplicativos publicados não precisam de versão nova.
 
 ## Atualização 0.16.3: política de privacidade e teste de notificações
 
-Use **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Não há migração de banco e o servidor não muda. O site ganha a página `/privacidade`, com a política de privacidade dos aplicativos Android e iOS, e um link para ela no rodapé. Em **Notificações dos aplicativos**, o botão **Enviar teste** passa a mostrar quantos aparelhos aceitaram o teste; antes dizia sempre que não havia dispositivo registrado, mesmo com a notificação entregue. Os aplicativos 0.17.0 (sem ligações ao vivo) estão no repositório, mas não fazem parte desta atualização.
+Use **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Não há migração de banco e o servidor não muda. O site ganha a página `/privacidade`, com a política de privacidade dos aplicativos Android e iOS, e um link para ela no rodapé. Em **Notificações dos aplicativos**, o botão **Enviar teste** passa a mostrar quantos aparelhos aceitaram o teste; antes dizia sempre que não havia dispositivo registrado, mesmo com a notificação entregue. Os aplicativos 0.17.0 (sem ligações ao vivo) estão no repositório, mas não fazem parte desta atualização.

@@ -31,7 +31,7 @@ export interface Env {
   WABOTIA_WEB_INSTALLER?: string;
   /**
    * Repositório do código em execução (AGPL-3.0, §13), para quem modificar o
-   * Wabotia. Padrão: o repositório oficial. Veja src/source.ts.
+   * Vinki. Padrão: o repositório oficial. Veja src/source.ts.
    */
   WABOTIA_SOURCE_URL?: string;
 }

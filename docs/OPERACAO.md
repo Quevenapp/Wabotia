@@ -8,7 +8,7 @@ Antes de atualizar, faça backup e registre a versão Git. Execute `npm run chec
 
 ## Atualização e deploy do Hermes pelo painel
 
-O painel oferece **Sistema e atualizações → Atualizar Wabotia** com a autorização Cloudflare configurada pelo instalador. Veja o [roteiro completo de atualização direta](ATUALIZACOES.md). O código oficial é fixado por commit, o banco migra antes da troca de versão e o painel só confirma o commit em execução. O comando de primeiro deploy continua provisionando os recursos antes das migrações.
+O painel oferece **Sistema e atualizações → Atualizar Vinki** com a autorização Cloudflare configurada pelo instalador. Veja o [roteiro completo de atualização direta](ATUALIZACOES.md). O código oficial é fixado por commit, o banco migra antes da troca de versão e o painel só confirma o commit em execução. O comando de primeiro deploy continua provisionando os recursos antes das migrações.
 
 Para preparar uma nova conexão Hermes, o assistente **Conexões → Preparar Hermes na Cloudflare** registra cada etapa em D1 e coordena a criação com Durable Objects. Veja [configuração e recuperação](HERMES-CLOUDFLARE.md#deploy-da-configuração-pelo-painel). Falhas ambíguas não são repetidas automaticamente e não apagam recursos já criados.
 

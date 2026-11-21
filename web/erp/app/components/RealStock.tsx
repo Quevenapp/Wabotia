@@ -213,7 +213,7 @@ export default function RealStock({ controller, onPrepareWarehouses }: { control
   // The prices of a document lançamento are that document's data (105): only its readers edit them.
   // 259: the prices of a lançamento of a note are the note's items: read-only here.
   const priceEditable = (row: StockLedgerMovement) => row.origin.type !== 'invoices' && (!row.origin.document_kind || originReadable(row.origin, role));
-  // Wabotia: sem o espelho de estoque do Origin (Origin fora, motor 91213b8), nem o título que separava o estoque nativo dele.
+  // Vinki: sem o espelho de estoque do Origin (Origin fora, motor 91213b8), nem o título que separava o estoque nativo dele.
   return <>
     {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Preparar depósitos importados</button></p>}
     <header className="real-heading"><div className="stock-title"><h1>Estoque</h1><span className="origin-title-divider" aria-hidden="true" /><fieldset className="stock-inline-fieldset" disabled={editing}><legend className="real-sr-only">Depósito dos lançamentos</legend><OriginSelector label="Depósito" value={warehouseLabel} options={[ALL_WAREHOUSES, ...options.keys()]} onChange={chooseWarehouse} /></fieldset></div><span className="real-mode">{writable ? 'Edição autorizada' : 'Somente consulta'}</span></header>

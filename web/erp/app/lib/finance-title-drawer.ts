@@ -34,7 +34,7 @@ export const PERCENT_INFO = 'Este campo é preenchido automaticamente caso haja 
 export interface TitleBilling { our_number: string | null; document_number: string; remittance_id: string; remittance_sequence: number; remittance_state: 'reserved' | 'ready'; file_generated: boolean }
 export interface TitleOriginal { contact_name: string; due_on: string; amount_cents: string; description: string; created_at: string }
 /** `history`: the whole Histórico when it passes the 240 characters of `record.description` (SQL 210), else null. */
-/** Wabotia: `bank_writeoff`, the "boleto baixado no banco" declaration that cancelled the conta (null when there is none). */
+/** Vinki: `bank_writeoff`, the "boleto baixado no banco" declaration that cancelled the conta (null when there is none). */
 export interface TitleDetail { record: FinanceTitle; origin: FinanceTitleOrigin | null; account: { id: string; name: string; active: boolean } | null; billing: TitleBilling | null; imported: boolean; settled_before: boolean; original: TitleOriginal | null; history: string | null; bank_writeoff?: BankWriteoff | null }
 /** The Histórico the gaveta edits: the long text once the detail is read, otherwise the description. */
 export const titleHistory = (title: FinanceTitle, detail: TitleDetail | null) => detail?.history ?? title.description;

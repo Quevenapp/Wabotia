@@ -33,8 +33,8 @@ object Notifications {
     data class PushPresentation(val title: String, val channel: String?)
 
     fun presentation(notificationTitle: String?, data: Map<String, String>): PushPresentation = PushPresentation(
-        // O servidor já decide entre "Nome", "Instagram · Nome" e a prévia mínima "Wabotia".
-        title = notificationTitle?.takeIf { it.isNotBlank() } ?: data["title"]?.takeIf { it.isNotBlank() } ?: "Wabotia",
+        // O servidor já decide entre "Nome", "Instagram · Nome" e a prévia mínima "Vinki".
+        title = notificationTitle?.takeIf { it.isNotBlank() } ?: data["title"]?.takeIf { it.isNotBlank() } ?: "Vinki",
         channel = data["channel"]?.takeIf { it.isNotBlank() },
     )
 
@@ -212,7 +212,7 @@ object Notifications {
         val (channel, title, type) = when (group) {
             GROUP_TICKETS -> Triple(CHANNEL_TICKETS, "Protocolos", "ticket")
             GROUP_CONVERSATIONS -> Triple(CHANNEL_MESSAGES, "Conversas", "message")
-            else -> Triple(CHANNEL_MESSAGES, "Wabotia", "message")
+            else -> Triple(CHANNEL_MESSAGES, "Vinki", "message")
         }
         val style = NotificationCompat.InboxStyle().setBigContentTitle(title).setSummaryText(countLabel(total))
         children.sortedByDescending { it.postTime }.take(MAX_LINES).forEach { sbn ->
@@ -259,7 +259,7 @@ object Notifications {
     private fun publicVersion(context: Context, channel: String, text: String) =
         NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Wabotia")
+            .setContentTitle("Vinki")
             .setContentText(text)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()

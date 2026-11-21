@@ -68,7 +68,7 @@ export function withoutTriggers(lite, t, fn) {
 }
 
 /**
- * Desvios deliberados (src/erp/schema/deviations.ts): o valor do Wabotia nos
+ * Desvios deliberados (src/erp/schema/deviations.ts): o valor do Vinki nos
  * dois motores, sem gatilhos de guarda. Os aplicados já estão na semeadura
  * do SQLite (o UPDATE não muda nada); os forçados por teste entram aqui.
  */
@@ -77,7 +77,7 @@ export async function applyDeviationsBoth(pg, lite, deviations = ERP_DEVIATIONS.
   await pg.exec("set session_replication_role = replica");
   try {
     for (const d of deviations) {
-      // Desvio de função: CREATE OR REPLACE com o trecho do Wabotia, só no
+      // Desvio de função: CREATE OR REPLACE com o trecho do Vinki, só no
       // oráculo desta fixture (o banco em cache não muda). pg_get_functiondef
       // traz SECURITY DEFINER e search_path; o replace mantém dono e GRANTs.
       if (isFunctionDeviation(d)) {

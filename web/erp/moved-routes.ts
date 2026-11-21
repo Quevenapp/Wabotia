@@ -1,4 +1,4 @@
-// Endereços antigos do ERP que têm, no Wabotia, uma tela que funciona no lugar. A casca (mount.tsx, antes de
+// Endereços antigos do ERP que têm, no Vinki, uma tela que funciona no lugar. A casca (mount.tsx, antes de
 // conferir o destino) e o roteador do ERP (app/App.tsx) levam para a tela nova, em vez de "em implantação" ou de
 // uma tela que o servidor não atende.
 import { pendingInMotor } from "./motor.ts";
@@ -10,7 +10,7 @@ const MOVED: Readonly<Record<string, string>> = {
   // A conexão com a SEFAZ é testada no emissor de notas (o certificado fica no emissor, não no ERP).
   "/conexao-sefaz": "/certificado-a1",
 };
-/** Sem motor no Wabotia (web/erp/motor.ts): a mesma tarefa é feita pelo emissor de notas. */
+/** Sem motor no Vinki (web/erp/motor.ts): a mesma tarefa é feita pelo emissor de notas. */
 const MOVED_WITHOUT_MOTOR: Readonly<Record<string, string>> = {
   "/inutilizacoes-nfe": "/certificado-a1",
   "/cartas-correcao": "/historico-fiscal?modelo=55",

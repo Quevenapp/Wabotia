@@ -777,6 +777,6 @@ export const CLIENT_OPERATIONS: readonly ContractOperation[] = [
  * Operações do contrato que o cliente de propósito não implementa: o
  * download da exportação é do navegador do usuário, pelo link assinado que
  * vem em `partes[].url` e `planilha.url` (sem chave de API). O servidor do
- * Wabotia nunca baixa esse arquivo nem monta esse endereço.
+ * Vinki nunca baixa esse arquivo nem monta esse endereço.
  */
 export const BROWSER_ONLY_OPERATIONS: readonly ContractOperation[] = ["GET /exportacoes/{id}/{arquivo}"];

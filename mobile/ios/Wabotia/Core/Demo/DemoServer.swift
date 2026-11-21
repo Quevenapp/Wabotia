@@ -44,7 +44,7 @@ final class DemoURLProtocol: URLProtocol {
     }
 }
 
-/// Servidor Wabotia de mentira: dados de exemplo mutáveis e as mesmas rotas que o app usa.
+/// Servidor Vinki de mentira: dados de exemplo mutáveis e as mesmas rotas que o app usa.
 /// Todo acesso acontece na fila serial `queue`.
 ///
 /// Os dados são fictícios: pessoas e empresa inventadas, telefones com o DDD 20 (que não existe no Brasil)
@@ -1494,7 +1494,7 @@ enum DemoMedia {
         if type.hasPrefix("image/") { return image() }
         if type == "application/pdf" { return pdf(title: name) }
         if type.hasPrefix("audio/") { return wav(seconds: 4) }
-        return Data("Arquivo de demonstração do Wabotia.\n".utf8)
+        return Data("Arquivo de demonstração.\n".utf8)
     }
 
     private static func image() -> Data {
@@ -1548,7 +1548,7 @@ enum DemoMedia {
             let heading: [NSAttributedString.Key: Any] = [.font: UIFont.boldSystemFont(ofSize: 24), .foregroundColor: UIColor(hex: 0x008069)]
             let body: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 13), .foregroundColor: UIColor.darkGray]
             ("Política de troca" as NSString).draw(at: CGPoint(x: 56, y: 64), withAttributes: heading)
-            ("Documento de demonstração do Wabotia (\(title)).\n\nTrocas gratuitas em até 30 dias após o recebimento,\ncom coleta pela transportadora no endereço do cliente." as NSString)
+            ("Documento de demonstração (\(title)).\n\nTrocas gratuitas em até 30 dias após o recebimento,\ncom coleta pela transportadora no endereço do cliente." as NSString)
                 .draw(in: CGRect(x: 56, y: 112, width: 480, height: 300), withAttributes: body)
         }
     }

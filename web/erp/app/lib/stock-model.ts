@@ -103,7 +103,7 @@ function ledgerOrigin(value:unknown):StockOrigin {
     :(value.document_id!==null||value.document_kind!==null||value.document_number!==null||value.via!==null))throw new Error('INVALID_LEDGER');
   return {type,document_id:value.document_id as string|null,document_kind:kind,document_number:value.document_number as string|null,via:value.via as StockOrigin['via']};
 }
-/** Wabotia: a abertura de saldo do sincronizador antigo grava o nome dele no motivo e na referência (texto conferido
+/** Vinki: a abertura de saldo do sincronizador antigo grava o nome dele no motivo e na referência (texto conferido
  * contra o oráculo SQL, que não muda); na tela, o lançamento aparece como importado. */
 const importedText=(text:string)=>text.replace(/^Abertura Origin depósito /,'Abertura importada do depósito ').replace(/ \(Origin\)/g,' (importado)').replace(/\bOrigin\b/g,'importado');
 /** Defensive read of the worker's projected page; it must answer this exact product, filter set and page. */

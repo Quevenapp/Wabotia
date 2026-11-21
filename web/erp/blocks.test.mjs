@@ -142,9 +142,9 @@ const EXTERNAL = {
   "components/RealFinance.tsx":
     "conferência de origem do título desligada (ORIGIN_FINANCE_IMPORT)",
   "components/WabotiaPairing.tsx":
-    "tela escondida no Wabotia (hiddenInWabotia)",
+    "tela escondida no Vinki (hiddenInWabotia)",
   "lib/system-updates.ts":
-    "telas de atualização escondidas no Wabotia (hiddenInWabotia)",
+    "telas de atualização escondidas no Vinki (hiddenInWabotia)",
   "lib/real-access.ts": "controlador",
 };
 // Clientes de rota externa que só o controlador importa (as telas saíram, item 17).

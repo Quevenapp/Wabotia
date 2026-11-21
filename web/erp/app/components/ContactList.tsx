@@ -66,7 +66,7 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
   const [period, setPeriod] = useState<ContactListPeriod>(EMPTY_LIST_PERIOD);
   // Origin CL-24/CL-26/CL-27: the order follows the situation (Últimos incluídos by inclusion, the others by name), never the headers.
   const sort = filters.situation === 'latest' ? 'created_desc' as const : 'name_asc' as const;
-  // Wabotia: campos próprios de contato como coluna e filtro (Preferências › Cadastros).
+  // Vinki: campos próprios de contato como coluna e filtro (Preferências › Cadastros).
   const fieldDefs = useContactFieldDefinitions(Boolean(permissions?.read.includes('contacts')));
   const [fieldDraft, setFieldDraft] = useState<FieldFilterDraft>({}), [fieldFilters, setFieldFilters] = useState<ContactFieldFilter[]>([]);
   const filterKey = JSON.stringify([type, filters, query, period, fieldFilters]);

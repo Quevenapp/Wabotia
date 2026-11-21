@@ -1,4 +1,4 @@
-// Relatórios em gráfico do Financeiro (Wabotia, sem função no oráculo):
+// Relatórios em gráfico do Financeiro (Vinki, sem função no oráculo):
 // erp_finance_chart com p_args.report
 // - cash_flow: fluxo de caixa previsto (contas pelo vencimento) e realizado
 //   (movimentos das contas financeiras, fora transferências e saldo inicial)

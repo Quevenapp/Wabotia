@@ -5,7 +5,7 @@ import {parseStockPolicy,parseStockPolicyResult,policyIntent,stockPolicyPath,sto
  type StockPolicyView,type StockPolicyInput} from '../lib/stock-opening-model';
 import './stock-opening.css';
 
-// Wabotia: a adoção do saldo de abertura vindo do Origin saiu com ele (Origin fora, motor 91213b8: os opening_* saem do motor).
+// Vinki: a adoção do saldo de abertura vindo do Origin saiu com ele (Origin fora, motor 91213b8: os opening_* saem do motor).
 // /estoque-abertura fica só com a política de estoque negativo; o saldo inicial entra por Lançamentos de estoque ou pela importação.
 export interface StockOpeningController{getSnapshot:()=>AccessState;subscribe:(fn:()=>void)=>()=>void;stockOpening:(path:string,options?:NativeRequestOptions)=>Promise<unknown>}
 const authorized=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';

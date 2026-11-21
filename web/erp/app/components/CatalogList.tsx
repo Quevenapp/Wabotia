@@ -49,7 +49,7 @@ export function useCatalogList(controller: AccessController, initialEntity: Cata
   const [clone, setClone] = useState<{ values: Record<string, string>; name: string } | null>(null);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [detailError, setDetailError] = useState(''); const [notice, setNotice] = useState(''); const [reload, setReload] = useState(0);
-  // Wabotia: a primeira página de produtos espera as preferências de lista ("Tornar padrão"); useProductList libera uma vez só.
+  // Vinki: a primeira página de produtos espera as preferências de lista ("Tornar padrão"); useProductList libera uma vez só.
   const [prefsHold, setPrefsHold] = useState(true);
   const filterKey = JSON.stringify([entity, query, active, productFilters, contactFilters, role, period, sort]);
   // Changing any filter or the order returns to page 1 in the same render, without a stale request.
@@ -238,7 +238,7 @@ export function catalogListView(list: CatalogList, view: CatalogEntityView, Edit
   return <>
     <header className="real-heading catalog-heading"><div className="catalog-title"><h1>{LIST_TITLE[entity]}</h1>{view.heading}</div><div className="catalog-heading-actions">{permissions && !writable && <span className="real-mode">Somente consulta</span>}{writable && !editing && <button type="button" className="primary-button" title="Incluir um novo cadastro" onClick={list.create}><Icon name="plus" size={12}/>{view.labels.add}</button>}</div></header>
     {view.intro}
-    {/* Wabotia: sem as exclusões do Origin (Leva H, 352) nem o aviso da sincronização: Origin fora (motor 91213b8). */}
+    {/* Vinki: sem as exclusões do Origin (Leva H, 352) nem o aviso da sincronização: Origin fora (motor 91213b8). */}
     {notice && <p className="real-success" role="status">{notice}</p>}
     {error && <p className="real-alert" role="alert">{error}<button type="button" className="text-button" onClick={() => { if (permissions) list.setReload(value => value + 1); else controller.retry(); }}>Tentar novamente</button></p>}
     {detailError && <p className="real-alert" role="alert">{detailError}<button type="button" className="text-button" onClick={list.closeEditor}>Voltar à listagem</button></p>}

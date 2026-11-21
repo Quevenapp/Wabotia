@@ -104,7 +104,7 @@ export function decimalInput(text: string, scale: number, digits: number, messag
   if (!new RegExp(`^(0|[1-9][0-9]{0,${digits - 1}})(\\.[0-9]{1,${scale}})?$`).test(value)) throw new Error(message);
   return value;
 }
-// Wabotia: `places` são as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): quantidade e preço nas saídas. Sem a
+// Vinki: `places` são as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): quantidade e preço nas saídas. Sem a
 // preferência (null), valem os limites do formato (6 e 10 casas) e o servidor confere.
 export const quantityInput = (text: string, places: number | null = null) => { const value = decimalInput(text, 6, 9, 'Informe a quantidade com até seis casas decimais.'); if (decimal(value, 6, 9) === 0n) throw new Error('A quantidade deve ser maior que zero.'); const problem = placesProblem(value, places, 'A quantidade'); if (problem) throw new Error(problem); return value; };
 export const priceInput = (text: string, places: number | null = null) => { const value = text.trim().replace(',', '.'); try { normalizeUnitPrice(value, 10); } catch { throw new Error('Confira o valor unitário: até dez dígitos inteiros e dez casas decimais.'); } const problem = placesProblem(value, places, 'O valor unitário'); if (problem) throw new Error(problem); return value; };
@@ -249,7 +249,7 @@ export function pdvFailure(error: unknown): string {
   const failure = error as { status?: unknown; field?: unknown; detail?: unknown } | null;
   if (failure && typeof failure === 'object' && typeof failure.status === 'number') {
     if (typeof failure.field === 'string' && Object.hasOwn(REASONS, failure.field)) return REASONS[failure.field]!;
-    // Wabotia: a frase do servidor (limite, dado faltando, parte desligada) vem primeiro (real-access.ts).
+    // Vinki: a frase do servidor (limite, dado faltando, parte desligada) vem primeiro (real-access.ts).
     if (typeof failure.detail === 'string' && failure.detail) return failure.detail;
     const status = failure.status;
     if (status === 409) return 'A venda ou o caixa mudou enquanto você trabalhava. Atualize e confira.';

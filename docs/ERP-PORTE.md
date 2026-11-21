@@ -337,7 +337,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
   - `[[:cntrl:]]` pega C0, DEL e C1. Use `PG_CNTRL`/`pgHasCntrl`.
   - Os ajudantes `pgBtrim` (só espaço), `pgLength` e `pgLeft` contam caracteres, não unidades UTF-16.
   - O cliente do PGlite tira um U+FEFF do começo do texto devolvido. Em teste, ponha um caractere na frente (`'x'||…`).
-- **Armazenamento** (`storage.buckets`/`storage.objects` do Supabase): no Wabotia é o R2.
+- **Armazenamento** (`storage.buckets`/`storage.objects` do Supabase): no Vinki é o R2.
   - `preferences.storageReady()` não lança (o R2 sempre existe; o harness cria o bucket no oráculo).
   - Objeto conferido dentro do RPC: declare as chaves em `registerRpc(nome, fn, { objects: (args) => ["erp-attachments/…"] })` e leia com `ctx.objects(chave)`. Ele devolve `{size, mimetype}` ou null; o objeto `erp:` lê do R2 antes da transação.
   - No teste, `f.putObject(bucket, nome, tamanho, tipo)` grava o objeto nos dois lados.
@@ -354,7 +354,7 @@ Funções mais usadas entre domínios (o resto está em `ownership.generated.jso
       | `brufap-received-dfe` | `dfe` | notas recebidas (DF-e) | `erp-fiscal` | não |
       | `brufap-fiscal-artifacts` | `fiscal` | XML assinado, recibos e respostas da SEFAZ | `erp-fiscal` | não |
 
-      Ficam de fora (404, como qualquer bucket fora da tabela): `origin-backups` e `origin-fiscal-xml` (Origin, bloco "externo") e `brufap-a1-vault`. O certificado A1 nunca fica no Wabotia: mora no cofre da NFapi, separado do sistema que tem bots e integrações (decisão do usuário). Gravar ou ler nele dá 404 mesmo com `erp-fiscal` ligado.
+      Ficam de fora (404, como qualquer bucket fora da tabela): `origin-backups` e `origin-fiscal-xml` (Origin, bloco "externo") e `brufap-a1-vault`. O certificado A1 nunca fica no Vinki: mora no cofre da NFapi, separado do sistema que tem bots e integrações (decisão do usuário). Gravar ou ler nele dá 404 mesmo com `erp-fiscal` ligado.
       O novo [acervo recebido do Bling](RECEBER-BLING.md) usa prefixo privado por área no `MEDIA` existente e download autenticado próprio; não abre esses buckets lógicos legados.
 
       O caminho é o que a RPC registra, e o prefixo (área e bucket) é posto pela camada. Por dentro (chave no R2, `ctx.objects` e o diferencial) vale o nome do Fagoo, por exemplo `ctx.objects("brufap-cnab/" + caminho)`; o apelido só aparece no endereço público.

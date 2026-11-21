@@ -286,13 +286,13 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
                 : <CategoryTreePicker id="contact-finance_category_id" items={categoryList} value={values.finance_category_id ?? ''} currentName={record?.finance_category_name} disabled={locked} onChange={next => change('finance_category_id', next)} />}</div>
           </div></section>}
         <section className="contact-section" id="contact-section-notes" tabIndex={-1}><h3 className="catalog-group-title">Observações</h3><div className="contact-grid">{field(SECTION_FIELDS.observacoes[0])}</div></section>
-        {/* Wabotia: sem o painel do espelho do Origin (Leva H, 350) nem o complemento Transportador dele: Origin fora (motor 91213b8). */}
+        {/* Vinki: sem o painel do espelho do Origin (Leva H, 350) nem o complemento Transportador dele: Origin fora (motor 91213b8). */}
         <section className="contact-section" id="contact-section-files" tabIndex={-1}><button type="button" className="contact-collapse" aria-expanded={attachmentsOpen} onClick={() => setAttachmentsOpen(!attachmentsOpen)}><Icon name={attachmentsOpen ? 'chevron-down' : 'chevron-right'} size={11} /><h3 className="catalog-group-title">Anexos</h3></button>
           {attachmentsOpen && (record ? <ContactFiles controller={controller} contactId={record.id} writable={writable && !excluded} />
             : <p className="real-help">Salve o cadastro para anexar arquivos.</p>)}</section>
       </fieldset></div>
     </form>
-    {/* Wabotia: campos próprios de contato (Preferências › Cadastros), salvos à parte; na ficha do atendimento, só leitura. */}
+    {/* Vinki: campos próprios de contato (Preferências › Cadastros), salvos à parte; na ficha do atendimento, só leitura. */}
     <ContactCustomFields contactId={record?.id ?? null} embedded={Boolean(embeddedProfile)} writable={Boolean(writable) && !excluded} />
     {drawer &&<ContactQuickDrawer controller={controller} types={typesList} canCreateTypes={Boolean(contactTypes?.can_create)} required={required} onTypeCreated={type => setContactTypes(current => current ? { ...current, items: [...current.items, type] } : current)}
       onClose={() => setDrawer(false)} onCreated={created => { setDrawer(false); setPersons(previous => [...previous, { id: created.id, name: created.name, code: typeof created.code === 'string' ? created.code : null, situation: created.situation }]); }} />}

@@ -55,7 +55,7 @@ test('reading a page goes through the strict page parser; no preferences port ke
   await assert.rejects(() => readDocumentPreferences({ preferences: async () => ({ ...view('service_orders'), page: 'vendas-vendas' }) }, 'service_orders', signal));
 });
 
-test('Wabotia: vendas-vendas and cadastros-produtos are requested together; same results and the same failures as the serial reads', async () => {
+test('Vinki: vendas-vendas and cadastros-produtos are requested together; same results and the same failures as the serial reads', async () => {
   const signal = new AbortController().signal, page = id => { const p = preferencePage(id); return { ...view('sales_orders'), page: id, directory: storedFields(p).some(f => f.kind === 'users') ? [] : null, items: storedFields(p).map(field => field.key === 'produtos.localizacao_relatorio_producao' ? { key: field.key, value: true, version: 1, updated_at: '2026-10-20T12:00:00Z' } : { key: field.key, value: field.default, version: 0, updated_at: null }) }; };
   const pending = [], port = { getSnapshot: () => ({ membership: { user_id: me } }), preferences: path => new Promise((resolve, reject) => pending.push({ path, resolve, reject })) };
   const reading = readDocumentPreferences(port, 'sales_orders', signal);

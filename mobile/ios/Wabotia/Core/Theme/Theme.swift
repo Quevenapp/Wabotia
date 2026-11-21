@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Tokens visuais do Wabotia (mobile/DESIGN.md, seção 1). Nenhuma tela usa cor literal: tudo sai daqui.
+/// Tokens visuais do Vinki (mobile/DESIGN.md, seção 1). Nenhuma tela usa cor literal: tudo sai daqui.
 /// Cada cor é dinâmica (claro/escuro) e acompanha a aparência escolhida em Ajustes.
 enum Theme {
     static let brand = Color(light: 0x008069, dark: 0x00A884)

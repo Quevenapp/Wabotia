@@ -2,7 +2,7 @@
 // public.erp_finance_file_reserve, _claim, _finish, _stop, _delete, _list e
 // _object, com erp_finance.file_authorize, file_row, file_dto e a camada de
 // tabela de file (file_identity) e file_audit (só inserção).
-// storage.buckets/objects do Supabase: no Wabotia o objeto fica no R2; o
+// storage.buckets/objects do Supabase: no Vinki o objeto fica no R2; o
 // erp_attachments.storage_ready não lança (preferences/public.ts), e o finish
 // confere o objeto que o motor consultou antes da transação (ctx.objects,
 // registerRpc(…, { objects })).

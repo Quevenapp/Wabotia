@@ -92,14 +92,14 @@ export function NumberPolicyEditor({
           >
             <option value="official">Atendimento oficial</option>
             <option value="service_only">
-              Integração com janela de 24 horas (Vinki)
+              Integração com janela de 24 horas (Vinki V4)
             </option>
             <option value="custom">Personalizado</option>
           </select>
         </label>
         <p>
           Escolher uma função preenche as opções abaixo. Confira e salve para
-          aplicar. A opção Vinki permite respostas de serviço dentro da janela
+          aplicar. A opção Vinki V4 permite respostas de serviço dentro da janela
           de 24 horas e bloqueia templates. Linhas existentes mudam apenas
           depois de salvar.
         </p>

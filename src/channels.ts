@@ -14,7 +14,7 @@ export type {
 const MiB = 1024 * 1024;
 const HOUR = 60 * 60 * 1000;
 
-/** Limites LOCAIS do Wabotia, incluindo assinatura no texto. Formatos, limites
+/** Limites LOCAIS do Vinki, incluindo assinatura no texto. Formatos, limites
  * remotos e interpretações do fornecedor: a conferir com a conta real.
  * O adaptador deve recusar MIME não validado e separar texto em entregas
  * ordenadas, cada qual com chave própria; nunca truncar silenciosamente. */

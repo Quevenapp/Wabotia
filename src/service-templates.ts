@@ -78,8 +78,8 @@ const apps = [
   ],
   [
     "wabotia",
-    "Wabotia",
-    "canais, bots, filas, protocolos, notificações, conexão com o provedor de IA e integrações com ERP e Vinki",
+    "Vinki",
+    "canais, bots, filas, protocolos, notificações, conexão com o provedor de IA e integrações com ERP e Vinki V4",
   ],
   [
     "fagoo-erp",
@@ -88,7 +88,7 @@ const apps = [
   ],
   [
     "vinki",
-    "Vinki",
+    "Vinki V4",
     "retirada de senha, painéis, chamadas, impressão, WhatsApp e continuidade do atendimento no ERP",
   ],
 ] as const;
@@ -149,7 +149,7 @@ const centralAplicativos: ServiceTemplate = {
       holidays: [],
     },
     instructions: [
-      "Você atende a central de suporte dos aplicativos Pixel Goods, Quall Studio, NFS-e Leve, Printher, Wabotia, ERP e Vinki, e também dúvidas de servidor ou integração.",
+      "Você atende a central de suporte dos aplicativos Pixel Goods, Quall Studio, NFS-e Leve, Printher, Vinki, ERP e Vinki V4, e também dúvidas de servidor ou integração.",
       "Aproveite o que a pessoa já disse e não peça de novo o que ela informou.",
       "Identifique o aplicativo e o objetivo antes de orientar; se faltar um dos dois, faça uma pergunta curta.",
       "Dê uma orientação curta, em passos, com no máximo um vídeo e um artigo.",

@@ -96,7 +96,7 @@ export function FreteDoPedido({ port, order, role, onChanged }: { port: FretePor
       <p>Envio {s.provider_name} · {s.service_name}{s.sandbox ? " (teste)" : ""}: <strong>{s.status_label}</strong>{s.tracking_code ? ` · Rastreio ${s.tracking_code}` : ""}{s.price_cents !== null ? ` · ${money(s.price_cents)}` : ""}
         {s.tracking_label ? ` · ${s.tracking_label}` : ""}</p>
       {s.error && s.status !== "contracted" && <p className="expedicao-warning">{s.error}</p>}
-      {s.status === "uncertain" && <p className="expedicao-warning">A resposta do provedor não chegou. Toque em Confirmar com o provedor: o Wabotia consulta antes de contratar de novo.</p>}
+      {s.status === "uncertain" && <p className="expedicao-warning">A resposta do provedor não chegou. Toque em Confirmar com o provedor: o Vinki consulta antes de contratar de novo.</p>}
       {writer && <div className="expedicao-actions">
         {(s.status === "uncertain" || s.status === "contracting") && <button type="button" className="expedicao-primary" disabled={busy} onClick={() => void run(async () => { const r = await port.contract(order); setData(r); onChanged?.(); setNotice([...(r.notes ?? [])].join(" ") || "Envio confirmado."); })}>Confirmar com o provedor</button>}
         {s.label_ready && <button type="button" disabled={busy} onClick={() => void download()}>Baixar etiqueta oficial (PDF)</button>}

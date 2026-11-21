@@ -287,11 +287,11 @@ export async function contractShipment(c: FreightCall, id: string, body: Record<
     let found;
     try { found = await FREIGHT_PROVIDER_ADAPTERS[existingProvider].find(deps.http, await freightConnection(c.env, c.profile, existingProvider), existing.id, existing.provider_ref ?? null); }
     catch (error) {
-      throw new ApiError(409, "freight_uncertain", `Ainda não deu para confirmar com ${FREIGHT_PROVIDER_ADAPTERS[existingProvider].name} se o envio anterior foi feito, e o Wabotia não contrata de novo sem saber. ${error instanceof Error ? error.message : ""} Tente de novo em alguns minutos.`.trim());
+      throw new ApiError(409, "freight_uncertain", `Ainda não deu para confirmar com ${FREIGHT_PROVIDER_ADAPTERS[existingProvider].name} se o envio anterior foi feito, e o Vinki não contrata de novo sem saber. ${error instanceof Error ? error.message : ""} Tente de novo em alguns minutos.`.trim());
     }
     if (found && !found.cancelled) {
       const notes = await settle(c, existing, found, deps, shipped);
-      return { ...(await orderFreight(c, id)), repeated: true, notes: ["O envio anterior tinha sido feito no provedor: o Wabotia confirmou e usou ele.", ...notes] };
+      return { ...(await orderFreight(c, id)), repeated: true, notes: ["O envio anterior tinha sido feito no provedor: o Vinki confirmou e usou ele.", ...notes] };
     }
     await setShipment(c.env, existing.id, { status: found?.cancelled ? "cancelled" : "failed", error: found?.cancelled ? "Cancelado no provedor." : "O provedor confirmou que este envio não foi feito." });
   }
@@ -327,7 +327,7 @@ export async function contractShipment(c: FreightCall, id: string, body: Record<
     await setShipment(c.env, shipment.id, { status: "uncertain", provider_ref: error instanceof FreightError ? error.providerRef : null,
       error: error instanceof FreightError ? error.message.slice(0, 500) : "A resposta do provedor não chegou." });
     throw new ApiError(502, "freight_uncertain", error instanceof FreightError ? error.message
-      : `${adapter.name} não respondeu. O envio pode ter sido feito lá: o Wabotia consulta antes de tentar de novo.`);
+      : `${adapter.name} não respondeu. O envio pode ter sido feito lá: o Vinki consulta antes de tentar de novo.`);
   }
 }
 
@@ -350,7 +350,7 @@ export async function cancelShipment(c: FreightCall, id: string, deps: FreightDe
   if (!ctx.can_write) throw new ApiError(403, "forbidden", "Seu papel no ERP só consulta a expedição. Cancelar o envio pede o papel Administrador, Vendas ou Estoque.");
   const s = await one(c.env, "SELECT * FROM erp_frete_shipments WHERE profile_id=? AND document_id=? AND status IN ('contracted','cancelling','uncertain')", c.profile, ctx.order.id);
   if (!s) throw new ApiError(404, "freight_shipment_missing", "Este pedido não tem envio contratado para cancelar.");
-  if (s.status === "uncertain") throw new ApiError(409, "freight_uncertain", "O envio ainda não foi confirmado com o provedor. Toque em Contratar envio para o Wabotia consultar o provedor antes.");
+  if (s.status === "uncertain") throw new ApiError(409, "freight_uncertain", "O envio ainda não foi confirmado com o provedor. Toque em Contratar envio para o Vinki consultar o provedor antes.");
   if (!isFreightProvider(s.provider)) throw new ApiError(409, "freight_provider_unknown", "Provedor do envio desconhecido.");
   const provider = s.provider as FreightProviderId;
   const adapter = FREIGHT_PROVIDER_ADAPTERS[provider], conn = await freightConnection(c.env, c.profile, provider);
@@ -377,7 +377,7 @@ export async function cancelShipment(c: FreightCall, id: string, deps: FreightDe
       await setShipment(c.env, s.id, { status: "contracted", error: error.message.slice(0, 500) });
       throw new ApiError(error.status, error.code, error.message);
     }
-    throw new ApiError(502, "freight_uncertain", `${adapter.name} não respondeu ao cancelamento. Na próxima tentativa o Wabotia consulta antes de pedir de novo.`);
+    throw new ApiError(502, "freight_uncertain", `${adapter.name} não respondeu ao cancelamento. Na próxima tentativa o Vinki consulta antes de pedir de novo.`);
   }
   return finish();
 }

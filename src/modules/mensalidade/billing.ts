@@ -197,7 +197,7 @@ export async function warnSetup(
     reason,
     message:
       reason === "origin_unknown"
-        ? "O endereço público do Wabotia ainda não é conhecido: abra o painel pelo endereço usado pelos clientes. Enquanto isso, as mensalidades saem sem Pix e a baixa é manual."
+        ? "O endereço público do Vinki ainda não é conhecido: abra o painel pelo endereço usado pelos clientes. Enquanto isso, as mensalidades saem sem Pix e a baixa é manual."
         : "A Cobrança não está configurada nesta área (Gestão → Cobrança). As mensalidades saem sem Pix e a baixa é manual.",
   });
   return true;

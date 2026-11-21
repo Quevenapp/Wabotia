@@ -42,7 +42,7 @@ export interface QuoteOption {
 }
 
 export interface ContractRequest {
-  /** Identificador do envio no Wabotia: vai junto ao provedor para achar o envio de novo numa resposta incerta. */
+  /** Identificador do envio no Vinki: vai junto ao provedor para achar o envio de novo numa resposta incerta. */
   reference: string;
   service_code: string;
   order_number: number;
@@ -138,7 +138,7 @@ export async function callJson(http: FreightHttp, provider: string, url: string,
     response = await http(url, { method: init.method, headers: init.headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
   } catch {
     throw new FreightError("freight_provider_unavailable", init.write
-      ? `${provider} não respondeu. O envio pode ter sido feito lá: o Wabotia consulta antes de tentar de novo.`
+      ? `${provider} não respondeu. O envio pode ter sido feito lá: o Vinki consulta antes de tentar de novo.`
       : `${provider} não respondeu. Tente de novo em instantes.`, { uncertain: !!init.write });
   }
   const text = await response.text().catch(() => "");
@@ -148,7 +148,7 @@ export async function callJson(http: FreightHttp, provider: string, url: string,
     throw new FreightError("freight_provider_auth", `${provider} recusou as credenciais. Confira em Expedição › Frete e transportadoras e teste a conexão.`, { status: 502 });
   if (response.status >= 500 || (response.ok && text && data === null))
     throw new FreightError("freight_provider_unavailable", init.write
-      ? `${provider} respondeu com erro. O envio pode ter sido feito lá: o Wabotia consulta antes de tentar de novo.`
+      ? `${provider} respondeu com erro. O envio pode ter sido feito lá: o Vinki consulta antes de tentar de novo.`
       : `${provider} está com problema agora. Tente de novo em instantes.`, { uncertain: !!init.write });
   return { status: response.status, ok: response.ok, data };
 }

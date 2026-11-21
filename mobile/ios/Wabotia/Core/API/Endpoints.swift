@@ -1,6 +1,6 @@
 import Foundation
 
-/// Contrato REST do Wabotia consumido pelo aplicativo (docs/API.md + docs/MOBILE.md).
+/// Contrato REST do Vinki consumido pelo aplicativo (docs/API.md + docs/MOBILE.md).
 /// Escritas exigem Idempotency-Key: gere uma chave por intenção e reutilize a mesma ao repetir após falha de rede.
 extension APIClient {
     // MARK: Descoberta e autenticação

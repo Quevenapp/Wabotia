@@ -165,7 +165,7 @@ export function mountAccount(app: Hono<Bindings>) {
     return c.json({
       factor_id: factor.id,
       secret: factor.secret,
-      otpauth_url: otpauthUrl(factor.secret, user.email, "Wabotia"),
+      otpauth_url: otpauthUrl(factor.secret, user.email, "Vinki"),
     });
   });
   // Primeiro código: ativa o fator, devolve os 10 códigos de recuperação

@@ -165,7 +165,7 @@ class ChannelsDemoTest {
         val instagram = Notifications.presentation("Instagram · Lia", mapOf("channel" to "instagram", "title" to "ignorado"))
         assertEquals("Instagram · Lia", instagram.title)
         assertEquals("instagram", instagram.channel)
-        assertEquals("Wabotia", Notifications.presentation("Wabotia", mapOf("channel" to "instagram")).title)
+        assertEquals("Vinki", Notifications.presentation("Vinki", mapOf("channel" to "instagram")).title)
         assertEquals("Mariana", Notifications.presentation(null, mapOf("title" to "Mariana")).title)
         assertNull(Notifications.presentation(null, emptyMap()).channel)
         assertEquals("future", Notifications.presentation(null, mapOf("channel" to "future")).channel)

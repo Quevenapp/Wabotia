@@ -82,7 +82,7 @@ Um QR por mesa, impresso no display, que abre o cardápio com a mesa já
 escolhida, sem app e sem login:
 
 1. O QR leva a `https://wa.me/<número>?text=Mesa%205%20·%20<código>`. O
-   cliente manda a mensagem; o Wabotia reconhece o código da mesa e responde
+   cliente manda a mensagem; o Vinki reconhece o código da mesa e responde
    com o botão "Fazer pedido" (o mesmo carrinho do Pedido), já marcado
    "Mesa 5", sem retirada/entrega nem forma de pagamento.
 2. O pedido só entra na conta se a mesa estiver aberta. Para que alguém fora

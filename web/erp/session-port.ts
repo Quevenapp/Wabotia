@@ -1,7 +1,7 @@
-// Sessão do ERP sobre a sessão do Wabotia (PLANO-FAGOO-PAINEL.md, B e C).
+// Sessão do ERP sobre a sessão do Vinki (PLANO-FAGOO-PAINEL.md, B e C).
 //
 // O controlador do Fagoo espera um cliente de Auth do Supabase: getSession,
-// onAuthStateChange, signInWithPassword e signOut. No Wabotia quem entra é o
+// onAuthStateChange, signInWithPassword e signOut. No Vinki quem entra é o
 // núcleo (web/site/Login.tsx); o ERP só recebe a pessoa já autenticada pelo
 // cookie. O "token" entregue ao controlador é um marcador: fetch-port.ts tira
 // o Authorization e o servidor confere o cookie em cada pedido.
@@ -12,15 +12,15 @@ type Session = NonNullable<AuthResult["data"]["session"]>;
 type Listener = (event: string, session: Session | null) => void;
 
 export type SessionPort = AuthPort & {
-  /** A sessão do Wabotia terminou (401): o ERP mostra "entre novamente". */
+  /** A sessão do Vinki terminou (401): o ERP mostra "entre novamente". */
   expire(): void;
 };
 
 /**
- * @param actor pessoa do Wabotia (GET /api/v1/me); a API do ERP responde
+ * @param actor pessoa do Vinki (GET /api/v1/me); a API do ERP responde
  *   /v1/me com o mesmo id em user_id, senão o controlador encerra a sessão.
  * @param leave "Sair" do menu do ERP: volta para o painel (não encerra a
- *   sessão do Wabotia, que tem o próprio Sair).
+ *   sessão do Vinki, que tem o próprio Sair).
  */
 export function createSessionPort(
   actor: { id: string },
@@ -70,7 +70,7 @@ export function createSessionPort(
 //   POST /api/v1/account/mfa/challenge  { code } | { recovery_code }
 //   → 200; 401 invalid_code; 429 mfa_locked.
 // Cadastrar ou remover o aplicativo e trocar a senha ficam em "Minha conta" do
-// Wabotia.
+// Vinki.
 
 export type ChallengeInput = { code: string } | { recovery_code: string };
 export type ChallengeFailure =
@@ -84,7 +84,7 @@ export class ChallengeError extends Error {
 }
 export type ChallengePort = (input: ChallengeInput) => Promise<void>;
 
-/** Confirmação na sessão do Wabotia (aal2 por 7 dias contados do código). */
+/** Confirmação na sessão do Vinki (aal2 por 7 dias contados do código). */
 export function createChallengePort(
   fetchImpl: typeof fetch = (input, init) => fetch(input, init),
 ): ChallengePort {

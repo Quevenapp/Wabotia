@@ -17,7 +17,7 @@ const company=()=>{const calls=[];return{calls,port:{async company(path,options=
  return{section:'identity',record:{version:1,data:{legal_name:'Empresa Sintética Ltda',trade_name:'Sintética',cnpj:'11222333000181',ie:null,postal_code:'01001000',street:'Rua Sintética',number:'1',complement:null,district:'Centro',city:'São Paulo',municipality_code:'3550308',state:'SP',phone:null,email:null},created_at:'2026-10-20T12:00:00Z',updated_at:'2026-10-20T12:00:00Z'},data_mode:'erp_native',emission_enabled:false};}}};};
 
 test('151 top bar: name, Meu Perfil, razão social, Armazenamento and the unread badge; the saved theme is applied at login',async()=>{
- // Wabotia: o tema segue o painel; o tema salvo no ERP é lido, mas não aplicado ao entrar.
+ // Vinki: o tema segue o painel; o tema salvo no ERP é lido, mas não aplicado ao entrar.
  globalThis.document.documentElement.dataset.theme='light';const f=createSystemFixture({theme:true}),v=await nav(f);try{
   const user=v.find(n=>n.type==='button'&&n.props.className==='origin-user-button');assert.equal(user.props.title,'Meu Perfil');assert.match(textOf(user),/Ana Sintética/);
   const bell=v.find(n=>n.type==='button'&&String(n.props['aria-label']).startsWith('Notificações'));assert.equal(bell.props['aria-label'],'Notificações: 1 não lidas');
@@ -66,7 +66,7 @@ test('151 Empresa: Minha conta menu, locked Nome/Fantasia/CNPJ, complementary da
  try{assert.match(w.text(),/Somente administradores alteram os dados da empresa/);assert.equal(w.nodes().find(n=>n.type==='fieldset'&&n.props.className==='company-extra-fields').props.disabled,true);}finally{w.unmount();}
 });
 
-// Wabotia: o teste 151 de Usuários ⋮ (Dispositivos utilizados e Segurança do usuário, /v1/sistema/usuarios/:id/seguranca) saiu: as sessões são do núcleo (Gestão › Pessoas e acessos).
+// Vinki: o teste 151 de Usuários ⋮ (Dispositivos utilizados e Segurança do usuário, /v1/sistema/usuarios/:id/seguranca) saiu: as sessões são do núcleo (Gestão › Pessoas e acessos).
 
 test('151 review: Conferir resultado that proves the company data command was never recorded releases the form',async()=>{
  let posts=0;const refuse=status=>{throw Object.assign(new Error('synthetic'),{status});};

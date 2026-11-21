@@ -34,7 +34,7 @@ async function mountRoute(controller,location='/estoque-abertura'){
  const source=fileURLToPath(new URL('../app/components/RealStockOpening.tsx',import.meta.url)),names=[...String(await readFile(new URL('../app/components/native-modules.ts',import.meta.url),'utf8')).matchAll(/export const (\w+) = lazy/g)].map(x=>x[1]).filter(n=>n!=='RealStockOpening');
  return mountComponent('RealAccess.tsx',{},{componentName:'ConnectedArea',location,expandChildren:true,ports:{access,controller},modules:{'../lib/real-access':'export const createAccessController=()=>r.controller;export const {AccessError,decimalMoney,RESOURCE_LABELS,ROLE_LABELS}=r.access;','../../ports':'export const erpPorts=()=>({auth:{},mfa:{},apiUrl:"https://api.synthetic.test",fetch:globalThis.fetch,demo:false});','./NativeModuleBoundary':'export default function NativeModuleBoundary({children}){return children;}','./CompanyNavigation':'export default function CompanyNavigation(){return null;}','./native-modules':`export {default as RealStockOpening} from ${JSON.stringify(source)};${names.map(n=>`export function ${n}(){return null;}`).join('')}`}});
 }
-// Wabotia: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
+// Vinki: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
 test('100 real route: only administrador reaches the screen; other roles get no business request',async()=>{
  for(const role of['admin','consulta','estoque','vendas','fiscal','financeiro']){const f=setup({role}),v=await mountRoute(f.controller);try{
   assert.equal(f.calls.length,role==='admin'?1:0,role);assert.match(v.text(),role==='admin'?/Estoque negativo/:/Estoque negativo não liberado/);

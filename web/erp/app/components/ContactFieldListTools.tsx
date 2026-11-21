@@ -4,7 +4,7 @@ import {
   type ContactField, type ContactFieldList,
 } from '../lib/contact-fields';
 
-// Campos próprios de contato na lista de Clientes e fornecedores (Wabotia): as definições que a lista pode usar (campo sensível só
+// Campos próprios de contato na lista de Clientes e fornecedores (Vinki): as definições que a lista pode usar (campo sensível só
 // depois de liberado pelo administrador), os valores das colunas da página e os campos do painel de filtros.
 export type FieldFilterDraft = Record<string, { value?: string; from?: string; to?: string }>;
 

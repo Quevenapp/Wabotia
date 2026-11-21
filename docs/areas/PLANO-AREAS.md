@@ -6,7 +6,7 @@
 
 > "Hoje o ERP é voltado para comércio e o atendimento pelo WhatsApp ficou
 > restrito a algumas opções como agenda, reservas etc. Precisamos deixar o
-> Wabotia com módulos além do ERP com atividades exclusivas de cada área
+> Vinki com módulos além do ERP com atividades exclusivas de cada área
 > […] Basicamente seria um outro módulo com o mesmo motor usando templates."
 
 Áreas pedidas: Advogados, Escritório de advocacia, Engenheiros, Arquitetos,
@@ -198,7 +198,7 @@ para o Codex, com leitura da sessão dona e suíte verde antes da junção.
 1. **Nome na tela.** O módulo aparece com o nome do tipo ("Processos",
    "Obras"). Para a área que tem vários tipos, falta o nome do conjunto;
    sugestão: "Trabalhos".
-2. **Prontuário dentro do Wabotia?** Sugestão: sim, como extensão própria,
+2. **Prontuário dentro do Vinki?** Sugestão: sim, como extensão própria,
    sem acesso da IA, só na fase 6.
 3. **Ordem das áreas** depois da fase 3. Sugestão: a da tabela acima.
 4. **Quando começa:** em paralelo ao porte do ERP, pelo Codex, ou depois

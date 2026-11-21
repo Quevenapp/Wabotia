@@ -31,7 +31,7 @@ export const BLING_EXTRAS_SOURCE: Readonly<Record<BlingExtrasEntity, string>> = 
   product_lots: "product_lots", operation_natures: "operation_natures", contracts: "contracts", service_invoices: "service_invoices",
 });
 /** Partes do ERP de cada uma (todas também exigem a Base). Contratos pedem o módulo
- * Ordem de Serviço do Wabotia, conferido no Worker. Campos de produto pedem
+ * Ordem de Serviço do Vinki, conferido no Worker. Campos de produto pedem
  * Produtos e serviços, conferido por registro. */
 export const BLING_EXTRAS_PARTS: Readonly<Record<BlingExtrasEntity, readonly ErpPartKey[]>> = Object.freeze({
   custom_fields: ["customers"], custom_field_values: ["customers"], price_lists: ["products"],
@@ -168,7 +168,7 @@ export const BLING_EXTRAS_OPERATION_NAMES = [
 /** Só do administrador, pela tela: fora do inventário dos bots. */
 export const BLING_EXTRAS_ADMIN_OPERATION_NAMES = ["erp_bling_extras_contract_create", "erp_bling_extras_contract_link", "erp_bling_extras_switch"] as const;
 export type BlingExtrasOperationName = typeof BLING_EXTRAS_OPERATION_NAMES[number] | typeof BLING_EXTRAS_ADMIN_OPERATION_NAMES[number];
-/** Rodam no Worker (precisam do módulo Ordem de Serviço do Wabotia); o objeto do ERP recusa. */
+/** Rodam no Worker (precisam do módulo Ordem de Serviço do Vinki); o objeto do ERP recusa. */
 export const BLING_EXTRAS_WORKER_OPERATIONS: ReadonlySet<string> = new Set(["erp_bling_extras_contract_options", "erp_bling_extras_contract_create"]);
 
 const page = { cursor: pageCursor.optional(), limit: z.number().int().min(1).max(50).optional() };

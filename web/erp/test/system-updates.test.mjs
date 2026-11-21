@@ -20,7 +20,7 @@ test.after(()=>{globalThis.sessionStorage=originalStorage;});
 
 test('administrator finds the update page in Sistema; other roles do not receive this action',()=>{
  const entries=role=>resolvePreferences({role,resources:[]}).flatMap(c=>c.sections?.flatMap(s=>s.entries)||c.entries||[]);
- // Wabotia: quem atualiza a instalação é o painel; a página do Fagoo fica escondida para todos os papéis.
+ // Vinki: quem atualiza a instalação é o painel; a página do Fagoo fica escondida para todos os papéis.
  assert.equal(entries('admin').some(e=>e.to==='/preferencias/sistema/atualizacoes'),false);
  assert.equal(entries('vendas').some(e=>e.to==='/preferencias/sistema/atualizacoes'),false);
  assert.equal(parsePreferencesPath('/preferencias/sistema/atualizacoes').kind,'updates');

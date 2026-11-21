@@ -9,7 +9,7 @@
 // - a metade de grants/security definer do primeiro teste
 //   (PLANO-FAGOO-MOTOR.md, seção 2); as conferências de papel ficam;
 // - a primeira metade de "110 a baixa made before the migration…": a baixa
-//   anterior à 110 ganha borderô pela migração; no Wabotia cada instalação
+//   anterior à 110 ganha borderô pela migração; no Vinki cada instalação
 //   começa vazia (PLANO-FAGOO.md, decisão 2). O settle 010 depois da 110 fica.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';

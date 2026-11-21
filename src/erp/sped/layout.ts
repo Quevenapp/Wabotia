@@ -1,4 +1,4 @@
-// Layout dos arquivos como dado versionado: os registros que o Wabotia gera,
+// Layout dos arquivos como dado versionado: os registros que o Vinki gera,
 // com os campos na ordem do Guia Prático (SPED Fiscal e EFD-Contribuições) e
 // do Convênio ICMS 57/95 (SINTEGRA), o tipo, o tamanho, as casas decimais e se
 // o campo é obrigatório; a versão do leiaute (COD_VER) pelo ano do período.

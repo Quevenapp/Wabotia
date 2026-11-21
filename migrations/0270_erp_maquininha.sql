@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS erp_terminal_payments (
   kind TEXT NOT NULL,
   installments INTEGER NOT NULL DEFAULT 1,
   amount_cents INTEGER NOT NULL,
-  -- Referência do Wabotia no provedor (referência externa): a mesma em cada reenvio.
+  -- Referência do Vinki no provedor (referência externa): a mesma em cada reenvio.
   reference TEXT NOT NULL,
   -- Id da cobrança no provedor (intenção de pagamento) e do pagamento do cartão.
   provider_ref TEXT,

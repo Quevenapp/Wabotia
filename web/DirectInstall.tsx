@@ -27,7 +27,7 @@ export function DirectInstall() {
             O <a href="#navegador">instalador pelo navegador</a> faz a mesma
             instalação sem Node.js: você informa a conta e o token em uma página
             do site oficial. Nesse caminho o token passa pelo servidor do
-            Wabotia, sem ser guardado. No caminho abaixo, pelo terminal, ele vai
+            Vinki, sem ser guardado. No caminho abaixo, pelo terminal, ele vai
             direto do seu computador para a Cloudflare.
           </p>
         </aside>
@@ -53,13 +53,13 @@ export function DirectInstall() {
             </a>
             . Em <strong>Account Resources</strong>, escolha somente a conta da
             instalação, confira e crie. Ele será digitado no terminal e guardado
-            como secret no seu Worker. O site Wabotia não recebe seu token.
+            como secret no seu Worker. O site Vinki não recebe seu token.
           </li>
           <li>
             Use o mesmo terminal e usuário em que node e npm funcionaram.
             Execute os comandos abaixo. Informe Account ID, token e um nome
             novo, como
-            <code> wabotia-atendimento</code>.
+            <code> vinki-atendimento</code>.
           </li>
           <li>
             Ao terminar, abra o <strong>link de primeiro acesso</strong> que o
@@ -81,7 +81,7 @@ export function DirectInstall() {
                 .
               </li>
               <li>
-                Dê um nome, como “Wabotia instalação”. Adicione três permissões
+                Dê um nome, como “Vinki instalação”. Adicione três permissões
                 de conta:
                 <strong> Workers Scripts: Edit</strong>,{" "}
                 <strong>D1: Edit</strong> e{" "}

@@ -21,7 +21,7 @@ desligado, a configuração some das Preferências, a rota recusa com
 Feito uma vez por área, pelo administrador.
 
 1. **Conta do Mercado Pago.** A maquininha precisa estar vinculada à mesma
-   conta do Mercado Pago cujo Access Token o Wabotia usa:
+   conta do Mercado Pago cujo Access Token o Vinki usa:
    - **A mesma da Cobrança** (o caso comum): configure antes a Cobrança em
      **Gestão → Automação → Cobrança** (`docs/COBRANCA.md`). A maquininha usa
      o Access Token guardado lá, sem digitar de novo.
@@ -47,7 +47,7 @@ Feito uma vez por área, pelo administrador.
    receber o aviso, use uma aplicação do Mercado Pago só para a maquininha:
    cadastre em **Webhooks** o endereço mostrado na seção (só o administrador
    vê), com o evento das **integrações Point**, e cole a **assinatura
-   secreta** gerada. O aviso só faz o Wabotia consultar: o resultado sempre
+   secreta** gerada. O aviso só faz o Vinki consultar: o resultado sempre
    vem da consulta autenticada, nunca do corpo do aviso. (Com a mesma
    aplicação da Cobrança, o Mercado Pago manda os avisos para o endereço da
    Cobrança; aí vale a consulta de 2 em 2 segundos.)
@@ -83,7 +83,7 @@ Se o Mercado Pago não responde a tempo ao envio, a cobrança fica **Sem
 resposta da maquininha: conferindo**. Nada é reenviado às cegas:
 
 - pedir de novo (o mesmo comando, outra cobrança para a mesma venda ou
-  "Conferir a cobrança") consulta o Mercado Pago pela referência do Wabotia e
+  "Conferir a cobrança") consulta o Mercado Pago pela referência do Vinki e
   segue a mesma cobrança se ela chegou;
 - só se ela não está lá aparece **Não apareceu na maquininha**: a pessoa olha
   a maquininha, confirma, e a cobrança sai de novo com a mesma referência;

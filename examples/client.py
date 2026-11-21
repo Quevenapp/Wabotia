@@ -4,7 +4,7 @@ BASE=os.environ['WABOTIA_URL'].rstrip('/')
 TOKEN=os.environ['WABOTIA_KEY']
 def request(path, body=None, method=None, idempotency_key=None):
     method=method or ('POST' if body is not None else 'GET')
-    headers={'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json','User-Agent':'Wabotia-Example/0.1 (+https://github.com/Quevenapp/Wabotia)'}
+    headers={'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json','User-Agent':'Wabotia-Example/0.1 (+https://github.com/Quevenapp/Vinki)'}
     if method!='GET':headers['Idempotency-Key']=idempotency_key or str(uuid.uuid4())
     req=urllib.request.Request(BASE+'/api/v1'+path,data=None if body is None else json.dumps(body).encode(),headers=headers,method=method)
     with urllib.request.urlopen(req,timeout=30) as response:return json.load(response)

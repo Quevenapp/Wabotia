@@ -9,7 +9,7 @@
 // Regras do desenho aprovado (17/11):
 // - Os números vêm do cofre, que é a fonte do que foi autorizado. Nada é
 //   guardado no ERP e nada é somado aos relatórios gerenciais do ERP.
-// - O arquivo da exportação não passa pelo Wabotia: o navegador recebe os
+// - O arquivo da exportação não passa pelo Vinki: o navegador recebe os
 //   links assinados do cofre (válidos por cerca de 30 min) e os abre direto.
 //   As urls não vão para tabela, log nem auditoria.
 // - Papel fiscal ou administrador, no horário de acesso e com o segundo fator

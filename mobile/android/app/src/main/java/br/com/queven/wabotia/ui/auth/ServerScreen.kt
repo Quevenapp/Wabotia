@@ -59,7 +59,7 @@ private fun OrDivider() {
     }
 }
 
-/** Primeira tela: a pessoa informa o endereço da SUA instalação Wabotia, ou abre a demonstração. */
+/** Primeira tela: a pessoa informa o endereço da SUA instalação Vinki, ou abre a demonstração. */
 @Composable
 fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
     val c = Wb.colors
@@ -94,12 +94,12 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
             try {
                 val client = container.clientFor(url)
                 val health = client.api.health()
-                if (health.service != "wabotia") throw IllegalStateException("Este endereço não é um servidor Wabotia.")
+                if (health.service != "wabotia") throw IllegalStateException("Este endereço não é um servidor Vinki.")
                 val status = client.api.authStatus()
                 if (!status.initialized) throw IllegalStateException("Este servidor ainda não tem administrador. Conclua a instalação pelo navegador em $url/app.")
                 container.session.serverUrl = url
                 container.refreshAuthState()
-                info = "Servidor Wabotia ${health.version} encontrado."
+                info = "Servidor Vinki ${health.version} encontrado."
                 onConfirmed()
             } catch (e: CancellationException) {
                 throw e
@@ -111,7 +111,7 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
         }
     }
 
-    AuthScaffold(title = "Wabotia", subtitle = "Atendimento WhatsApp com IA e equipe humana") {
+    AuthScaffold(title = "Vinki", subtitle = "Atendimento WhatsApp com IA e equipe humana") {
         WbCard {
             Column(Modifier.padding(16.dp)) {
                 Text("Endereço do seu servidor", style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
@@ -156,7 +156,7 @@ fun ServerScreen(container: AppContainer, onConfirmed: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         SecondaryButton("Conhecer o app (demonstração)", onClick = { enterDemo() }, enabled = !busy, icon = Icons.Outlined.PlayCircle)
         Spacer(Modifier.height(10.dp))
-        AuthHelp("Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada.")
+        AuthHelp("Ainda não tem um servidor Vinki? Explore o app com dados fictícios, sem conta e sem enviar nada.")
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = { if (!busy) context.startActivity(DeviceActivity.demoIntent(context)) }) {
             Icon(Icons.Filled.Tv, contentDescription = null, tint = c.brand, modifier = Modifier.size(18.dp))

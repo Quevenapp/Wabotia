@@ -23,7 +23,7 @@ export function RouterGuide() {
           </li>
           <li>
             Selecione um telefone e informe um nome para reconhecê-lo. Clique em{" "}
-            <strong>Adicionar telefone ao Wabotia</strong>.
+            <strong>Adicionar telefone ao Vinki</strong>.
           </li>
           <li>
             O telefone entra pausado. Confira o webhook, ative e teste uma

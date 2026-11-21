@@ -20,7 +20,7 @@ import { erpFetch } from "../hub.ts";
 
 export const EMISSOR_MODULE = "erp-fiscal";
 
-/** Leitura: pessoa com papel erp:* (o administrador do Wabotia vale erp:admin). */
+/** Leitura: pessoa com papel erp:* (o administrador do Vinki vale erp:admin). */
 function reader(actor: Actor, profile: string) {
   if (actor.kind !== "user") throw new ApiError(403, "erp_user_required", "O ERP atende só pessoas nesta fase.");
   access(actor, profile, "erp");

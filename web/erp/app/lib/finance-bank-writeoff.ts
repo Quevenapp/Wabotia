@@ -1,11 +1,11 @@
-// Wabotia (junção): "Boleto já baixado no banco". A conta a receber numa remessa operacional viva só cancela quando alguém declara,
+// Vinki (junção): "Boleto já baixado no banco". A conta a receber numa remessa operacional viva só cancela quando alguém declara,
 // com motivo, que o boleto já foi baixado no banco (title_bank_writeoff). O ERP não manda instrução ao banco. Lógica pura, sem tela.
 import { financePermitted, titlePermission, type FinanceAccess, type FinanceTitle } from './real-finance-model.ts';
 
 export const BANK_WRITEOFF_PATH = '/v1/financeiro/actions/title_bank_writeoff';
 export const BANK_WRITEOFF_LABEL = 'Boleto já baixado no banco';
 export const BANK_WRITEOFF_TEXT = 'Este boleto está numa remessa ao banco. Confirme que ele já foi baixado no banco para cancelar a conta.';
-export const BANK_WRITEOFF_WARNING = 'O Wabotia não envia a baixa ao banco: faça a baixa no banco antes de confirmar.';
+export const BANK_WRITEOFF_WARNING = 'O Vinki não envia a baixa ao banco: faça a baixa no banco antes de confirmar.';
 export const BANK_WRITEOFF_REASON_MIN = 3, BANK_WRITEOFF_REASON_MAX = 500;
 /** Partes do ERP de que a declaração depende (web/erp/blocks.ts). */
 export const BANK_WRITEOFF_BLOCKS = ['erp-financeiro', 'erp-cobranca'] as const;

@@ -133,7 +133,7 @@ enum CashRules {
         if e.code.contains("version_conflict") || e.code == "ERP_CONFLICT" { return "O caixa mudou em outro aparelho. Puxe para atualizar e lance de novo." }
         if e.status == 403 || e.code == "ERP_FORBIDDEN" { return "Seu papel não mexe no caixa. Peça ao administrador o papel Financeiro em Gestão → Pessoas e acessos." }
         if e.code.contains("invalid_account") { return "Escolha uma conta do tipo Caixa." }
-        if e.status == 0 { return "Sem conexão com o Wabotia. O caixa não foi alterado; tente de novo quando a conexão voltar." }
+        if e.status == 0 { return "Sem conexão com o Vinki. O caixa não foi alterado; tente de novo quando a conexão voltar." }
         return e.message
     }
 }

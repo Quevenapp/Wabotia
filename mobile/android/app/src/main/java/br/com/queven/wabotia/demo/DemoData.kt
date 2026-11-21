@@ -606,7 +606,7 @@ internal class DemoState(val t0: Long, val profileId: String = Ids.PROFILE) {
         )
         botRun(
             "run-4", Ids.BOT_SUPORTE, Ids.ME, "completed", "Como configuro o webhook de entrega?",
-            "No painel, abra Integrações › Webhooks, informe a URL HTTPS do seu sistema e marque os eventos message.sent e message.delivered. O Wabotia tenta de novo por até 24 horas quando o destino não responde.",
+            "No painel, abra Integrações › Webhooks, informe a URL HTTPS do seu sistema e marque os eventos message.sent e message.delivered. O sistema tenta de novo por até 24 horas quando o destino não responde.",
             null, hoursAgo(6.5),
         )
         botRun("run-3", Ids.BOT_SUPORTE, Ids.ME, "failed", "Gere o relatório de SLA da semana.", null, "O Hermes não respondeu a tempo. Tente novamente em instantes.", hoursAgo(25.0))

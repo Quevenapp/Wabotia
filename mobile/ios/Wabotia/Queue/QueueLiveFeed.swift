@@ -1,7 +1,7 @@
 import Foundation
 
 /// A fila ao vivo para uma tela (totem, painel, guichê): o WebSocket da fila quando ele abre, com volta automática, e a
-/// leitura de `GET /queue` como reserva (a cada 5 s sem WebSocket, com espera dobrando até 30 s quando o Wabotia não
+/// leitura de `GET /queue` como reserva (a cada 5 s sem WebSocket, com espera dobrando até 30 s quando o Vinki não
 /// responde; a cada 60 s com ele, para corrigir qualquer quadro perdido). Quem usa recebe os eventos em `onEvent`, na
 /// thread principal.
 @MainActor

@@ -1,4 +1,4 @@
-"""Adaptador de plataforma: dá ao vínculo Wabotia o ciclo de vida do gateway.
+"""Adaptador de plataforma: dá ao vínculo Vinki o ciclo de vida do gateway.
 
 Não é um canal de chat: não recebe mensagens (handle_message) e send() recusa.
 As execuções chegam pelo vínculo e rodam na API local do Hermes.
@@ -51,7 +51,7 @@ class WabotiaAdapter(BasePlatformAdapter):
             self._http = httpx.AsyncClient(follow_redirects=False)
             link = WabotiaLink(self._url, self._token, self._http, api_base=self._api)
         except ValueError as error:
-            logger.error("Plugin Wabotia não iniciado: %s", error)
+            logger.error("Plugin Vinki não iniciado: %s", error)
             await self._close()
             return False
         self._task = asyncio.ensure_future(link.run())
@@ -78,7 +78,7 @@ class WabotiaAdapter(BasePlatformAdapter):
         return SendResult(success=False)
 
     async def get_chat_info(self, chat_id):
-        return {"name": "Wabotia", "type": "service"}
+        return {"name": "Vinki", "type": "service"}
 
 
 def check_requirements() -> bool:
@@ -92,12 +92,12 @@ def validate_config(config) -> bool:
 def register(ctx):
     kwargs = dict(
         name=NAME,
-        label="Wabotia",
+        label="Vinki",
         adapter_factory=WabotiaAdapter,
         check_fn=check_requirements,
         validate_config=validate_config,
         required_env=["WABOTIA_URL", "WABOTIA_LINK_TOKEN"],
-        install_hint="Gere o comando de instalação no painel do Wabotia, em Conexões.",
+        install_hint="Gere o comando de instalação no painel do Vinki, em Conexões.",
     )
     # Campos de adaptadores de serviço: núcleos antigos recusam argumentos desconhecidos.
     try:

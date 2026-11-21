@@ -1,4 +1,4 @@
-// Wabotia: cache de sessão do controlador do ERP (web/erp/app/lib/real-access.ts).
+// Vinki: cache de sessão do controlador do ERP (web/erp/app/lib/real-access.ts).
 //
 // Cada chamada à API do ERP custa cerca de 0,57 s. Várias telas leem as mesmas
 // configurações (barra do topo, preferências, taxonomias, permissões por área) e

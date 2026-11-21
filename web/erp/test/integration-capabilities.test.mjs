@@ -34,7 +34,7 @@ test('native preferences remain available while historical routes use their inde
  const paths=capabilities=>resolvePreferences({role:'admin',resources:['contacts','products'],capabilities}).flatMap(category=>category.entries.map(entry=>entry.to));
  const fresh=paths(undefined),historical=paths({originHistory:true,originIntegration:false});
  for(const path of ['/dados-origin','/preparacao-virada','/historico-vendas-origin']){
-  // Wabotia: as telas do Origin saíram (PLANO-FAGOO.md, item 17); nem a capacidade do histórico as traz de volta.
+  // Vinki: as telas do Origin saíram (PLANO-FAGOO.md, item 17); nem a capacidade do histórico as traz de volta.
   assert.equal(isOriginIntegrationRoute(path),true);assert.ok(!fresh.includes(path));assert.ok(!historical.includes(path));
  }
  for(const path of ['/empresa-configuracoes','/preferencias/backup/exportacao','/estoque-abertura'])assert.ok(fresh.includes(path),path);
@@ -54,7 +54,7 @@ test('the fresh top bar omits sync and connector help even when the controller h
    './OriginSyncButton':'export default function Sync(){return r.jsx("button",{children:"Sincronizar"});}',
   };
   const view=await mountComponent('CompanyNavigation.tsx',{state,onLogout(){},controller:{originSync(){throw Error('Unexpected request');}}},{modules,expandChildren:true});
-  try{assert.equal(view.text().includes('Sincronizar'),false);/* Wabotia: o botão de sincronizar com o Origin saiu, mesmo com a capacidade (Origin fora, motor 91213b8). *//* Wabotia: a ajuda da convivência com o Origin saiu (item 17). */assert.equal(view.text().includes('Convivência com o Origin'),false);}finally{view.unmount();}
+  try{assert.equal(view.text().includes('Sincronizar'),false);/* Vinki: o botão de sincronizar com o Origin saiu, mesmo com a capacidade (Origin fora, motor 91213b8). *//* Vinki: a ajuda da convivência com o Origin saiu (item 17). */assert.equal(view.text().includes('Convivência com o Origin'),false);}finally{view.unmount();}
  }
 });
 

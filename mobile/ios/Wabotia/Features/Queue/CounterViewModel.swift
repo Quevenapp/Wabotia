@@ -5,7 +5,7 @@ import Foundation
 /// decidida no servidor; aqui só se pede.
 ///
 /// Idempotência (mobile/README.md): cada intenção ganha uma `Idempotency-Key`; se a resposta não chegar (rede, 5xx), a
-/// chave fica guardada e tocar de novo na mesma ação repete com ela — o Wabotia devolve a mesma resposta em vez de
+/// chave fica guardada e tocar de novo na mesma ação repete com ela — o Vinki devolve a mesma resposta em vez de
 /// chamar outra senha. Erro definitivo, sucesso ou uma leitura que mostra o guichê mudado liberam a chave.
 @MainActor
 final class CounterViewModel: ObservableObject {
@@ -108,7 +108,7 @@ final class CounterViewModel: ObservableObject {
             if e.moduleDisabled { onModuleDisabled() }
             loading = false
             if overview == nil {
-                error = e.moduleDisabled ? "A fila de senhas está desligada neste Wabotia. Um administrador liga em Módulos." : e.message
+                error = e.moduleDisabled ? "A fila de senhas está desligada neste Vinki. Um administrador liga em Módulos." : e.message
             }
         case .live(let on):
             live = on

@@ -26,7 +26,7 @@ struct RootView: View {
             AppAppearance.apply()
             #if DEBUG
             // Ajuda a conferir por linha de comando em que tela o app abriu (sem dados da sessão).
-            print("[Wabotia] tela inicial: \(container.session.serverURL == nil ? "servidor" : (!container.isLoggedIn ? "login" : (container.session.profileId == nil ? "perfil" : "abas")))")
+            print("[Vinki] tela inicial: \(container.session.serverURL == nil ? "servidor" : (!container.isLoggedIn ? "login" : (container.session.profileId == nil ? "perfil" : "abas")))")
             #endif
         }
         .onChange(of: container.isLoggedIn) { loggedIn in

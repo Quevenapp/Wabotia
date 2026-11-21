@@ -1,12 +1,12 @@
 # Bot por provedor de IA, sem Hermes
 
-Uma conexão **Provedor de IA** liga o Wabotia direto à API da Anthropic, da OpenAI, da DeepSeek ou de outro serviço compatível com a OpenAI. Não há VPS, Docker, Hermes nem plugin: basta a instalação do Wabotia na Cloudflare e uma chave de API. O Hermes continua disponível e as conexões Hermes existentes não mudam.
+Uma conexão **Provedor de IA** liga o Vinki direto à API da Anthropic, da OpenAI, da DeepSeek ou de outro serviço compatível com a OpenAI. Não há VPS, Docker, Hermes nem plugin: basta a instalação do Vinki na Cloudflare e uma chave de API. O Hermes continua disponível e as conexões Hermes existentes não mudam.
 
 ## O que faz e o que não faz
 
 O bot de provedor de IA atende o cliente no WhatsApp e conversa com a equipe.
 - **No atendimento ao cliente:**
-  - A cada mensagem, o Wabotia envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo, na ordem que favorece o cache de prompt (abaixo).
+  - A cada mensagem, o Vinki envia ao modelo as instruções da área, as 12 últimas mensagens, as fontes do Conhecimento, os menus e as categorias de protocolo, na ordem que favorece o cache de prompt (abaixo).
   - Recebe de volta a decisão do Atendente: responder, perguntar, mostrar menu, consultar ou abrir protocolo, ou transferir. As regras são as mesmas do Atendente no Hermes, inclusive o JEV.
   - Usa as **ferramentas da conversa** que os módulos ligados declaram, como a situação da OS ou os horários da Agenda.
   - Só alcança os dados desse cliente. O que muda algo vira um botão que o próprio cliente confirma.
@@ -18,21 +18,21 @@ O bot de provedor de IA atende o cliente no WhatsApp e conversa com a equipe.
 | Instalação | plugin ou túnel | chave de API no painel |
 | Custo | servidor + modelo | só o uso do modelo, cobrado pelo provedor |
 | Atendente, transferência | sim | sim |
-| Conversa com a equipe (Equipe › Bots) | sim | sim, consultando o Wabotia e propondo ações em nome de quem pede |
+| Conversa com a equipe (Equipe › Bots) | sim | sim, consultando o Vinki e propondo ações em nome de quem pede |
 | Especialista | sim, com as ferramentas do Hermes | sim, só consultando os dados do cliente da conversa |
 | Item de menu do tipo bot | executa a opção com ferramentas | assume a conversa a partir da opção |
-| Ferramentas | as do Hermes e de outros sistemas | as dos módulos do Wabotia: na conversa do cliente, as declaradas para o cliente; na equipe, o catálogo de operações com o acesso da pessoa |
+| Ferramentas | as do Hermes e de outros sistemas | as dos módulos do Vinki: na conversa do cliente, as declaradas para o cliente; na equipe, o catálogo de operações com o acesso da pessoa |
 | Arquivos gerados pelo bot | sim | não |
 | Áudio | transcrito pelo Hermes | aviso pedindo texto, ou equipe |
 | Imagens | conforme o modelo | Anthropic e OpenAI sim; DeepSeek não; compatível conforme a opção |
 
-Quem precisa que o bot consulte sistemas de fora do Wabotia (o banco, outro ERP) continua usando o Hermes como especialista. Um Atendente de provedor de IA pode consultar especialistas do Hermes ou de outro provedor de IA.
+Quem precisa que o bot consulte sistemas de fora do Vinki (o banco, outro ERP) continua usando o Hermes como especialista. Um Atendente de provedor de IA pode consultar especialistas do Hermes ou de outro provedor de IA.
 
 ## O bot para a equipe
 
 Cada bot também conversa com as pessoas da equipe. Em **Equipe › Bots**, toque no bot para abrir a conversa interna.
 - **Ligar:** o bot nasce desligado, para não começar a responder sem alguém decidir. Um administrador liga pelo botão **Ligar** ali mesmo, ou em Gestão › Atendente e especialistas. Quem não é administrador vê o bot como "Desligado".
-- **O que ele faz:** consulta o Wabotia e propõe ações **em nome de quem pede, com o acesso dessa pessoa**. Ele busca a operação, lê e prepara um cartão com **Confirmar** e **Cancelar**. Nada muda antes de a pessoa tocar em Confirmar; operação financeira pede o segundo fator. Os dados pessoais vão mascarados ao modelo, salvo o administrador liberar em Sistema › Bot e dados pessoais.
+- **O que ele faz:** consulta o Vinki e propõe ações **em nome de quem pede, com o acesso dessa pessoa**. Ele busca a operação, lê e prepara um cartão com **Confirmar** e **Cancelar**. Nada muda antes de a pessoa tocar em Confirmar; operação financeira pede o segundo fator. Os dados pessoais vão mascarados ao modelo, salvo o administrador liberar em Sistema › Bot e dados pessoais.
 - **Ferramentas:** dependem de o provedor aceitá-las. Anthropic, OpenAI e DeepSeek aceitam. Uma API compatível que recusa ferramentas (HTTP 400) é tratada assim:
   - o bot responde sem elas;
   - **avisa a pessoa** junto da resposta;
@@ -51,7 +51,7 @@ O Atendente pode encaminhar um pedido interno a outro bot de provedor de IA, com
 
 1. Crie a chave de API no site do provedor e deixe saldo ou cobrança ativos.
 2. No painel: **Hermes e canais → Nova conexão → Serviço: Provedor de IA (sem servidor)**.
-3. Escolha o provedor e cole a chave. Na **Outra API compatível com OpenAI** (OpenRouter, Groq e semelhantes), informe também a URL da API, à qual o Wabotia acrescenta `/chat/completions`, e se o modelo entende imagens.
+3. Escolha o provedor e cole a chave. Na **Outra API compatível com OpenAI** (OpenRouter, Groq e semelhantes), informe também a URL da API, à qual o Vinki acrescenta `/chat/completions`, e se o modelo entende imagens.
 4. Escolha o modelo. **Buscar modelos da conta** pergunta ao provedor, com a chave digitada (ou, na edição, a já cadastrada), quais modelos a conta tem, e passa a sugeri-los no campo. A chave usada na busca não é guardada.
    - **Anthropic**: Claude Opus 5.5 (padrão, mais capaz), Claude Sonnet 5.5 ou Claude Haiku 5.5 (mais barato). A busca mostra só os que a conta enxerga.
    - **OpenAI**: a lista deixa de fora modelos de imagem, voz e embeddings. Ainda é possível digitar qualquer nome.
@@ -85,11 +85,11 @@ Com a opção **O modelo entende PDF** da conexão, o PDF que o cliente manda va
   - **Anthropic:** ligada de fábrica. O PDF vai como bloco `document`, antes do texto.
   - **OpenAI:** desligada de fábrica, porque só modelos com visão leem PDF. Vai como `input_file` do Responses.
   - **DeepSeek e API compatível:** sem PDF, porque não há formato documentado; o PDF vai para a equipe.
-- **Teto do Wabotia** (`PDF_LIMITS` em `src/ai-provider.ts`, com o motivo no comentário): **1 PDF por mensagem, até 4 MB e 10 páginas**. Cada página custa de 1.500 a 3.000 tokens de texto, mais a página como imagem. Com 10 páginas e uma área cheia, o pedido fica abaixo de 100 mil tokens, acima dos quais o Claude Haiku 5.5 cobra o pedido inteiro mais caro. As páginas são contadas pelo arquivo; quando não dá para contar (objetos comprimidos), vale só o tamanho.
+- **Teto do Vinki** (`PDF_LIMITS` em `src/ai-provider.ts`, com o motivo no comentário): **1 PDF por mensagem, até 4 MB e 10 páginas**. Cada página custa de 1.500 a 3.000 tokens de texto, mais a página como imagem. Com 10 páginas e uma área cheia, o pedido fica abaixo de 100 mil tokens, acima dos quais o Claude Haiku 5.5 cobra o pedido inteiro mais caro. As páginas são contadas pelo arquivo; quando não dá para contar (objetos comprimidos), vale só o tamanho.
 - **Acima do teto, com a opção desligada ou em provedor sem PDF:** a conversa vai para a equipe ("Anexo necessita análise humana"), como qualquer anexo que o modelo não entende.
 - **PDF recusado pelo provedor** (com senha, corrompido): a conversa vai para a equipe, e o motivo aparece em **Execuções de bots** ("O provedor de IA recusou o PDF enviado pelo cliente…").
 - **Só na mensagem em que chega.** Nas mensagens seguintes o bot não tem mais o arquivo, só o que ele mesmo escreveu sobre ele na conversa, como já acontece com as imagens. Se o cliente perguntar de novo sobre um detalhe da nota que o bot não escreveu, ele precisa mandar o PDF outra vez. A equipe vê o arquivo na conversa, como sempre.
-- **Privacidade:** o PDF tem dado pessoal. Ele é lido do armazenamento (R2) só na hora da chamada, sem cópia, e nada do conteúdo vai para os registros do Wabotia.
+- **Privacidade:** o PDF tem dado pessoal. Ele é lido do armazenamento (R2) só na hora da chamada, sem cópia, e nada do conteúdo vai para os registros do Vinki.
 
 ## Cache de prompt
 
@@ -105,7 +105,7 @@ O conteúdo é o mesmo de antes. Os menus, as ações e as categorias mudaram de
 - **Anthropic:**
   - O ponto de cache (`cache_control`, validade de 5 minutos) fica no fim do bloco estável (itens 1 e 2).
   - No laço de ferramentas, um segundo ponto, móvel, fica no fim da rodada, e a rodada seguinte lê dele. São no máximo 2 pontos.
-  - Cada modelo tem um tamanho mínimo de prefixo para cachear: 512 tokens no Claude Haiku 5.5, segundo a documentação de prompt caching da Anthropic. Abaixo dele não há cache, sem erro. O Wabotia não depende desse número: o ponto vai sempre.
+  - Cada modelo tem um tamanho mínimo de prefixo para cachear: 512 tokens no Claude Haiku 5.5, segundo a documentação de prompt caching da Anthropic. Abaixo dele não há cache, sem erro. O Vinki não depende desse número: o ponto vai sempre.
 - **OpenAI e DeepSeek:** cache automático por prefixo, sem parâmetro. A mesma ordem estável ajuda.
 - **Validade de 1 hora:** não está ligada, porque a gravação custa mais. Só depois de medir.
 
@@ -120,7 +120,7 @@ O conteúdo é o mesmo de antes. Os menus, as ações e as categorias mudaram de
 
 ## Falhas
 
-- Provedor fora do ar, limite de uso ou demora (HTTP 408, 409, 429, 5xx ou mais de 60 segundos): o Wabotia tenta de novo a cada ciclo, com intervalo mínimo de 10 segundos, por até 3 minutos desde a mensagem. Depois, transfere para a equipe.
+- Provedor fora do ar, limite de uso ou demora (HTTP 408, 409, 429, 5xx ou mais de 60 segundos): o Vinki tenta de novo a cada ciclo, com intervalo mínimo de 10 segundos, por até 3 minutos desde a mensagem. Depois, transfere para a equipe.
 - Chave recusada, sem saldo, modelo inexistente, recusa do modelo ou resposta cortada: transfere na hora. O motivo aparece em **Execuções de bots**.
 - Uma pessoa que assume a conversa durante a chamada cancela a resposta do bot.
 

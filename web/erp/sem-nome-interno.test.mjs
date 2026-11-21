@@ -70,7 +70,7 @@ export function findings(path, text) {
 }
 
 // Fora da varredura: testes e simulados, declarações de tipo, src/erp/schema (documentação técnica do porte, lida só
-// pelo gerador do banco), a cópia conferida do sistema de origem (src/erp/fagoo, que não vai para a tela do Wabotia) e
+// pelo gerador do banco), a cópia conferida do sistema de origem (src/erp/fagoo, que não vai para a tela do Vinki) e
 // o contrato gerado do cofre (src/erp/emissor/contract).
 const screenFile = path => /\.(?:tsx?|mts|mjs|html)$/.test(path) && !/\.d\.m?ts$/.test(path) &&
   !/(?:^|\/)(?:test|tests|demo|upstream)\//.test(path) && !/\.(?:test|check)\.m?[jt]sx?$/.test(path) &&

@@ -161,7 +161,7 @@ Falta completar o documento de serviço no domínio Fiscal, seu mapeamento para 
 
 Esse README não pode ser lido como retrato integral da montagem atual: ele ainda lista montar as rotas como pendência, embora as rotas de configuração já estejam registradas em `src/index.ts`. A emissão de ponta a ponta continua distinta dessa configuração. (`src/erp/emissor/README.md:372`; `src/index.ts:1219`.)
 
-A validação real de NFS-e pelo Wabotia, sua representação imprimível e os detalhes operacionais exigidos por cada emitente ficam **a conferir**. Este levantamento não propõe outro emissor nem outra integração.
+A validação real de NFS-e pelo Vinki, sua representação imprimível e os detalhes operacionais exigidos por cada emitente ficam **a conferir**. Este levantamento não propõe outro emissor nem outra integração.
 
 **6. As dúvidas que precisam ser fechadas são estas.**
 

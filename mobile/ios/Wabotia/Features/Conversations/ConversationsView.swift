@@ -66,7 +66,7 @@ struct ConversationsView: View {
             .frame(minHeight: 56)
             .onAppear { searchFocused = true }
         } else {
-            ScreenHeader(title: "Wabotia", subtitle: workspace.profileName, brandTitle: true, onSubtitleTap: workspace.profiles.count > 1 ? { container.profileId = nil } : nil) {
+            ScreenHeader(title: "Vinki", subtitle: workspace.profileName, brandTitle: true, onSubtitleTap: workspace.profiles.count > 1 ? { container.profileId = nil } : nil) {
                 Button { showPresence = true } label: { PresencePill(online: workspace.mePresent, busy: workspace.presenceBusy) }
                     .buttonStyle(.plain)
                 IconButton(systemName: "magnifyingglass", label: "Buscar conversa") { searching = true }

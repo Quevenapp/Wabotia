@@ -12,7 +12,7 @@ const labels = (actions) => actions.map(a => `${a.label}${a.enabled ? '' : ' (x)
 
 test('query parameters follow the API contract and refuse invalid filters before the network', () => {
   const nfe = SCREENS.nfe, entry = SCREENS.entrada, filters = emptyFilters(entry);
-  // Wabotia: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap).
+  // Vinki: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap).
   assert.equal(fiscalListQuery(nfe, emptyFilters(nfe)).toString(), 'model=55&origin=brufap&page=1');
   assert.equal(fiscalListQuery(SCREENS.nfce, emptyFilters(SCREENS.nfce), { page: 2, order: 'number_asc' }).toString(), 'model=65&origin=brufap&page=2&order=number_asc');
   assert.equal(filters.dateType, 'entry');
@@ -47,7 +47,7 @@ test('⋮ rules per situation: Origin hides Enviar and Cancelar while waiting an
   const nfce = labels(rowActions(SCREENS.nfce, row({ status: 1 }), { writable: false }));
   assert.ok(nfce.includes('Autorizar NFC-e (x)') && nfce.includes('Gerar NF-e (x)') && nfce.includes('Exportar XML (x)'));
   assert.equal(nfce.some(l => l.startsWith('Carta de correção')), false, 'CC-e is NF-e only');
-  // Wabotia: Origin fora (motor 91213b8): a nota do Origin saiu; a exclusão só barra a nota com lançamentos.
+  // Vinki: Origin fora (motor 91213b8): a nota do Origin saiu; a exclusão só barra a nota com lançamentos.
   const plan = deletePlan([row(), row({ id: id(2) })], r => r.id === id(2) ? { finance: { writable: true, posted: true, grouped: false }, stock: null } : null);
   assert.deepEqual([plan.eligible.length, plan.skipped[0].message], [1, 'A nota tem contas lançadas por ela (letra C): use ⋮ Estornar contas antes de excluir.']);
 });

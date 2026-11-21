@@ -2,7 +2,7 @@
 import{definePage,PREFERENCE_READERS}from'../core.mjs';
 import{integer,toggle}from'../fields.mjs';
 const S='geral';
-// Wabotia: o desvio telas-2-casas (src/erp/schema/deviations.ts, decisão do usuário de 16/11/2026) põe 2 casas de
+// Vinki: o desvio telas-2-casas (src/erp/schema/deviations.ts, decisão do usuário de 16/11/2026) põe 2 casas de
 // padrão no preço de saída, no de entrada e na quantidade, sem migração. O valor do oráculo (10 e 6) segue aceito
 // como padrão migrado, para a versão 0 vinda do Postgres.
 export default definePage({id:'empresa-geral',category:'empresa',path:'geral',title:'Geral',scope:'company',readRoles:PREFERENCE_READERS.all,subsections:false,

@@ -84,9 +84,9 @@ function BrowserInstall() {
       <div className="eyebrow">CAMINHO RECOMENDADO · SEM TERMINAL</div>
       <h2>Instale pelo navegador</h2>
       <p>
-        O instalador do site oficial publica o Wabotia na sua conta Cloudflare
+        O instalador do site oficial publica o Vinki na sua conta Cloudflare
         sem Node.js e sem linha de comando. O painel, o banco e os arquivos
-        ficam na sua conta. O token passa pelo servidor do Wabotia durante a
+        ficam na sua conta. O token passa pelo servidor do Vinki durante a
         instalação e não é guardado; quem preferir que ele vá direto do
         computador para a Cloudflare usa o{" "}
         <a href="#nodejs">instalador pelo terminal</a>.
@@ -109,7 +109,7 @@ function BrowserInstall() {
         </li>
         <li>
           Abra o instalador, cole o ID da conta e o token, escolha um nome novo,
-          como <code>wabotia-atendimento</code>, e clique em{" "}
+          como <code>vinki-atendimento</code>, e clique em{" "}
           <strong>Conferir a conta</strong>.
         </li>
         <li>

@@ -1,7 +1,7 @@
 import Foundation
 import UIKit
 
-/// Modo de demonstração: uma instalação Wabotia fictícia, em memória, para quem ainda não tem servidor
+/// Modo de demonstração: uma instalação Vinki fictícia, em memória, para quem ainda não tem servidor
 /// (e para a revisão das lojas). Entra pelo botão "Conhecer o app (demonstração)" da primeira tela ou
 /// digitando `demo` como servidor; existe em todos os builds.
 ///

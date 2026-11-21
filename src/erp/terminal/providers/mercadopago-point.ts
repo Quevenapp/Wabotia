@@ -44,14 +44,14 @@ async function call(ctx: TerminalContext, method: TerminalHttpRequest["method"],
   catch (error) {
     if (error instanceof TerminalError) throw error;
     // O pedido de cobrança pode ter chegado: quem chamou consulta antes de enviar outro.
-    throw charge ? new TerminalError("incerto", "O Mercado Pago não respondeu a tempo. A cobrança pode ter chegado à maquininha: o Wabotia confere antes de enviar outra.")
+    throw charge ? new TerminalError("incerto", "O Mercado Pago não respondeu a tempo. A cobrança pode ter chegado à maquininha: o Vinki confere antes de enviar outra.")
       : new TerminalError("indisponivel", "O Mercado Pago não respondeu. Tente de novo em instantes.");
   }
   const data = object(response.body);
   if (response.status === 401 || response.status === 403)
     throw new TerminalError("credencial", "O Mercado Pago recusou a credencial. Confira o Access Token (em Gestão → Cobrança, se a maquininha usa a mesma conta, ou em Preferências → Vendas → Frente de caixa → Maquininha integrada).");
   if (charge && (response.status >= 500 || response.status === 408 || response.status === 429))
-    throw new TerminalError("incerto", "O Mercado Pago demorou para confirmar a cobrança. Ela pode ter chegado à maquininha: o Wabotia confere antes de enviar outra.");
+    throw new TerminalError("incerto", "O Mercado Pago demorou para confirmar a cobrança. Ela pode ter chegado à maquininha: o Vinki confere antes de enviar outra.");
   if (response.status >= 500 || response.status === 429) throw new TerminalError("indisponivel", "O Mercado Pago está instável agora. Tente de novo em instantes.");
   if (response.status === 404) throw new TerminalError("recusado", "O Mercado Pago não achou a maquininha ou a cobrança. Confira o terminal escolhido para o caixa.");
   if (response.status === 409)
@@ -163,7 +163,7 @@ export const mercadoPagoPoint: TerminalProvider = {
     return devices.filter(item => text(item.id)).map((item): TerminalDevice => {
       const mode = text(item.operating_mode);
       return { id: text(item.id)!, name: text(item.id)!, mode, ready: mode === "PDV",
-        note: mode === "PDV" ? null : `Em ${DEVICE_MODES[mode ?? ""] ?? "outro modo"}: ao escolher para o caixa, o Wabotia passa para o modo integrado (a maquininha pode pedir para reiniciar).` };
+        note: mode === "PDV" ? null : `Em ${DEVICE_MODES[mode ?? ""] ?? "outro modo"}: ao escolher para o caixa, o Vinki passa para o modo integrado (a maquininha pode pedir para reiniciar).` };
     });
   },
 
@@ -182,7 +182,7 @@ export const mercadoPagoPoint: TerminalProvider = {
       additional_info: { external_reference: request.reference, print_on_terminal: true },
     }, true);
     const ref = text(data.id);
-    if (!ref) throw new TerminalError("incerto", "O Mercado Pago respondeu sem o número da cobrança. O Wabotia confere na maquininha antes de enviar outra.");
+    if (!ref) throw new TerminalError("incerto", "O Mercado Pago respondeu sem o número da cobrança. O Vinki confere na maquininha antes de enviar outra.");
     return { ref };
   },
 

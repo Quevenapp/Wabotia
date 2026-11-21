@@ -75,10 +75,10 @@ struct CounterView: View {
         let steps = parts.count > 1 ? parts[1].split(separator: ",").map(String.init) : []
         for _ in 0..<150 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
         guard let chosen = vm.overview?.counters?.first(where: { $0.id == wanted || $0.name?.hasSuffix(" \(wanted)") == true }) else {
-            print("[Wabotia] guichê: \(wanted) não encontrado"); return
+            print("[Vinki] guichê: \(wanted) não encontrado"); return
         }
         vm.chooseCounter(chosen.id)
-        print("[Wabotia] guichê: \(chosen.name ?? chosen.id) (\(chosen.state))")
+        print("[Vinki] guichê: \(chosen.name ?? chosen.id) (\(chosen.state))")
         for step in steps {
             try? await Task.sleep(nanoseconds: 6_000_000_000)
             switch step {
@@ -87,7 +87,7 @@ struct CounterView: View {
             default: vm.act(step)
             }
             for _ in 0..<50 where vm.busy != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
-            print("[Wabotia] guichê: \(step) → \(vm.notice ?? "-"); guichê \(vm.counter?.state ?? "?"), senha atual \(vm.current?.displayCode ?? "nenhuma") (\(vm.current?.state ?? "-"))")
+            print("[Vinki] guichê: \(step) → \(vm.notice ?? "-"); guichê \(vm.counter?.state ?? "?"), senha atual \(vm.current?.displayCode ?? "nenhuma") (\(vm.current?.state ?? "-"))")
         }
     }
     #endif
@@ -304,7 +304,7 @@ private struct CounterPicker: View {
                 Text("A escolha fica neste aparelho. Você chama as senhas com a sua conta.").font(Theme.font(14)).foregroundStyle(Theme.textSecondary)
                 if counters.isEmpty {
                     EmptyStateView(title: "Nenhum guichê cadastrado", systemImage: "rectangle.stack.badge.person.crop",
-                                   message: "Um administrador cria os guichês no painel do Wabotia, em Fila de senhas. Depois eles aparecem aqui.")
+                                   message: "Um administrador cria os guichês no painel do Vinki, em Fila de senhas. Depois eles aparecem aqui.")
                 } else {
                     SectionCard {
                         ForEach(Array(counters.enumerated()), id: \.element.id) { index, counter in

@@ -198,7 +198,7 @@ enum OggOpusMuxer {
         return d
     }
 
-    static func opusTags(vendor: String = "Wabotia iOS") -> Data {
+    static func opusTags(vendor: String = "Vinki iOS") -> Data {
         var d = Data("OpusTags".utf8)
         let v = Data(vendor.utf8)
         d.append(le32(UInt32(v.count)))

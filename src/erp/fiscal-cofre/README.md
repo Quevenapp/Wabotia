@@ -54,7 +54,7 @@ emission, retryable, min_version, retry_at } }`.
 - **Clique duplo:** o mesmo ambiente, período e `incluir` de uma exportação ainda válida devolve essa mesma exportação (`reused: true`), com links novos. Para gerar outra (por exemplo, porque saiu nota nova), mande `nova: true`.
 - **Andamento:** com `status: "preparing"`, consulte `GET /exportacoes/{provider_ref}` depois de `retry_after_ms`, sem laço apertado, até `ready`.
 - **Pronta:** um botão por item de `parts[]` (ZIP de até 400 arquivos; a planilha vai dentro da primeira parte) e um para `spreadsheet`.
-  - Os botões **abrem a url em aba nova direto no navegador**. O arquivo sai do cofre, não do Wabotia.
+  - Os botões **abrem a url em aba nova direto no navegador**. O arquivo sai do cofre, não do Vinki.
   - Não guarde as urls (localStorage, log, analytics): valem como senha até `links_valid_until`, cerca de 30 min.
 - **Link vencido** (perto de `links_valid_until`, ou 403 `link_invalido` no cofre): chame `GET /exportacoes/{provider_ref}` antes de abrir.
 - **Depois de 24 horas:** 404 `fiscal_export_not_found`; ofereça criar outra.

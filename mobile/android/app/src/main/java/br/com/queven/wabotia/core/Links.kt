@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
-/** Endereços públicos fixos do Wabotia (não dependem do servidor escolhido pela pessoa). */
+/** Endereços públicos fixos do Vinki (não dependem do servidor escolhido pela pessoa). */
 object Links {
     /** Política de privacidade do aplicativo (a mesma informada na Play Store). */
     const val PRIVACY_POLICY = "https://wabotia.queven.app/privacidade"

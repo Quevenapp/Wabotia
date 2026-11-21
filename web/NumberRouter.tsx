@@ -27,7 +27,7 @@ const routerSteps = [
   {
     id: "access",
     title: "Acesso dos sistemas",
-    description: "Autorize o Vinki e outros sistemas.",
+    description: "Autorize o Vinki V4 e outros sistemas.",
   },
 ] as const;
 type RouterStep = (typeof routerSteps)[number]["id"];
@@ -44,7 +44,7 @@ export function channelAccountReason(reason: string | null) {
     provider_unknown: "Não foi possível confirmar esta conta no provedor. Confira o acesso e tente novamente.",
     account_unavailable: "Reconecte esta conta na Zernio antes de importar.",
     account_disconnected: "Reconecte esta conta na Zernio antes de importar.",
-    account_already_imported: "Esta conta já está vinculada a uma conexão no Wabotia.",
+    account_already_imported: "Esta conta já está vinculada a uma conexão no Vinki.",
   } as Record<string, string>)[reason || ""] || reason || "";
 }
 
@@ -118,7 +118,7 @@ const sample = {
     {
       id: "numero-atendimento-2",
       account_id: "conta-exemplo",
-      name: "Vinki · Janela de 24 horas",
+      name: "Vinki V4 · Janela de 24 horas",
       policy: numberPolicyPresets.service_only,
       number: "5511999990002",
       status: "active",
@@ -503,7 +503,7 @@ export function NumberRouter({
             <p>
               Use sua API key para encontrar a integração e importar os
               telefones já cadastrados e conectados na Zernio. O webhook permite
-              receber mensagens no Wabotia. As credenciais ficam protegidas no
+              receber mensagens no Vinki. As credenciais ficam protegidas no
               servidor.
             </p>
             {!accountEditing && data.accounts.length > 0 && (
@@ -558,7 +558,7 @@ export function NumberRouter({
                       !window.confirm(
                         "Excluir a integração " +
                           account.name +
-                          " do Wabotia? O histórico será preservado. Isso remove somente o cadastro local e suas credenciais; não desconecta nem exclui a conta na Zernio ou na Meta.",
+                          " do Vinki? O histórico será preservado. Isso remove somente o cadastro local e suas credenciais; não desconecta nem exclui a conta na Zernio ou na Meta.",
                       )
                     )
                       return;
@@ -571,7 +571,7 @@ export function NumberRouter({
                     if (result) {
                       resetAccountForms();
                       setNotice(
-                        "Integração removida do Wabotia. Histórico preservado; a conta no provedor não foi alterada.",
+                        "Integração removida do Vinki. Histórico preservado; a conta no provedor não foi alterada.",
                       );
                     }
                   }}
@@ -917,7 +917,7 @@ export function NumberRouter({
                   >
                     Webhooks da Zernio ↗
                   </a>
-                  , com o mesmo segredo de assinatura salvo no Wabotia.
+                  , com o mesmo segredo de assinatura salvo no Vinki.
                   Selecione os eventos de recebimento, envio, entrega, leitura e
                   falha de mensagens. Na etapa Telefones, use Buscar telefones
                   na Zernio para listar as linhas já conectadas no provedor.
@@ -1035,12 +1035,12 @@ export function NumberRouter({
                 </label>
               </div>
               <p>
-                O telefone será adicionado pausado. Se ele já está no Wabotia,
+                O telefone será adicionado pausado. Se ele já está no Vinki,
                 pause e reconcilie as entregas antes. Depois confira o webhook e
                 clique em Ativar na lista.
               </p>
               <button type="submit" disabled={!!busy}>
-                Adicionar telefone ao Wabotia
+                Adicionar telefone ao Vinki
               </button>
             </form>
           </section>
@@ -1058,7 +1058,7 @@ export function NumberRouter({
             )}
             <p>
               Acompanhe as mensagens entregues no mês, por categoria, desde o
-              início do monitoramento no Wabotia. A mudança de mês segue o fuso
+              início do monitoramento no Vinki. A mudança de mês segue o fuso
               da integração. Os números não estimam preços nem substituem a
               fatura do provedor.
             </p>
@@ -1066,7 +1066,7 @@ export function NumberRouter({
               <p>
                 Nenhum telefone cadastrado nesta integração. Use Buscar
                 telefones na Zernio acima e escolha os que deseja trazer para o
-                Wabotia.
+                Vinki.
               </p>
             )}
             <div className="router-number-grid">
@@ -1112,7 +1112,7 @@ export function NumberRouter({
                               n.name +
                               " (+" +
                               n.number +
-                              ") do Wabotia? O histórico será preservado. Isso não desconecta nem exclui a conta no provedor. Mensagens e operações de grupo ainda na fila serão canceladas. Resolva envios em andamento, operações sem confirmação e ligações abertas antes de excluir.",
+                              ") do Vinki? O histórico será preservado. Isso não desconecta nem exclui a conta no provedor. Mensagens e operações de grupo ainda na fila serão canceladas. Resolva envios em andamento, operações sem confirmação e ligações abertas antes de excluir.",
                           )
                         )
                           write(
@@ -1160,7 +1160,7 @@ export function NumberRouter({
           <section className="card">
             <h3>Distribuir novos atendimentos</h3>
             <div className="notice">
-              <strong>Vinki e janela de 24 horas:</strong> a janela é aberta
+              <strong>Vinki V4 e janela de 24 horas:</strong> a janela é aberta
               pela mensagem do cliente e pertence ao telefone que a recebeu.
               Templates e outras mensagens de saída não abrem nem renovam a
               janela. O rodízio escolhe o telefone para um novo atendimento; a
@@ -1354,7 +1354,7 @@ export function NumberRouter({
             <section className="card">
               <h3>Quais telefones cada sistema pode usar</h3>
               <p>
-                Cadastre o Vinki ou outro sistema em{" "}
+                Cadastre o Vinki V4 ou outro sistema em{" "}
                 <strong>Integrações</strong>, com acesso a esta área de
                 atendimento. Depois escolha aqui os telefones ou grupos que ele
                 poderá usar. O pareamento por código temporário fica em

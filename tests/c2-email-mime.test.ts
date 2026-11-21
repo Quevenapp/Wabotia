@@ -148,9 +148,9 @@ describe("c2-email: MIME hostil sem I/O", () => {
 
   it("teste correto, errado ou malformado nunca vira mensagem humana", async () => {
     const token = "a".repeat(64);
-    const valid = await parseEmailMime(encode(`Subject: Wabotia: teste de recebimento ${token}\r\n\r\nTeste`), envelope);
+    const valid = await parseEmailMime(encode(`Subject: Vinki: teste de recebimento ${token}\r\n\r\nTeste`), envelope);
     expect(valid).toMatchObject({ classification: "probe", probeToken: token });
-    const wrong = await parseEmailMime(encode("Subject: Wabotia: teste de recebimento errado\r\n\r\nTeste"), envelope);
+    const wrong = await parseEmailMime(encode("Subject: Vinki: teste de recebimento errado\r\n\r\nTeste"), envelope);
     expect(wrong.classification).toBe("probe");
     expect(wrong.probeToken).toBeUndefined();
     const header = await parseEmailMime(mail("teste", `X-Wabotia-Email-Probe: ${token}\r\n`), envelope);

@@ -23,7 +23,7 @@ export const EMAIL_SETUP_GUIDE = Object.freeze([
   "Configure o recebimento no Email Routing e confira os MX antes de alterar.",
   "Se já usa Google, Microsoft ou outro provedor, preserve seus MX e valide o uso de um subdomínio.",
   "Crie uma regra de endereço exato para o Worker desta instalação.",
-  "Configure o mesmo endereço no Wabotia e execute Testar recebimento.",
+  "Configure o mesmo endereço no Vinki e execute Testar recebimento.",
   "Confira também a configuração de envio em Gestão → Sistema.",
   "Mantenha o nome do Worker. Se ele mudar, revise a regra de recebimento.",
   "O recebimento aceita até 25 MiB. O processamento MIME tem limite local de 8 MiB para proteger a memória; mensagens maiores ficam em quarentena, sem abrir atendimento.",

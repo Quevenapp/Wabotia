@@ -307,7 +307,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","estoque","financeiro","fiscal"] },
   },
   {
-    // Sem motor no Wabotia ainda (web/erp/motor.ts): fica fora dos dois menus enquanto a rota não responder.
+    // Sem motor no Vinki ainda (web/erp/motor.ts): fica fora dos dois menus enquanto a rota não responder.
     id: "erp.incoming-invoices", module: "erp-fiscal", part: "fiscal",
     ...ERP_MENU_GROUPS.fiscal, order: 270,
     label: "Notas fiscais de entrada",

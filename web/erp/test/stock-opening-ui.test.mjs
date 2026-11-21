@@ -13,7 +13,7 @@ const hasButton=(v,label)=>v.nodes().some(n=>n.type==='button'&&visible(n)===lab
 const openBatch=async v=>{await v.click('Adotar próximo lote');};
 const confirmBatch=async v=>{await openBatch(v);await v.change('opening-confirm',true);await v.click('Adotar lote');};
 
-// Wabotia: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
+// Vinki: a adoção do saldo vindo do Origin saiu (PLANO-FAGOO.md, item 17); a tela mantém só a política de estoque negativo.
 test('100 policy switch needs the explicit confirmation text and a reason; the change is verified by GET',async()=>{const f=createStockOpeningFixture(),v=await mount(f);try{
  assert.match(v.text(),/Não permitido/);await v.change('policy-switch',true);assert.match(v.text(),/Reservas continuam exigindo saldo disponível/);
  assert.equal(v.button('Confirmar alteração da política').disabled,true);await v.change('policy-reason','Venda sem saldo durante a virada');assert.equal(v.button('Confirmar alteração da política').disabled,true);

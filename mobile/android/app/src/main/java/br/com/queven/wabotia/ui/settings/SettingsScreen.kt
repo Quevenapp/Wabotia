@@ -194,7 +194,7 @@ fun SettingsScreen(
                     )
                     if (!systemAllows) {
                         InlineNotice(
-                            "O Android está bloqueando as notificações do Wabotia. Libere nas configurações do sistema.",
+                            "O Android está bloqueando as notificações do Vinki. Libere nas configurações do sistema.",
                             Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                             actionLabel = "Abrir",
                             onAction = { openNotificationSettings(context) },
@@ -295,7 +295,7 @@ fun SettingsScreen(
                         subtitle = when {
                             state.healthLoading && state.health == null -> "Consultando versão…"
                             state.health != null -> buildString {
-                                append("Wabotia ")
+                                append("Vinki ")
                                 append(state.health!!.version.ifBlank { "(versão desconhecida)" })
                                 if (state.health!!.commit.isNotBlank()) append(" · ").append(state.health!!.commit.take(7))
                             }
@@ -314,7 +314,7 @@ fun SettingsScreen(
                     SettingsRow(
                         Icons.AutoMirrored.Filled.OpenInNew,
                         "Abrir painel no navegador",
-                        subtitle = "Configurações completas do Wabotia",
+                        subtitle = "Configurações completas do Vinki",
                         enabled = state.serverUrl.isNotBlank(),
                         onClick = { openPanel(context, state.serverUrl) },
                     )
@@ -345,7 +345,7 @@ fun SettingsScreen(
                     SettingsRow(
                         Icons.Filled.PhoneAndroid,
                         PushRegistrar.deviceName(),
-                        subtitle = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\nWabotia ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\nIdentificador: ${state.deviceId.take(8)}…",
+                        subtitle = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})\nVinki ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\nIdentificador: ${state.deviceId.take(8)}…",
                         tint = c.textSecondary,
                     )
                     sessionText(state.tokenExpires)?.let { text ->

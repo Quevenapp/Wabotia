@@ -179,7 +179,7 @@ describe("c2-web: conteúdo hostil, avaliações e limites", () => {
     const admin = { permissions: { is_admin: true } };
     expect(prepareReviewReply(review, "Obrigada!", admin)).toEqual({ type: "google.reply", version: 3, text: "Obrigada!" });
     expect(() => prepareReviewReply({ ...review, reply_state: "unknown" }, "Obrigada", admin)).toThrow();
-    expect(() => prepareReviewReply(review, "x".repeat(4001), admin)).toThrow(/Wabotia/);
+    expect(() => prepareReviewReply(review, "x".repeat(4001), admin)).toThrow(/Vinki/);
     expect(uniqueReviews([review, review, { ...review, version: 2, text: "Antigo" }])).toEqual([review]);
     const common = { api, root, now, mode: "reviews" as const };
     expect(render(React.createElement(GoogleReviewsPage, { ...common, status: {} }))).toBe("");

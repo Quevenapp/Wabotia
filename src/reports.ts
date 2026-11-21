@@ -136,7 +136,7 @@ export async function report(
       {
         headers: {
           "Content-Type": "application/x-ndjson",
-          "Content-Disposition": `attachment; filename="wabotia-${section}.jsonl"`,
+          "Content-Disposition": `attachment; filename="vinki-${section}.jsonl"`,
           "Cache-Control": "no-store",
         },
       },

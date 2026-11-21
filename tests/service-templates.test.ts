@@ -50,9 +50,9 @@ describe("modelo central-aplicativos", () => {
       "Quall Studio",
       "NFS-e Leve",
       "Printher",
-      "Wabotia",
-      "ERP",
       "Vinki",
+      "ERP",
+      "Vinki V4",
       "Servidor ou integração",
       "Outro ou não sei",
     ]);

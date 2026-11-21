@@ -154,7 +154,7 @@ function headerValues(email: Email, key: string): string[] {
 }
 function classify(email: Email, sender: string, subject: string): Pick<ParsedEmail, "classification" | "probeToken"> {
   const probeHeaders = headerValues(email, "x-wabotia-email-probe");
-  const probePrefix = "wabotia: teste de recebimento";
+  const probePrefix = "vinki: teste de recebimento";
   if (probeHeaders.length || subject.toLowerCase().startsWith(probePrefix)) {
     const candidates = probeHeaders.length ? probeHeaders : [subject.slice(probePrefix.length).trim()];
     const token = candidates.length === 1 && /^[\da-f]{64}$/i.test(candidates[0]) ? candidates[0].toLowerCase() : undefined;

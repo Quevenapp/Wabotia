@@ -219,7 +219,7 @@ export async function zernioAccountCommand(
     throw new ApiError(
       410,
       "zernio_connect_removed",
-      "A conexão do WhatsApp pelo Wabotia foi removida. Cadastre o telefone diretamente na Zernio e use Buscar telefones para importá-lo.",
+      "A conexão do WhatsApp pelo Vinki foi removida. Cadastre o telefone diretamente na Zernio e use Buscar telefones para importá-lo.",
     );
   }
   requireValue(

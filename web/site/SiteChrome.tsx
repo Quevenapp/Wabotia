@@ -63,7 +63,7 @@ export function SitePage({
         <footer className="site-footer">
           <div className="site-footer-inner">
             <Logo size={26} />
-            <span>Quevenapp</span>
+            <span>Vinki · Queven</span>
             <a href="/privacidade">Privacidade</a>
             <SourceFooterLink />
           </div>

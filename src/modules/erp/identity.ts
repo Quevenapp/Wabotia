@@ -4,9 +4,9 @@ import { erpBotDelegation, erpBotOperation, erpBotOperationGranted, erpBotStoreS
 import { INTEGRATION_MODULES } from "../../erp/engine/module-origin.ts";
 import { erpRouteAllowed, missingActionMessage } from "../../security-modules.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
-// o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
+// o Worker monta o envelope com o que o Vinki sabe da pessoa e da área, e o
 // motor nunca consulta o D1.
-// - actor: papel erp:<papel> do acesso por pessoa (o administrador do Wabotia
+// - actor: papel erp:<papel> do acesso por pessoa (o administrador do Vinki
 //   vale erp:admin; o "*" dá o módulo, nunca o papel), a sessão (id e aal) e
 //   se a pessoa tem fator ativo;
 // - people: as pessoas da área com papel erp:* e os administradores, que o

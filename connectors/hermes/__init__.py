@@ -34,7 +34,7 @@ class Transport:
         self.home = Path(home)
         cfg = json.loads((self.home / 'wabotia-connector.json').read_text())
         if not cfg['url'].startswith('https://'):
-            raise ValueError('Wabotia requires HTTPS')
+            raise ValueError('Vinki requires HTTPS')
         self.cfg = cfg
         self.root = self.home / 'wabotia-transport'
         self.root.mkdir(mode=0o700, exist_ok=True)
@@ -175,7 +175,7 @@ class Transport:
                     except ValueError:
                         self.db.execute("UPDATE commands SET status='failed',error='Conteúdo recusado antes do envio; confira os recursos do adaptador' WHERE id=?", (command['id'],))
                     except (Exception, asyncio.CancelledError):
-                        self.db.execute("UPDATE commands SET status='unknown',error='Delivery not confirmed; reconcile in Wabotia' WHERE id=?", (command['id'],))
+                        self.db.execute("UPDATE commands SET status='unknown',error='Delivery not confirmed; reconcile in Vinki' WHERE id=?", (command['id'],))
                     self.db.commit()
                     await self.receipt(self.db.execute('SELECT * FROM commands WHERE id=?', (command['id'],)).fetchone())
             except (httpx.HTTPError, OSError, KeyError):

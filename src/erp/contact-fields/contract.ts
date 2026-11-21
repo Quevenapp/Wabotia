@@ -1,4 +1,4 @@
-// Campos próprios de contato: rotas do Wabotia em
+// Campos próprios de contato: rotas do Vinki em
 // /api/v1/profiles/:profile/erp-contato-campos (./routes.ts) e as operações
 // que o administrador pode liberar a um bot (src/modules/erp/bot-access.ts).
 // Contrato leve: sem dependência do motor nem do painel.

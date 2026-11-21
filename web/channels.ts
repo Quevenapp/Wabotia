@@ -43,7 +43,7 @@ export function channelPresentation(row: Row, status: Row, lineKinds?: Record<st
 
 /** O título mínimo não expõe nome/canal, e um título já prefixado não duplica. */
 export function channelNotificationTitle(name: string, channel: unknown, multichannel: boolean, minimal = false): string {
-  if (minimal) return "Wabotia";
+  if (minimal) return "Vinki";
   if (!multichannel) return name;
   const prefix = channelLabel(channel) + " · ";
   return name.startsWith(prefix) ? name : prefix + name;

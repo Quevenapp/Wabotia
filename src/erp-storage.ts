@@ -104,7 +104,7 @@ export const ERP_BUCKETS: Record<string, ErpBucket> = {
     sign: false,
   },
   // brufap-a1-vault (202610160041_a1_custody, custódia do certificado A1)
-  // fica de fora de propósito: o certificado nunca fica no Wabotia. Ele mora
+  // fica de fora de propósito: o certificado nunca fica no Vinki. Ele mora
   // no cofre da NFapi, separado do sistema que tem bots e integrações
   // (decisão do usuário; src/erp/emissor/README.md). Código portado do Fiscal
   // que tente guardar ou ler o certificado aqui recebe 404.

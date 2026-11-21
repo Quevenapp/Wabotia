@@ -100,7 +100,7 @@ enum WorkJSON {
 
     static func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try decoder.decode(T.self, from: data) }
-        catch { throw QueueError(status: 200, code: "invalid_response", message: "Resposta inesperada do Wabotia.") }
+        catch { throw QueueError(status: 200, code: "invalid_response", message: "Resposta inesperada do Vinki.") }
     }
 }
 

@@ -696,11 +696,11 @@ final class ConversationViewModel: ObservableObject {
         do {
             suporte = try await SuporteClient(api: .current()).status(conversationId)
             #if DEBUG
-            print("[Wabotia] suporte: \(suporte.map(SuporteRules.statusText) ?? "-"); passagem \(handoff?.module ?? "nenhuma")")
+            print("[Vinki] suporte: \(suporte.map(SuporteRules.statusText) ?? "-"); passagem \(handoff?.module ?? "nenhuma")")
             #endif
         } catch let e as QueueError {
             #if DEBUG
-            print("[Wabotia] suporte: leitura falhou (\(e.status) \(e.code))")
+            print("[Vinki] suporte: leitura falhou (\(e.status) \(e.code))")
             #endif
             ModuleFailure.handler(ModuleId.suporte)(e)
             if e.moduleDisabled || e.status == 404 { suporte = nil }
@@ -1132,7 +1132,7 @@ final class ConversationViewModel: ObservableObject {
             }
         }
         if channel?.isSocial == true {
-            // Limites locais do Wabotia, como src/channels.ts; formatos a conferir com a conta real.
+            // Limites locais do Vinki, como src/channels.ts; formatos a conferir com a conta real.
             let supported = ["image/jpeg", "image/png", "video/mp4", "audio/mpeg", "audio/mp4", "application/pdf"]
             guard supported.contains(type.lowercased()) else {
                 throw APIError(status: 400, code: "unsupported_content", message: "Formato ainda não disponível neste canal.")

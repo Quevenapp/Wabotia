@@ -1220,7 +1220,7 @@ it("modo gateway usa a URL configurada com segredo e desativa token inexistente"
     "Bearer segredo-compartilhado",
   );
   for (const m of calls[0].body.messages) {
-    expect(m.title).toBe("Wabotia");
+    expect(m.title).toBe("Vinki");
     expect(m.body).toBe("Nova mensagem");
   }
   const disabled = await one(env, "SELECT * FROM devices WHERE id=?", db.id);

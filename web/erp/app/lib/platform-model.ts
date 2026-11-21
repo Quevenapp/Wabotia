@@ -85,13 +85,13 @@ export function parseExports(raw: unknown): { items: CompanyExport[]; retention_
 }
 const WABOTIA_SIGNED_PATH = '/api/public/erp-storage/';
 export function parseExportLink(raw: unknown, storageOrigin?: string): { url: string; filename: string } {
-  // Wabotia: o motor do Wabotia nomeia o pacote wabotia-exportacao-… (desvio exportacao-wabotia); o nome do Fagoo segue aceito.
+  // Vinki: o motor do Vinki nomeia o pacote wabotia-exportacao-… (desvio exportacao-wabotia); o nome do Fagoo segue aceito.
   if (!object(raw) || raw.scope !== 'platform_export_link' || raw.expires_in !== 120 || !str(raw.url, 6000)
     || !/^(?:wabotia|brufap)-exportacao-[0-9-]{15}\.zip$/.test(String(raw.filename))) fail();
   let url: URL;
   try { url = new URL(String(raw.url)); } catch { return fail(); }
   if (url.username || url.password || url.hash) fail();
-  // Wabotia: o link assinado é a rota pública do Worker (src/erp-storage.ts, SIGNED_PATH), na origem do próprio painel.
+  // Vinki: o link assinado é a rota pública do Worker (src/erp-storage.ts, SIGNED_PATH), na origem do próprio painel.
   if (url.pathname.startsWith(WABOTIA_SIGNED_PATH)) {
     const origin = storageOrigin ?? globalThis.location?.origin;
     if (!origin || url.origin !== origin

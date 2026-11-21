@@ -12,7 +12,7 @@ const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 // The navigation stays free of the controller module (tests stub it): an HTTP refusal is read from its status.
 const statusOf=(e:unknown)=>e&&typeof e==='object'&&Number.isInteger((e as {status?:unknown}).status)?(e as {status:number}).status:null;
 type Port=Partial<Pick<SystemController,'system'>>&{getSnapshot?:()=>AccessState};
-// Wabotia: perfil e armazenamento são lidos uma vez por controlador, ator e papel e repartidos entre a barra do topo e o cartão
+// Vinki: perfil e armazenamento são lidos uma vez por controlador, ator e papel e repartidos entre a barra do topo e o cartão
 // do Início (antes o Início repetia as duas leituras). Outro ator ou papel troca a chave; uma falha sai do cache para a próxima
 // montagem tentar de novo. Sem sinal: uma tela que sai não cancela a leitura que a outra espera (o controlador cancela na troca de sessão).
 const chromeReads=new WeakMap<object,{key:string;reads:Map<string,Promise<unknown>>}>();
@@ -30,7 +30,7 @@ export function useCompanyChrome(controller:Port|undefined,state:AccessState,{no
   const same=()=>!p.signal.aborted&&(!controller.getSnapshot||controller.getSnapshot().membership?.user_id===actor);
   void sharedRead(controller,system,key,PROFILE_PATH).then(raw=>{const v=parseProfile(raw);if(same()&&v.user_id===actor)setProfile(v);}).catch(()=>{});
   void sharedRead(controller,system,key,STORAGE_PATH).then(raw=>{if(same())setStorage(parseStorage(raw));}).catch(()=>{});
-  // Wabotia: o cartão do Início não mostra notificações; só a barra as lê.
+  // Vinki: o cartão do Início não mostra notificações; só a barra as lê.
   if(notifications)void system(notificationsPath('nao_lidas'),{method:'GET',signal:p.signal}).then(raw=>{if(same())setUnread(parseNotifications(raw,{tab:'nao_lidas'}).unread);}).catch(()=>{});
   return()=>p.abort();},[controller,actor,role,notifications]);
  return{profile,storage,unread,setUnread,actor};

@@ -86,9 +86,9 @@ final class AppContainer: ObservableObject {
             session.serverURL = login.server
             loginChosen = true
             onLoggedIn(server: login.server, result: result)
-            print("[Wabotia] login de depuração: entrou em \(login.server.host ?? "") com \(result.user.profiles.count) área(s)")
+            print("[Vinki] login de depuração: entrou em \(login.server.host ?? "") com \(result.user.profiles.count) área(s)")
         } catch {
-            print("[Wabotia] login de depuração falhou: \(APIError.describe(error))")
+            print("[Vinki] login de depuração falhou: \(APIError.describe(error))")
         }
     }
     #endif

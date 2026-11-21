@@ -1,6 +1,6 @@
 # E-mail da instalação
 
-O Wabotia envia e-mail pelo **Cloudflare Email Sending**, pela API da Cloudflare, sem publicar o Worker de novo. Com o e-mail ligado:
+O Vinki envia e-mail pelo **Cloudflare Email Sending**, pela API da Cloudflare, sem publicar o Worker de novo. Com o e-mail ligado:
 - a equipe usa "Esqueci a senha" na entrada do painel;
 - convites e links de nova senha chegam por e-mail;
 - cada pessoa recebe um aviso quando a senha ou o segundo fator dela mudam;
@@ -36,7 +36,7 @@ Se o domínio já tem um registro DMARC, mantenha o seu e confira se ele aceita 
 
 Use um token só para o e-mail. Não reaproveite o token de publicação do Worker nem a chave global.
 
-## 3. Configurar no Wabotia
+## 3. Configurar no Vinki
 
 1. No painel, abra **Gestão → Sistema → E-mail**.
 2. Preencha:
@@ -65,7 +65,7 @@ Regras de segurança:
 
 ## Problemas
 
-| Mensagem no Wabotia | Código da Cloudflare | O que fazer |
+| Mensagem no Vinki | Código da Cloudflare | O que fazer |
 |---|---|---|
 | A conta Cloudflare não tem o envio de e-mail liberado | 10105 | Assine o Workers Paid na conta do token |
 | O envio de e-mail está desligado para este domínio | 10203 | Confira o domínio em Email Sending: verificado e com envio ligado |
@@ -102,7 +102,7 @@ O formato real de confirmação do provedor permanece registrado em [CANAIS-ZERN
 
 A segunda leva acrescenta uma conexão própria de **E-mail**, mostrada pelo catálogo em `/app?canais=2` ou pela ativação na área. É diferente de **Enviar conversa por e-mail**: recebe mensagens como atendimento e oferece resposta com assunto e encadeamento, sem anexar transcrição automaticamente. Transcrição, módulos e avisos do Sistema conservam suas permissões, contratos e cotas.
 
-O recebimento exige configuração manual **Email Routing → endereço exato → Worker desta instalação**, além do mesmo endereço na conexão Wabotia. O instalador e o atualizador não configuram domínio, DNS/MX ou regra de recebimento, não pedem token de zona e não criam recurso Cloudflare adicional. Preserve os MX de Google, Microsoft ou outro provedor existente e valide o uso de subdomínio antes de alterá-los. Mantenha o nome do Worker; mudança exige revisar a regra.
+O recebimento exige configuração manual **Email Routing → endereço exato → Worker desta instalação**, além do mesmo endereço na conexão Vinki. O instalador e o atualizador não configuram domínio, DNS/MX ou regra de recebimento, não pedem token de zona e não criam recurso Cloudflare adicional. Preserve os MX de Google, Microsoft ou outro provedor existente e valide o uso de subdomínio antes de alterá-los. Mantenha o nome do Worker; mudança exige revisar a regra.
 
 Siga [CANAIS-EMAIL-RECEBIMENTO.md](CANAIS-EMAIL-RECEBIMENTO.md) para escolher domínio/endereço, configurar a regra, conferir o envio do Sistema e executar **Testar recebimento**. O desafio vale dez minutos e não abre atendimento. Teste expirado é inconclusivo; não ativa o canal. A conexão reutiliza o envio do Sistema e não recebe credencial SMTP ou token próprio.
 

@@ -157,8 +157,8 @@ object CashRules {
             e.code.contains("version_conflict", ignoreCase = true) || e.code == "ERP_CONFLICT" -> "O caixa mudou em outro aparelho. Puxe para atualizar e lance de novo."
             e.status == 403 || e.code == "ERP_FORBIDDEN" -> "Seu papel não mexe no caixa. Peça ao administrador o papel Financeiro em Gestão → Pessoas e acessos."
             e.code.contains("invalid_account", ignoreCase = true) -> "Escolha uma conta do tipo Caixa."
-            e.status == 0 -> "Sem conexão com o Wabotia. O caixa não foi alterado; tente de novo quando a conexão voltar."
-            else -> e.message ?: "O Wabotia recusou."
+            e.status == 0 -> "Sem conexão com o Vinki. O caixa não foi alterado; tente de novo quando a conexão voltar."
+            else -> e.message ?: "O Vinki recusou."
         }
     }
 }

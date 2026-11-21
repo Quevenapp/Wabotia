@@ -24,7 +24,7 @@ import{createUsersFixture,USERS_QA_ADMIN}from'../app/qa/users-fixture.ts';
 import{createBusinessFixture}from'../app/qa/business-fixture.ts';
 const VENDAS='30000000-0000-4000-8000-000000000001';
 const textOf=n=>Array.isArray(n)?n.map(textOf).join(''):n&&typeof n==='object'?textOf(n.props?.children):n===null||n===undefined||typeof n==='boolean'?'':String(n);
-// Wabotia: a lista de usuários do Fagoo (/v1/usuarios) saiu; as pessoas vêm do núcleo e Permissões no ERP abre os controles de cada uma.
+// Vinki: a lista de usuários do Fagoo (/v1/usuarios) saiu; as pessoas vêm do núcleo e Permissões no ERP abre os controles de cada uma.
 const controls=(f,user)=>mountComponent('UserControls.tsx',{controller:f.controller,user:{user_id:user},actor:USERS_QA_ADMIN},{expandChildren:true,location:'/preferencias/sistema/usuarios'});
 
 test('229 PRF-214/PRF-224 Tipo, horários e permissões: windows by weekday, Origin permission tabs and one command with Conferir resultado',async()=>{

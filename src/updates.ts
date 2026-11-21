@@ -410,7 +410,7 @@ export async function checkUpdate(env: Env, force = false) {
     const latest = {
       ...index,
       checked_at: now(),
-      url: `https://github.com/Quevenapp/Wabotia/commit/${index.commit}`,
+      url: `https://github.com/Quevenapp/Vinki/commit/${index.commit}`,
     };
     await setSecret(env, latestId, latest);
     return latest;

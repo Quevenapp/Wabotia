@@ -40,7 +40,7 @@ export default function WabotiaPairing({
       setNext(Date.now() + 5000);
     } catch {
       setError(
-        "Não foi possível concluir. Confira a URL, a aprovação no Wabotia e a conexão. Aguarde cinco segundos entre consultas.",
+        "Não foi possível concluir. Confira a URL, a aprovação no Vinki e a conexão. Aguarde cinco segundos entre consultas.",
       );
     } finally {
       setBusy(false);
@@ -52,18 +52,18 @@ export default function WabotiaPairing({
   if (!admin)
     return (
       <section className="real-state-panel">
-        <h1>Wabotia</h1>
+        <h1>Vinki</h1>
         <p>Somente administradores podem configurar esta conexão.</p>
       </section>
     );
   return (
     <section className="real-state-panel">
       <nav>
-        <Link to="/preferencias/sistema">Sistema</Link> › Wabotia
+        <Link to="/preferencias/sistema">Sistema</Link> › Vinki
       </nav>
-      <h1>Conectar ao Wabotia</h1>
+      <h1>Conectar ao Vinki</h1>
       <p>
-        Gere um código e aprove no painel Wabotia. As permissões, os bots e as
+        Gere um código e aprove no painel Vinki. As permissões, os bots e as
         linhas são escolhidos pelo administrador. Nenhum token precisa ser
         copiado.
       </p>
@@ -82,13 +82,13 @@ export default function WabotiaPairing({
           }
         >
           <label>
-            Endereço do Wabotia{" "}
+            Endereço do Vinki{" "}
             <input
               type="url"
               required
               value={url}
               onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://seu-wabotia.exemplo.com"
+              placeholder="https://seu-vinki.exemplo.com"
             />
           </label>
           <label>
@@ -108,7 +108,7 @@ export default function WabotiaPairing({
         {status?.status === "authorization_pending" ? (
           <>
             <p>
-              No Wabotia, abra Integrações → Parear Vinki e aprove:
+              No Vinki, abra Integrações → Parear Vinki V4 e aprove:
             </p>
             <strong style={{ fontSize: "1.8rem", letterSpacing: ".15em" }}>
               {status.user_code}
@@ -119,7 +119,7 @@ export default function WabotiaPairing({
               target="_blank"
               rel="noopener noreferrer"
             >
-              Abrir Wabotia
+              Abrir Vinki
             </a>
             <p>
               <button
@@ -160,7 +160,7 @@ export default function WabotiaPairing({
       {status?.status === "recovery_required" && (
         <div>
           <p>
-            Primeiro, abra o Wabotia e revogue a aplicação desta instalação em
+            Primeiro, abra o Vinki e revogue a aplicação desta instalação em
             Integrações. Esquecer aqui apaga apenas a configuração local; não
             revoga o acesso remoto.
           </p>
@@ -170,7 +170,7 @@ export default function WabotiaPairing({
               checked={revoked}
               onChange={(e) => setRevoked(e.target.checked)}
             />{" "}
-            Já revoguei o vínculo anterior no Wabotia.
+            Já revoguei o vínculo anterior no Vinki.
           </label>
           <button
             disabled={busy || !revoked}

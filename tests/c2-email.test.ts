@@ -199,16 +199,16 @@ describe("c2-email: caixas, bloqueios e teste de recebimento", () => {
     const f = await fixture(false), token = "a".repeat(64), probeId = uid();
     await exec(env, `INSERT INTO email_channel_probes(id,profile_id,connection_id,command_id,token_hash,expires,state,created)
       VALUES(?,?,?,?,?,?,'pending',?)`, probeId, f.profile, f.line, uid(), await sha(token), now() + 600_000, now());
-    await receive(f, "Teste.", { subject: `Wabotia: teste de recebimento ${"b".repeat(64)}`, messageId: "wrong" });
+    await receive(f, "Teste.", { subject: `Vinki: teste de recebimento ${"b".repeat(64)}`, messageId: "wrong" });
     expect(await one(env, "SELECT active FROM email_channel_addresses WHERE connection_id=?", f.line)).toEqual({ active: 0 });
-    await receive(f, "Teste.", { subject: `Wabotia: teste de recebimento ${token}`, messageId: "correct" });
+    await receive(f, "Teste.", { subject: `Vinki: teste de recebimento ${token}`, messageId: "correct" });
     expect(await one(env, "SELECT active FROM email_channel_addresses WHERE connection_id=?", f.line)).toEqual({ active: 1 });
     expect(await one(env, "SELECT state FROM email_channel_probes WHERE id=?", probeId)).toEqual({ state: "received" });
-    await receive(f, "Teste repetido.", { subject: `Wabotia: teste de recebimento ${token}`, messageId: "repeated" });
+    await receive(f, "Teste repetido.", { subject: `Vinki: teste de recebimento ${token}`, messageId: "repeated" });
     const expired = await fixture(false);
     await exec(env, `INSERT INTO email_channel_probes(id,profile_id,connection_id,command_id,token_hash,expires,state,created)
       VALUES(?,?,?,?,?,?,'pending',?)`, uid(), expired.profile, expired.line, uid(), await sha(token), now() - 1, now() - 600_001);
-    const late = await receive(expired, "Teste expirado.", { subject: `Wabotia: teste de recebimento ${token}`, messageId: "expired" });
+    const late = await receive(expired, "Teste expirado.", { subject: `Vinki: teste de recebimento ${token}`, messageId: "expired" });
     expect(late.reject).toHaveBeenCalledTimes(1);
     expect(await one(env, "SELECT active FROM email_channel_addresses WHERE connection_id=?", expired.line)).toEqual({ active: 0 });
     expect(await all(env, "SELECT id FROM email_channel_inbox WHERE profile_id=?", expired.profile)).toEqual([]);

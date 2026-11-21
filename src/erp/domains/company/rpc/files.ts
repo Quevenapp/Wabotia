@@ -1,7 +1,7 @@
 // Empresa: arquivos e logotipo (reserva, envio com aluguel, confirmação do
 // objeto no armazenamento, exclusão lógica). Um código só para os dois tipos:
 // public.erp_company_file_* e erp_company_logo_*.
-// storage.buckets/objects do Supabase: no Wabotia o objeto fica no R2; o
+// storage.buckets/objects do Supabase: no Vinki o objeto fica no R2; o
 // bucket sempre existe (erp_attachments.storage_ready não falha) e a
 // confirmação lê o objeto que o hub consultou antes da transação
 // (ctx.objects, registerRpc(…, { objects })).

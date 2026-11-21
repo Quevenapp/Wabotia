@@ -253,7 +253,7 @@ fun InternalChatScreen(container: AppContainer, peerId: String, onBack: () -> Un
                 items.isEmpty() && vm.chat != null -> EmptyState(
                     Icons.Filled.Forum,
                     "Nenhuma mensagem ainda",
-                    subtitle = if (isBot) "Escreva para o bot. A resposta aparece aqui mesmo." else "As mensagens internas ficam só no Wabotia; nada vai ao WhatsApp.",
+                    subtitle = if (isBot) "Escreva para o bot. A resposta aparece aqui mesmo." else "As mensagens internas ficam só no Vinki; nada vai ao WhatsApp.",
                 )
                 else -> LazyColumn(
                     state = list,

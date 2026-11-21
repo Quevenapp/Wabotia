@@ -32,7 +32,7 @@ export function useListPreferences(controller:ListPreferencesPort,listId:string,
  const valid=(p:AbortController)=>may()&&!p.signal.aborted&&request.current===p;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();attempt.current=null;};},[controller]);
  // A different user never inherits the previous user's list or command.
- // Wabotia: a releitura vem do `actor` nas dependências da leitura abaixo, e não de um setReload aqui: quando a porta liga
+ // Vinki: a releitura vem do `actor` nas dependências da leitura abaixo, e não de um setReload aqui: quando a porta liga
  // (ator null → usuário, `allowed` false → true) as duas mudanças chegam juntas e a lista era lida duas vezes.
  useEffect(()=>{if(owner.current===actor)return;owner.current=actor;request.current?.abort();request.current=null;attempt.current=null;setPending('none');setValue(null);setError('');setNotice('');},[actor]);
  useEffect(()=>{if(!allowed||!may())return;const p=new AbortController();request.current=p;setLoading(true);void(async()=>{try{

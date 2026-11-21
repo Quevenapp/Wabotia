@@ -1,6 +1,6 @@
 import Foundation
 
-/// Recusa do Wabotia na fila, com o código do contrato (`queue_empty`, `kiosk_rate`, `invalid_transition`…), ou falha
+/// Recusa do Vinki na fila, com o código do contrato (`queue_empty`, `kiosk_rate`, `invalid_transition`…), ou falha
 /// de rede (`status == 0`).
 struct QueueError: LocalizedError, Equatable {
     var status: Int
@@ -72,10 +72,10 @@ enum QueueHTTP {
         } catch let error as URLError where error.code == .cancelled {
             throw CancellationError()
         } catch {
-            throw QueueError(status: 0, code: QueueError.network, message: "Sem conexão com o Wabotia.")
+            throw QueueError(status: 0, code: QueueError.network, message: "Sem conexão com o Vinki.")
         }
         guard let http = response as? HTTPURLResponse else {
-            throw QueueError(status: 0, code: QueueError.network, message: "Sem resposta do Wabotia.")
+            throw QueueError(status: 0, code: QueueError.network, message: "Sem resposta do Vinki.")
         }
         guard (200..<300).contains(http.statusCode) else {
             let info = try? JSONDecoder().decode(APIErrorBody.self, from: data).error
@@ -83,7 +83,7 @@ enum QueueHTTP {
             switch http.statusCode {
             case 401: fallback = "A credencial não vale mais. Conecte de novo."
             case 403: fallback = "Sem permissão para esta ação na fila."
-            default: fallback = "O Wabotia recusou (\(http.statusCode))."
+            default: fallback = "O Vinki recusou (\(http.statusCode))."
             }
             let code = info?.code.isEmpty == false ? info!.code : "http_\(http.statusCode)"
             let message = info?.message.isEmpty == false ? info!.message : fallback
@@ -94,7 +94,7 @@ enum QueueHTTP {
 
     static func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try QueueJSON.decoder.decode(T.self, from: data) }
-        catch { throw QueueError(status: 200, code: "invalid_response", message: "Resposta inesperada do Wabotia.") }
+        catch { throw QueueError(status: 200, code: "invalid_response", message: "Resposta inesperada do Vinki.") }
     }
 
     static func request(_ url: URL, method: String, token: String?, key: String? = nil, body: Data? = nil) -> URLRequest {
@@ -114,7 +114,7 @@ enum QueueHTTP {
 
 /// O cliente da fila de uma área (`/api/v1/profiles/{p}/queue`). O token vem de quem usa: o do aparelho pareado
 /// (`wab_…`) ou o da pessoa logada (`wabu_…`). Toda escrita leva `Idempotency-Key`; quem repete depois de uma queda de
-/// rede passa a mesma chave e o Wabotia devolve a mesma resposta (nunca duas senhas, nunca duas chamadas).
+/// rede passa a mesma chave e o Vinki devolve a mesma resposta (nunca duas senhas, nunca duas chamadas).
 final class QueueClient {
     static let ticketActions: Set<String> = ["recall", "start", "finish", "no-show", "cancel"]
 
@@ -180,7 +180,7 @@ final class QueueClient {
     }
 
     private func url(_ path: String) throws -> URL {
-        guard let url = URL(string: root + path) else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Wabotia inválido.") }
+        guard let url = URL(string: root + path) else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Vinki inválido.") }
         return url
     }
 
@@ -199,7 +199,7 @@ final class QueueClient {
 }
 
 /// Emite a senha do totem. Uma queda de rede (ou erro 5xx) repete uma vez com a **mesma** `Idempotency-Key`: o
-/// Wabotia devolve a mesma senha em vez de emitir outra. Recusa do contrato (`kiosk_rate`, `queue_closed`…) não repete.
+/// Vinki devolve a mesma senha em vez de emitir outra. Recusa do contrato (`kiosk_rate`, `queue_closed`…) não repete.
 func issueOnce(_ client: QueueClient, queueId: String, preferential: Bool, key: String = QueueClient.newKey(), pause: UInt64 = 1_500_000_000) async throws -> QueueTicket {
     do {
         return try await client.issue(queueId: queueId, preferential: preferential, key: key)
@@ -237,7 +237,7 @@ final class QueuePairing {
     }
 
     private func url(_ base: String, _ path: String) throws -> URL {
-        guard let url = URL(string: QueueHTTP.normalize(base) + path) else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Wabotia inválido.") }
+        guard let url = URL(string: QueueHTTP.normalize(base) + path) else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Vinki inválido.") }
         return url
     }
 }

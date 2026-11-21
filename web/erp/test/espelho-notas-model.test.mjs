@@ -20,7 +20,7 @@ test('NFE-027: the V badge of a Origin note lists the Origin pedidos that declar
 });
 
 test('NFE-069/063/185: fiscal state apart from the DANFE, and the source origin and environment of each note', () => {
-  // Wabotia: Origin fora (motor 91213b8): sem o código do Origin na situação fiscal nem a nota do Origin como fonte.
+  // Vinki: Origin fora (motor 91213b8): sem o código do Origin na situação fiscal nem a nota do Origin como fonte.
   assert.equal(fiscalStateText(row()), 'Situação fiscal: Autorizada · DANFE emitida');
   assert.equal(fiscalStateText(row({ status: 6, status_raw: '5', danfe_emitted: false })), 'Situação fiscal: Autorizada · DANFE não emitida');
   assert.equal(fiscalStateText(row({ status: null, fiscal_status: null, status_raw: '12', danfe_emitted: false })), 'Situação fiscal: Situação não mapeada');

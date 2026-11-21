@@ -29,7 +29,7 @@ export default function FinanceScreens({ controller, area }: { controller: Acces
   if (area === 'contas-financeiras') return <FinanceAccountsRegistry controller={controller} />;
   if (area === 'accounts') return <FinanceStatement controller={controller} />;
   if (area === 'ficha') return <FinanceContactLedger controller={controller} />;
-  // Wabotia: uma só tela de conciliação por OFX, a de Financeiro › Conciliação bancária (src/erp/conciliacao).
+  // Vinki: uma só tela de conciliação por OFX, a de Financeiro › Conciliação bancária (src/erp/conciliacao).
   if (area === 'conciliacao') return <Navigate to="/conciliacao-bancaria" replace />;
   if (area === 'transferencias') return <Transfers controller={controller} />;
   if (area === 'recorrentes') return <FinanceRecurring controller={controller} />;

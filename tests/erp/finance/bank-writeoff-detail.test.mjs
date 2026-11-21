@@ -1,4 +1,4 @@
-// Wabotia (junção): a conta cancelada pela declaração de boleto baixado no
+// Vinki (junção): a conta cancelada pela declaração de boleto baixado no
 // banco (title_bank_writeoff) mostra no detalhe (erp_finance_title_detail)
 // quem declarou, quando e o motivo, lidos da auditoria já gravada; a rota da
 // erp-api repassa o campo e diz o motivo conhecido da recusa do cancelamento.

@@ -14,7 +14,7 @@ export { reportClean } from "./report-text.ts";
 
 /**
  * erp_attachments.storage_ready(): no Fagoo confere o bucket em
- * storage.buckets e lança 55000 sem ele. No Wabotia o armazenamento é o R2
+ * storage.buckets e lança 55000 sem ele. No Vinki o armazenamento é o R2
  * (binding MEDIA), sempre presente: não lança. O harness cria o bucket no
  * oráculo (existe em produção), e os dois motores concordam.
  */

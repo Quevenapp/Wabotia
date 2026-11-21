@@ -1,11 +1,11 @@
 # Fila de espera com senha (contrato v1)
 
-A fila de senhas mora no Wabotia. O cliente entra pelo WhatsApp ou pelo totem do
+A fila de senhas mora no Vinki. O cliente entra pelo WhatsApp ou pelo totem do
 **Senhapp**; a equipe chama pelos guichês no painel (`/app/fila`); os painéis de
-TV (web do Wabotia ou Senhapp) anunciam as chamadas. Este documento é o contrato
-entre o Wabotia e o Senhapp. Mudança aqui vem antes de mudança de código.
+TV (web do Vinki ou Senhapp) anunciam as chamadas. Este documento é o contrato
+entre o Vinki e o Senhapp. Mudança aqui vem antes de mudança de código.
 
-> Nome: no Wabotia `tickets` são **protocolos**. A senha de fila é
+> Nome: no Vinki `tickets` são **protocolos**. A senha de fila é
 > `queue_tickets` e as rotas ficam sob `/queue`.
 
 ## Conceitos

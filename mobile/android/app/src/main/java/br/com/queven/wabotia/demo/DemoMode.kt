@@ -11,7 +11,7 @@ import br.com.queven.wabotia.queue.DeviceScopes
 import okhttp3.Interceptor
 
 /**
- * Modo de demonstração: uma instalação Wabotia fictícia, em memória, para quem ainda não tem servidor (e para a revisão
+ * Modo de demonstração: uma instalação Vinki fictícia, em memória, para quem ainda não tem servidor (e para a revisão
  * das lojas). Entra pelo botão "Conhecer o app (demonstração)" da tela Servidor ou digitando `demo` como servidor;
  * existe em todos os builds.
  *

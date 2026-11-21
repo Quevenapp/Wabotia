@@ -1,6 +1,6 @@
 import Foundation
 
-// Modelos da API Wabotia (docs/API.md e docs/MOBILE.md). Datas são Unix em milissegundos.
+// Modelos da API Vinki (docs/API.md e docs/MOBILE.md). Datas são Unix em milissegundos.
 // Campos do banco que chegam como JSON em string (attachments, content, tags, profiles) são lidos com os auxiliares abaixo.
 
 extension JSONDecoder {

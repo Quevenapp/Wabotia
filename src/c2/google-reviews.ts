@@ -21,7 +21,7 @@ import {
   type GoogleReviewData, type GoogleProviderEvent,
 } from "./google-provider";
 
-export const GOOGLE_REPLY_MAX_CHARS = 4000; // Limite local do Wabotia.
+export const GOOGLE_REPLY_MAX_CHARS = 4000; // Limite local do Vinki.
 export const GOOGLE_SYNC_LIMITS = Object.freeze({ pages: 3, pageSize: 50, deadlineMs: 45_000, intervalMs: 300_000 });
 const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
@@ -262,7 +262,7 @@ async function listReviews(ctx: ChannelRouteContext) {
   const publish = await canPublish(ctx.env, actor, ctx.profileId), selected = rows.slice(0, query.limit), last = selected.at(-1);
   return { data: selected.map(row => dto(row, publish)), next_cursor: rows.length > query.limit && last ? JSON.stringify([last.updated, last.id]) : null,
     permissions: { can_read: true, can_reply: publish, is_admin: actor.role === "admin" },
-    can_publish: publish, reply_max_chars: GOOGLE_REPLY_MAX_CHARS, reply_limit_source: "Wabotia" };
+    can_publish: publish, reply_max_chars: GOOGLE_REPLY_MAX_CHARS, reply_limit_source: "Vinki" };
 }
 async function mutateReply(ctx: ChannelRouteContext, type: "google.reply" | "google.reply.delete" | "google.suggest") {
   const input = record(ctx.input);
@@ -413,7 +413,7 @@ export const googleReviewsRoutes: readonly ChannelRoute[] = [
     const actor = await readActor(ctx.env, ctx.actor, ctx.profileId);
     const row = await one<ProjectedRow>(ctx.env, `${reviewSelect} WHERE r.id=? AND r.profile_id=?`, ctx.params.id, ctx.profileId);
     if (!row) throw missing();
-    return { ...dto(row, await canPublish(ctx.env, actor, ctx.profileId)), reply_max_chars: GOOGLE_REPLY_MAX_CHARS, reply_limit_source: "Wabotia" };
+    return { ...dto(row, await canPublish(ctx.env, actor, ctx.profileId)), reply_max_chars: GOOGLE_REPLY_MAX_CHARS, reply_limit_source: "Vinki" };
   } },
   { method: "PUT", path: "/reviews/:id/reply", authorization: "google.reply", handler: ctx => mutateReply(ctx, "google.reply") },
   { method: "DELETE", path: "/reviews/:id/reply", authorization: "google.reply", handler: ctx => mutateReply(ctx, "google.reply.delete") },
@@ -458,7 +458,7 @@ export const googleReviewsExtension: ChannelExtension = {
     const resource = { kind: "review" as const, id: review.id }, orderKey = `review:${review.id}`;
     if (action.type === "google.suggest") return { resource, orderKey, operation: action.type, deliveries: [], suggestion: await suggest(ctx, review) };
     if (action.type === "google.reply") requireValue(action.text.trim() && [...action.text].length <= GOOGLE_REPLY_MAX_CHARS && !action.text.includes("\u0000"),
-      "Use uma resposta de até 4.000 caracteres, limite do Wabotia.");
+      "Use uma resposta de até 4.000 caracteres, limite do Vinki.");
     if (await pendingReply(ctx.env, review.profile_id, review.id, ctx.commandId)) throw pending();
     return { resource, orderKey, operation: action.type,
       deliveries: [{ key: ctx.commandId, payload: { text: action.type === "google.reply" ? action.text : "", version: action.version, remoteId: review.remote_id } }],

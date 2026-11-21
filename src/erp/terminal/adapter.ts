@@ -48,7 +48,7 @@ export interface TerminalDevice {
 }
 
 export interface TerminalChargeRequest {
-  /** Referência do Wabotia (vai como referência externa): a mesma em cada nova tentativa. */
+  /** Referência do Vinki (vai como referência externa): a mesma em cada nova tentativa. */
   reference: string;
   device_id: string;
   amount_cents: number;
@@ -94,7 +94,7 @@ export interface TerminalProvider {
   prepareDevice(ctx: TerminalContext, deviceId: string): Promise<void>;
   createCharge(ctx: TerminalContext, request: TerminalChargeRequest): Promise<{ ref: string }>;
   getCharge(ctx: TerminalContext, ref: string): Promise<TerminalCharge>;
-  /** Acha a cobrança pela referência do Wabotia (depois de resposta incerta); null se não está no provedor. */
+  /** Acha a cobrança pela referência do Vinki (depois de resposta incerta); null se não está no provedor. */
   findCharge(ctx: TerminalContext, input: { reference: string; device_id: string; since: number }): Promise<TerminalCharge | null>;
   cancelCharge(ctx: TerminalContext, input: { ref: string; device_id: string }): Promise<void>;
   /** Confere a assinatura do aviso e devolve os ids citados (nunca o resultado: o pagamento só vale pela consulta). */

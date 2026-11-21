@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Gera um par de chaves Ed25519 para assinar as versões do Wabotia
+// Gera um par de chaves Ed25519 para assinar as versões do Vinki
 // (docs/ATUALIZACOES-FORMATO.md, "Assinatura"). Grava a chave privada num
 // arquivo FORA do repositório, com acesso só do usuário atual, e imprime só a
 // chave pública (para src/release-keys.json). A chave privada nunca é

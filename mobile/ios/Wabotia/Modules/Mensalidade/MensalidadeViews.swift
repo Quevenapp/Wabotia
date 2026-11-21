@@ -136,7 +136,7 @@ struct MensalidadeView: View {
     @ViewBuilder
     private var subscriptionsBody: some View {
         if vm.subscriptions.isEmpty {
-            EmptyStateView(title: "Nenhuma assinatura aqui", systemImage: "person.2", message: "As assinaturas são criadas e importadas no painel do Wabotia.")
+            EmptyStateView(title: "Nenhuma assinatura aqui", systemImage: "person.2", message: "As assinaturas são criadas e importadas no painel do Vinki.")
         }
         ForEach(vm.subscriptions) { s in
             Button { push(.subscription(id: s.id)) } label: {
@@ -311,7 +311,7 @@ struct InstallmentDetailView: View {
                 vm.charge()
                 try? await Task.sleep(nanoseconds: 500_000_000)
                 for _ in 0..<80 where vm.busy != nil { try? await Task.sleep(nanoseconds: 100_000_000) }
-                print("[Wabotia] mensalidade: charge → \(vm.notice ?? vm.done ?? "-"); parcela \(vm.installment?.label ?? "?")")
+                print("[Vinki] mensalidade: charge → \(vm.notice ?? vm.done ?? "-"); parcela \(vm.installment?.label ?? "?")")
             }
             #endif
         }

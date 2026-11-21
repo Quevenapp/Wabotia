@@ -1,4 +1,4 @@
-// Wabotia: telas do ERP com só a base (Cadastros) ligada. Parte desligada nunca vira
+// Vinki: telas do ERP com só a base (Cadastros) ligada. Parte desligada nunca vira
 // "Não foi possível concluir a operação": o dado auxiliar some, sem aviso de erro.
 import test from 'node:test';
 import assert from 'node:assert/strict';

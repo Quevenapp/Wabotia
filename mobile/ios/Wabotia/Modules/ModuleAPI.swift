@@ -55,7 +55,7 @@ final class ProfileAPI {
     /// origem da sessão; endereço de outro domínio é recusado antes de sair do aparelho.
     func upload(_ uploadURL: String, data: Data, contentType: String, key: String, headers: [String: String] = [:]) async throws -> Data {
         guard let target = Self.sameOrigin(base: base, uploadURL) else {
-            throw QueueError(status: 0, code: "upload_url_rejected", message: "O endereço de envio da foto não é deste Wabotia. A foto não foi enviada; avise o administrador.")
+            throw QueueError(status: 0, code: "upload_url_rejected", message: "O endereço de envio da foto não é deste Vinki. A foto não foi enviada; avise o administrador.")
         }
         var request = QueueHTTP.request(target, method: "PUT", token: token(), key: key)
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
@@ -88,11 +88,11 @@ final class ProfileAPI {
     private func url(_ path: String, _ query: [String: String?]) throws -> URL {
         let p = profileId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? profileId
         guard var components = URLComponents(string: base + "/api/v1/profiles/\(p)/" + path) else {
-            throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Wabotia inválido.")
+            throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Vinki inválido.")
         }
         let items = query.compactMap { k, v in v.map { URLQueryItem(name: k, value: $0) } }.sorted { $0.name < $1.name }
         if !items.isEmpty { components.queryItems = items }
-        guard let url = components.url else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Wabotia inválido.") }
+        guard let url = components.url else { throw QueueError(status: 0, code: "invalid_url", message: "Endereço do Vinki inválido.") }
         return url
     }
 }

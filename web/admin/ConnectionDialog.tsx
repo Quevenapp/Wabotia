@@ -175,7 +175,7 @@ function AiFields({
   return (
     <>
       <p>
-        O Wabotia chama o provedor direto, sem servidor próprio. O bot responde
+        O Vinki chama o provedor direto, sem servidor próprio. O bot responde
         com base nas fontes, menus e protocolos desta área, mas não executa
         ações em outros sistemas, não gera arquivos.
         O custo é cobrado pelo provedor, por uso.

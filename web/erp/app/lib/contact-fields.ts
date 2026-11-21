@@ -1,4 +1,4 @@
-// Campos próprios de contato (Wabotia; esquema do ERP versão 20): chamadas a /api/v1/profiles/<área>/erp-contato-campos
+// Campos próprios de contato (Vinki; esquema do ERP versão 20): chamadas a /api/v1/profiles/<área>/erp-contato-campos
 // (src/erp/contact-fields/routes.ts), a mesma validação do motor para avisar antes de enviar, o texto de cada valor (lista,
 // coluna, exportação) e a leitura das colunas da planilha de importação. O servidor confere tudo de novo (papel no ERP,
 // carteira do vendedor, campo sensível). Fora do painel da área (demonstração), os campos próprios não estão disponíveis.

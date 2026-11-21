@@ -1,4 +1,4 @@
-// Produção (ordem de produção; Wabotia, sem função no oráculo): a ordem com os
+// Produção (ordem de produção; Vinki, sem função no oráculo): a ordem com os
 // insumos da composição, edição com perda, apontamento parcial e total com a
 // baixa dos insumos e a entrada do acabado pelo Estoque e o custo do acabado,
 // repetição segura, saldo insuficiente, estorno pelas guardas do Estoque (e a

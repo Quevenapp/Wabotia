@@ -852,7 +852,7 @@ function DisplaysCard({ queues }: { queues: Row[] }) {
       />
       <p className="queue-hint">
         <strong>Senhapp (totem e painel híbrido):</strong> no aparelho, toque em
-        Conectar ao Wabotia e informe o endereço desta instalação. Aprove o
+        Conectar ao Vinki e informe o endereço desta instalação. Aprove o
         código em{" "}
         <a
           className="text-link"

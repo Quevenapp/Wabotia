@@ -1,6 +1,6 @@
 # Entrega: acompanhamento em tempo real
 
-O entregador **não precisa de login**: baixa o app Wabotia, toca em
+O entregador **não precisa de login**: baixa o app Vinki, toca em
 **Escanear pedido** e lê o QR da entrega, que a loja mostra no painel ao
 despachar e imprime na via do pedido. Com o app aberto, o celular manda a
 posição para o servidor. O cliente recebe no WhatsApp o link **Acompanhar**
@@ -113,7 +113,7 @@ entregador, a situação e a previsão (`delivery`, gancho
 ### Via impressa
 
 `POST …/qr` devolve `slip`: `title` ("ENTREGA · Pedido nº 12"), `qr` (o
-conteúdo do QR) e `lines` (nome do estabelecimento, "abra o app Wabotia e
+conteúdo do QR) e `lines` (nome do estabelecimento, "abra o app Vinki e
 toque em Escanear pedido", validade do QR). A comanda do Pedido já traz
 endereço, itens, pagamento e troco; a via acrescenta o QR e essas linhas. O
 QR de uma via reimpressa só vale se for o último gerado.
@@ -196,7 +196,7 @@ Accept: application/json
 ou revogado (sem oráculo); nunca traz cliente, itens nem endereço. Limite de
 30 leituras por IP a cada 10 minutos (`429`). Sem `Accept: application/json`
 (câmera comum do celular), a mesma URL abre uma página com o nome da loja e
-"Abra o Wabotia e toque em Escanear pedido", com o link da Google Play (e o
+"Abra o Vinki e toque em Escanear pedido", com o link da Google Play (e o
 da App Store, se a instalação definir `IOS_APP_URL`). Nenhuma das duas troca
 o código.
 
@@ -368,7 +368,7 @@ escolha em aberto.
   e a página não envia Referer (os blocos do mapa recebem só a origem).
 - **Mapa da página.** Por padrão, os blocos vêm do servidor público do
   OpenStreetMap (`tile.openstreetmap.org`), cuja política de uso aceita só uso
-  leve e pode bloquear quem passar disso. Várias instalações do Wabotia, com
+  leve e pode bloquear quem passar disso. Várias instalações do Vinki, com
   páginas que recarregam a cada 30 s, podem passar. Para produção com volume,
   configure `map.tiles_url` com um servidor próprio ou um provedor contratado
   (a escolha e o custo são decisão do responsável pela instalação) e o crédito
@@ -488,7 +488,7 @@ para a loja nas últimas 24 horas"). Durante a rota, a faixa fixa
 Pedido nº 12" e a previsão da resposta do lote.
 
 **Aviso ao entregador (antes de pedir a permissão, em tela própria):**
-"Enquanto este app estiver aberto durante a entrega, o Wabotia compartilha a
+"Enquanto este app estiver aberto durante a entrega, o Vinki compartilha a
 sua localização com a loja e com o cliente deste pedido, para mostrar a
 previsão de chegada. O compartilhamento começa quando você toca em Iniciar
 rota e para quando você fecha o app ou a entrega termina. A posição é

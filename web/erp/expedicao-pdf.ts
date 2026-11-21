@@ -85,7 +85,7 @@ export function labelsPdf(labels: readonly VolumeLabel[], sender: Party, format:
     });
   }
   if (!pages.length) pages.push(new PdfPage(format === "10x15" ? 100 : 210, format === "10x15" ? 150 : 297));
-  return pdfDocument(pages, { title: "Etiquetas de volume", producer: "Wabotia" });
+  return pdfDocument(pages, { title: "Etiquetas de volume", producer: "Vinki" });
 }
 
 export interface PickPrintRow { location: string | null; warehouse: string | null; description: string; code: string | null; unit: string | null; quantity: string; orders: string }
@@ -112,7 +112,7 @@ export function pickListPdf(number: number, rows: readonly PickPrintRow[], when:
     fit(page, L + 146, y, r.orders, R - L - 146, 8);
     y += 2.4; page.line(L, y, R, y, { width: 0.1, dash: true }); y += 5;
   }
-  return pdfDocument(pages, { title: `Lista de separação ${number}`, producer: "Wabotia" });
+  return pdfDocument(pages, { title: `Lista de separação ${number}`, producer: "Vinki" });
 }
 
 /** Romaneio de expedição: uma seção por transportadora, com a lista e o espaço para assinatura de quem recebeu. */
@@ -166,5 +166,5 @@ export function manifestPdf(carriers: readonly ManifestCarrier[], sender: Party,
     page.line(L, sy + 18, L + 110, sy + 18, { width: 0.3 });
     page.text(L, sy + 22, "Assinatura", { size: 7.5 });
   }
-  return pdfDocument(pages, { title: "Romaneio de expedição", producer: "Wabotia" });
+  return pdfDocument(pages, { title: "Romaneio de expedição", producer: "Vinki" });
 }

@@ -29,7 +29,7 @@ fun StartScreen(container: AppContainer, onLogin: () -> Unit, onChangeServer: ()
     val c = Wb.colors
     val context = LocalContext.current
     val server = container.session.serverUrl
-    AuthScaffold(title = "Wabotia", subtitle = server?.removePrefix("https://") ?: "Atendimento WhatsApp com IA e equipe humana") {
+    AuthScaffold(title = "Vinki", subtitle = server?.removePrefix("https://") ?: "Atendimento WhatsApp com IA e equipe humana") {
         PrimaryButton("Entrar", onClick = onLogin, icon = Icons.AutoMirrored.Filled.Login, modifier = Modifier.testTag("start.login"))
         Spacer(Modifier.height(10.dp))
         AuthHelp("Para quem atende: conversas, protocolos, equipe e o guichê da fila de senhas.")

@@ -36,7 +36,7 @@ export function WhatsAppGuide() {
       <p>
         WhatsApp oficial: foto JPG/PNG até 5 MB, vídeo MP4 e áudio até 16 MB,
         PDF até 100 MB e TXT/Office até 25 MB pela Zernio. Voz gravada: até dois
-        minutos. Figurinhas: WebP 512 × 512. O limite do upload Wabotia é 100
+        minutos. Figurinhas: WebP 512 × 512. O limite do upload Vinki é 100
         MB; o canal pode impor limites menores.
       </p>
       <details>
@@ -72,7 +72,7 @@ export function WhatsAppGuide() {
       <h3>Ligações de voz</h3>
       <p>
         A Zernio oferece recursos de chamadas com configuração própria. O áudio
-        pelo navegador do Wabotia não está disponível nesta integração. O
+        pelo navegador do Vinki não está disponível nesta integração. O
         histórico de ligações anteriores continua acessível. QR e transporte
         Hermes também não oferecem chamadas neste projeto.
       </p>
@@ -91,7 +91,7 @@ export function WhatsAppGuide() {
         elegíveis. Os testes automatizados usam provedores simulados.
       </p>
       <p>
-        <a href="https://github.com/Quevenapp/Wabotia/blob/main/docs/WHATSAPP.md">
+        <a href="https://github.com/Quevenapp/Vinki/blob/main/docs/WHATSAPP.md">
           Passo a passo completo e atualização dos conectores ↗
         </a>{" "}
         · <a href="/api-docs">Usar estes recursos pela API ↗</a>

@@ -120,7 +120,7 @@ import {hasCustomValues} from '../lib/document-custom-fields';
 import { blockEnabled, operationEnabled, entityEnabled, availablePayload, REENABLED_AUTOMATION_NOTICE } from '../../blocks';
 
 const aborted=(error:unknown)=>error instanceof DOMException&&error.name==='AbortError';
-// Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
+// Vinki: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
 const errorText=(error:unknown)=>error instanceof AccessError&&error.code==='MODULE_OWNED_BY_ORIGIN'?DOCUMENT_MIRROR_READ_ONLY:error instanceof AccessError&&error.code==='ERP_DOCUMENT_CREDIT_LIMIT'?'O valor total parcelado da proposta, somado às contas a receber em aberto do cliente, excede o limite de crédito do cliente (Preferências › Vendas › Propostas). Revise as parcelas ou o limite no cadastro do cliente.'
   // 202610200269: a proposta with a newer version is only consulted.
   // 016: the Origin already has contas or a nota for this document.
@@ -151,7 +151,7 @@ const otherItemsValue=(content:RichText|null,total:string):DocumentInput['other_
 const CONDITION_TABS=[['none','Nenhum'],['installments','Parcela'],['text','Texto']] as const;
 // 202610200268: a free line of the Peças or of the Serviços executados of the OS.
 const osLine=(group:ServiceItemGroup):DocumentItemInput=>({...newItem(),group,quote:false,done:false});
-// Wabotia: o envelope do salvar traz o registro (erp_documents.dto) sem os campos que só a leitura acrescenta (document_view: situação e
+// Vinki: o envelope do salvar traz o registro (erp_documents.dto) sem os campos que só a leitura acrescenta (document_view: situação e
 // nomes de vendedor, categoria, transportador, lista, destino e formas, versões da proposta). Com a mesma situação e os mesmos ids, os
 // campos do registro anterior continuam certos e o GET depois de salvar é dispensado; com qualquer id trocado, null (relê o documento).
 const VIEW_FIELDS=['situation','seller_name','category_name','carrier_name','price_list_name','payment_account_name','payment_method_names','payment_account_names','proposal_version'];
@@ -387,7 +387,7 @@ function DocumentEditorBody({controller,kind,record,writable,onClose,onSaved,onC
     catch(failure){setError(failure instanceof Error?failure.message:'Confira novamente as parcelas.');return false;}
   };
   useEffect(()=>{plannerMounted.current=true;return()=>{plannerMounted.current=false;};},[]);
-  // Wabotia: depois de salvar, o registro novo chega sem remontar o editor (cadastros, contato, origem, seletores e estimativa não são
+  // Vinki: depois de salvar, o registro novo chega sem remontar o editor (cadastros, contato, origem, seletores e estimativa não são
   // relidos; financeiro, estoque, reservas e pendências relêem sozinhos pela versão). O formulário volta ao estado salvo, como na remontagem.
   const savedRecord=useRef(record);
   useEffect(()=>{const previous=savedRecord.current;savedRecord.current=record;if(!record||!previous||previous===record||previous.id!==record.id)return;
@@ -429,7 +429,7 @@ function DocumentEditorBody({controller,kind,record,writable,onClose,onSaved,onC
         guard.store.runConfirmed(()=>onConverted(operation.conversion==='service_orders'?{proposal:saved.proposal,service_order:latest.document,replayed:saved.replayed,data_mode:'erp_native',operational_effects:false}:{proposal:saved.proposal,sale:latest.document,replayed:saved.replayed,data_mode:'erp_native',operational_effects:false}));
       }else{
         const saved=operation.saved as DocumentEnvelope;
-        // Wabotia: salvar o documento aberto (corpo ou observações) não remonta o editor. Na primeira tentativa, sem replay e sem efeitos
+        // Vinki: salvar o documento aberto (corpo ou observações) não remonta o editor. Na primeira tentativa, sem replay e sem efeitos
         // novos (contas automáticas, aprovação de desconto), o envelope do salvar basta; nos demais casos relê só o documento.
         const inPlace=Boolean(record&&!operation.copy&&saved.document.id===record.id&&[`/v1/documentos/${kind}/${record.id}`,`/v1/documentos/${kind}/${record.id}/observacoes`].includes(operation.path));
         const reused=record&&inPlace&&!operation.uncertain&&!saved.replayed&&!('auto_finance' in saved)&&!('discount_approval' in saved)&&saved.document.kind===kind&&Number.isInteger(saved.document.version)&&saved.document.version>record.version?savedView(record,saved.document):null;
@@ -677,7 +677,7 @@ function DocumentEditorBody({controller,kind,record,writable,onClose,onSaved,onC
         <div className="document-grid"><div className="form-field"><label htmlFor="doc-other-items-total">Total outros itens</label><input id="doc-other-items-total" type="text" inputMode="decimal" placeholder="0,00" value={documentDecimalDisplay(values.other_items?.total??'')} {...invalidProps('doc-other-items-total')} onChange={event=>patch('other_items',otherItemsValue(live.current.values.other_items?.content??null,documentDecimalInput(event.target.value)))}/></div></div></fieldset>}
       <dl className="document-total-summary" aria-live="polite">{kind==='sales_proposals'&&totals?.other_items!==undefined&&<div><dt>Total outros itens</dt><dd>{decimalMoney(totals.other_items)}</dd></div>}{kind==='service_orders'&&osSums&&<><div><dt>Total peças</dt><dd>{decimalMoney(osSums.part)}</dd></div><div><dt>Total serviços</dt><dd>{decimalMoney(osSums.service)}</dd></div></>}<div><dt>{kind==='sales_orders'?'Desconto total da venda':'Desconto total'}</dt><dd>{decimalMoney(totals?.discount??null)}</dd></div>{lineDiscount&&<div><dt>Desconto total dos itens</dt><dd>{decimalMoney(totals?.line_discount??null)}</dd></div>}<div><dt>{kind==='purchase_orders'?'Total dos produtos':'Total dos itens'}</dt><dd>{decimalMoney(totals?.subtotal??null)}</dd></div>{kind==='purchase_orders'&&totals?.ipi!==undefined&&<div><dt>Total do IPI</dt><dd>{decimalMoney(totals.ipi)}</dd></div>}{kind==='purchase_orders'&&totals?.icms_st!==undefined&&totals.icms_st!=='0.00'&&<div><dt>Total ICMS ST</dt><dd>{decimalMoney(totals.icms_st)}</dd></div>}<div className="document-grand-total"><dt>{TOTAL_LABELS[kind]}</dt><dd>{decimalMoney(totals?.total??null)}</dd></div></dl>
       {blockEnabled('erp-fiscal')&&(kind==='sales_orders'||kind==='sales_proposals')&&<FiscalOrderTaxEstimate controller={controller} kind={kind} contactId={values.contact_id||null} items={values.items} totals={totals} onEstimate={editable?applyTaxes:undefined} applied={Boolean(totals?.ipi!==undefined)}/>}
-      {/* Wabotia: reforma tributária (IBS, CBS e IS), bloco próprio e só informativo. */}
+      {/* Vinki: reforma tributária (IBS, CBS e IS), bloco próprio e só informativo. */}
       {blockEnabled('erp-fiscal')&&(kind==='sales_orders'||kind==='sales_proposals')&&<ReformTaxBlock kind={kind} contactId={values.contact_id||null} items={values.items} totals={totals} date={values.date||null}/>}
       {kind==='purchase_orders'&&<fieldset disabled={!editable||busy||uncertain} className="document-section"><legend>Detalhes da compra</legend><div className="document-grid">{identDate}{identRest}</div>{identDetails}</fieldset>}
       {kind==='sales_proposals'&&<fieldset disabled={!editable||busy||uncertain} className="document-section"><legend>Condições gerais</legend><div className="document-grid"><div className="form-field"><label htmlFor="doc-warranty-months">Garantia (meses)</label><input id="doc-warranty-months" inputMode="numeric" maxLength={3} value={values.warranty_months||''} onChange={event=>patch('warranty_months',event.target.value.trim()||null)}/></div><div className="form-field"><label htmlFor="doc-delivery-days">Prazo de entrega</label><input id="doc-delivery-days" inputMode="numeric" maxLength={6} placeholder="Ex: 3" title="Prazo de entrega, em dia. Ex: 3" value={deliveryDays} onChange={event=>setDeliveryDays(event.target.value)}/></div></div></fieldset>}
@@ -771,10 +771,10 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   const routeDocument=location.pathname==='/documentos-empresa'?new URLSearchParams(location.search).get('documento'):null;
   const hasRouteDocument=location.pathname==='/documentos-empresa'&&(new URLSearchParams(location.search).has('documento')||new URLSearchParams(location.search).has('acao')||new URLSearchParams(location.search).has('proposta'));
   const validRouteDocument=Boolean(routeDocument&&/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(routeDocument));
-  // Wabotia: `?documento=` não espera /v1/documentos (o servidor confere a leitura); o acesso decide depois a edição e a recusa de leitura.
+  // Vinki: `?documento=` não espera /v1/documentos (o servidor confere a leitura); o acesso decide depois a edição e a recusa de leitura.
   const documentRoute=location.pathname==='/documentos-empresa'&&new URLSearchParams(location.search).has('documento');
   const accessRef=useRef(access);accessRef.current=access;const deniedRead=useRef<unknown>(null);
-  // Wabotia: a listagem e as preferências dela só são lidas quando a lista aparece (com um documento aberto ela não é renderizada).
+  // Vinki: a listagem e as preferências dela só são lidas quando a lista aparece (com um documento aberto ela não é renderizada).
   const listShown=!editing&&!numbering&&!printHeader&&!discountApproval&&!checkout&&!(reports&&(kind==='sales_orders'||kind==='service_orders'))&&!hasRouteDocument;
   const viewLoaded=useRef(''),listLoaded=useRef<unknown[]|null>(null);
   useEffect(()=>{const request=new AbortController();void controller.documents('/v1/documentos',{signal:request.signal}).then(value=>{if(!request.signal.aborted){const raw=value as DocumentAccess;const permissions={...raw,read:raw.read.filter(entityEnabled),write:raw.write.filter(entityEnabled)};setAccess(permissions);setKind(permissions.read.includes(initialKind)?initialKind:permissions.read[0]||'sales_proposals');if(!permissions.read.length)setLoading(false);}}).catch(failure=>{if(!aborted(failure)){setError(errorText(failure));setLoading(false);}});return()=>{request.abort();detail.current?.abort();};},[controller]);
@@ -795,7 +795,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
   // (the same reload); a reload or a new filter starts again from the first page.
   const appendKey=useRef('');
   useEffect(()=>{if(!access?.read.includes(kind)||viewReady!==kind||situationsReady!==kind){listLoaded.current=null;return;}
-    // Wabotia: escondida, a lista não é lida; ao reaparecer, só relê se algo da consulta mudou desde a última página carregada.
+    // Vinki: escondida, a lista não é lida; ao reaparecer, só relê se algo da consulta mudou desde a última página carregada.
     const loadDeps=[controller,access,kind,filters,listPage,order,reload,viewReady,situationsReady];if(!listShown||listLoaded.current?.every((value,index)=>Object.is(value,loadDeps[index])))return;
     const key=`${reload}`,append=kind==='purchase_orders'&&listPage>1&&appendKey.current===key;if(kind==='purchase_orders'&&listPage>1&&!append){setListPage(1);return;}
     let params:URLSearchParams;try{params=documentListQuery(kind,filters,{page:listPage,order,...situationQuery});}catch(failure){setFilterError((failure as Error).message);setLoading(false);return;}const request=new AbortController();setLoading(true);if(!append)setPage(null);setError('');void controller.documents(`/v1/documentos/${kind}?${params}`,{signal:request.signal}).then(value=>{if(!request.signal.aborted){const result=readDocumentListPage(value,kind,listPage,order);
@@ -836,7 +836,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
         if(!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(origin)){setDetailError('O endereço contém um identificador de documento inválido. Volte à listagem.');return;}
         const request=new AbortController(),target=kind;detail.current=request;setDetailLoading(true);
         void controller.documents(`/v1/documentos/${target}/a-partir-da-proposta/${origin}`,{signal:request.signal}).then(value=>{if(request.signal.aborted||detail.current!==request)return;setImportDraft(proposalDraft(value,target,origin));setRecord(null);setEditing(true);setEditorEpoch(n=>n+1);})
-          // Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
+          // Vinki: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
           .catch(failure=>{if(!request.signal.aborted&&!aborted(failure))setDetailError(failure instanceof AccessError&&failure.code==='MODULE_OWNED_BY_ORIGIN'?DOCUMENT_MIRROR_READ_ONLY:failure instanceof AccessError&&failure.status===409?'Esta proposta já gerou uma venda ou ordem de serviço. Abra a proposta para conferir o documento gerado.':failure instanceof AccessError&&failure.status===400?'Esta proposta não pode gerar documentos (cancelada, concluída ou modelo).':errorText(failure));})
           .finally(()=>{if(detail.current===request){detail.current=null;if(!request.signal.aborted)setDetailLoading(false);}});
         return()=>{request.abort();if(detail.current===request)detail.current=null;};
@@ -863,7 +863,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     }
     if(!params.has('documento'))return;
     if(!id||!/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)){setDetailError('O endereço contém um identificador de documento inválido. Volte à listagem.');return;}
-    // Wabotia: sem `if(!access)return`: o documento sai no mesmo salto de /v1/documentos. Um 403 antes do acesso espera por ele para
+    // Vinki: sem `if(!access)return`: o documento sai no mesmo salto de /v1/documentos. Um 403 antes do acesso espera por ele para
     // escolher a mesma mensagem de antes (efeito abaixo); o editor só aparece com o acesso.
     if(access&&!access.read.includes(kind)){setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
     const request=new AbortController();detail.current=request;setDetailLoading(true);
@@ -872,7 +872,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
       .finally(()=>{if(detail.current===request){detail.current=null;if(!request.signal.aborted)setDetailLoading(false);}});
     return()=>{request.abort();if(detail.current===request)detail.current=null;};
   },[controller,documentRoute?null:access,kind,location.pathname,location.search,detailReload]);
-  // Wabotia: quando o acesso chega depois do documento, vale a recusa de leitura de antes (sem mostrar o documento lido).
+  // Vinki: quando o acesso chega depois do documento, vale a recusa de leitura de antes (sem mostrar o documento lido).
   useEffect(()=>{if(!access||!documentRoute||!validRouteDocument)return;
     if(!access.read.includes(kind)){detail.current?.abort();detail.current=null;deniedRead.current=null;setRecord(null);setEditing(false);setDetailLoading(false);setDetailError('Seu perfil não permite consultar este tipo de documento.');return;}
     if(deniedRead.current){setDetailError(errorText(deniedRead.current));deniedRead.current=null;}
@@ -918,7 +918,7 @@ export default function RealDocuments({controller,initialKind='sales_proposals'}
     <header className="real-heading"><div><h1>{LIST_TITLES[kind]}</h1></div>{!writable&&<span className="real-mode">Somente consulta</span>}{writable&&!editing&&!hasRouteDocument&&<button type="button" className="primary-button documents-primary" title={PRIMARY[kind].title} onClick={event=>{if(deepLinked&&opensInNewTab(event)){window.open(erpPublicHref(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}${location.hash}`),'_blank','noopener');return;}create();}} onAuxClick={event=>{if(deepLinked&&event.button===1)window.open(erpPublicHref(`${location.pathname}?${new URLSearchParams({tipo:kind,acao:'incluir'})}${location.hash}`),'_blank','noopener');}}><Icon name="plus" size={12}/>{PRIMARY[kind].label}</button>}</header>
     {notice&&<p className="real-success" role="status">{notice}</p>}
     {error&&<p className="real-alert" role="alert">{error}<button className="text-button" onClick={()=>access?setReload(n=>n+1):controller.retry()}>Tentar novamente</button></p>}
-    {/* Wabotia: a versão saiu da chave (salvar no lugar não remonta; os demais caminhos trocam editorEpoch) e o editor espera o acesso,
+    {/* Vinki: a versão saiu da chave (salvar no lugar não remonta; os demais caminhos trocam editorEpoch) e o editor espera o acesso,
         lido junto com o documento. */}
     {editing&&access?<Editor key={`${kind}:${record?.id||'new'}:${editorEpoch}:${copyDraft?'copy':importDraftState?'import':'document'}`} importDraft={copyDraft||record?null:importDraftState} controller={controller} kind={kind} record={copyDraft?null:record} copyDraft={copyDraft} onCopyPrepared={draft=>{setCopyDraft(draft);setNotice('');setEditorEpoch(value=>value+1);}} onCopied={copied} writable={writable} preferences={documentPrefs??undefined} situations={situations} access={access} onClose={close} onSaved={(saved,message,inPlace)=>{setImportDraft(null);setRecord(saved);if(!inPlace)setEditorEpoch(value=>value+1);setNotice(message??'Documento atualizado.');setReload(n=>n+1);}} onConverted={converted}/>:numbering?<DocumentNumbering controller={controller} kind={kind} onClose={close}/>:printHeader?<DocumentPrintHeader controller={controller} kind={kind} onClose={close}/>:discountApproval?<DocumentDiscountApproval controller={controller} onClose={close}/>:checkout?<SalesCheckout controller={controller} onClose={close}/>:reports&&(kind==='sales_orders'||kind==='service_orders')?<DocumentReports controller={controller} kind={kind} report={reports.report} today={today()} onClose={close} onOpen={id=>{const params=new URLSearchParams(location.search);if(id)params.set('relatorio',id);else params.delete('relatorio');navigate(`${location.pathname}?${params}`);}}/>:hasRouteDocument?<section className="real-editor" aria-label="Consulta do documento">
       {(detailLoading||!access)&&<p role="status">Carregando documento…</p>}{detailError&&<p className="real-alert" role="alert">{detailError}</p>}

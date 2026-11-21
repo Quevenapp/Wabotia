@@ -105,7 +105,7 @@ final class PedidoViewModel: ObservableObject {
                 guard mine == generation else { return }
                 #if DEBUG
                 let text = (result.columns ?? []).map { "\($0.status)=\(($0.orders ?? []).compactMap { $0.number.map(String.init) }.joined(separator: "/"))" }.joined(separator: " ")
-                if text != lastBoardLog { lastBoardLog = text; print("[Wabotia] pedido: quadro \(text)") }
+                if text != lastBoardLog { lastBoardLog = text; print("[Vinki] pedido: quadro \(text)") }
                 #endif
                 board = result
             case .list:

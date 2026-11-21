@@ -165,7 +165,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   const entryOnly = Boolean(erpPorts()?.commercialNfe) && screen === 'entrada';
   const closedExit = 'Notas de saída usam o acompanhamento comercial. Conversão de entrada para saída e devolução fiscal ainda não são atendidas.';
   const exitAction = (id: string) => entryOnly && ['clone_invert', 'return', 'nfe_from_nfce'].includes(id);
-  // Wabotia: Origin fora (motor 91213b8): a lista mostra sempre os registros do FAGOO; saíram o seletor "Notas do Origin" × "Registros do
+  // Vinki: Origin fora (motor 91213b8): a lista mostra sempre os registros do FAGOO; saíram o seletor "Notas do Origin" × "Registros do
   // FAGOO", o parâmetro ?origem= e a nota do Origin aberta em leitura.
   const opened = params.get('nota'), backupTab = Boolean(backup) && params.get('aba') === 'backup';
   // "Gerar nota fiscal" / "Gerar NFC-e" of a pedido opens a new note filled from it (?nota=nova&pedido=<id>, migration 202610200176);
@@ -363,7 +363,7 @@ export default function RealFiscalInvoices({ controller, screen, backup }: { con
   };
   const menuItems = (row: ListRow): RowMenuItem[] => rowActions(config, row, { writable, checkin: CHECKIN_READERS.includes(role), labels: role === 'admin', finance: financeState(row), stock: rowStock(row) }).map(action => ({ label: action.label, icon: action.icon, separatorBefore: action.separatorBefore,
     disabled: !action.enabled || exitAction(action.id), title: exitAction(action.id) ? closedExit : action.enabled ? undefined : action.reason, onClick: () => runAction(row, action) }));
-  // Wabotia: Origin fora (motor 91213b8): o XML de uma nota do FAGOO é o importado; o acervo sincronizado do Origin (xml_id) saiu.
+  // Vinki: Origin fora (motor 91213b8): o XML de uma nota do FAGOO é o importado; o acervo sincronizado do Origin (xml_id) saiu.
   const hasXml = (row: ListRow) => isImported(row);
   const showXml = async (row: ListRow, download: boolean) => {
     if (!hasXml(row)) return;

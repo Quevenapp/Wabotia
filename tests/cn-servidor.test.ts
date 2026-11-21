@@ -331,7 +331,7 @@ it("push preserva título só WhatsApp, prefixa canal uma vez e mantém a prévi
     expect(measured.count.sql.some(sql => sql.includes("zernio_channel_accounts"))).toBe(false);
     const notification = sent.filter(message => message.token === token);
     expect(notification).toHaveLength(1);
-    expect(notification[0]).toMatchObject({ title: minimal ? "Wabotia" : channel === "instagram" ? "Instagram · Ana" : "Ana", data: { channel, conversation_id: c.id } });
+    expect(notification[0]).toMatchObject({ title: minimal ? "Vinki" : channel === "instagram" ? "Instagram · Ana" : "Ana", data: { channel, conversation_id: c.id } });
     expect(notification[0].channel).toBe("messages"); // Canal Android não é canal de atendimento.
     if (minimal) expect(notification[0].body).toBe("Nova mensagem");
   }

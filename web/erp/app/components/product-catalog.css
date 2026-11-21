@@ -77,4 +77,4 @@
 .data-table.catalog-stock-table { width: 100%; min-width: 0; margin-bottom: 12px; }
 @media (max-width: 760px) { .catalog-price-edit input { width: 96px; } }
 @media print { .catalog-table .checkbox-cell, .catalog-table .row-actions, .catalog-price-pencil { display: none; } }
-/* Wabotia: sem as duas linhas Origin/FAGOO do Estoque (202610220008): Origin fora (motor 91213b8). */
+/* Vinki: sem as duas linhas Origin/FAGOO do Estoque (202610220008): Origin fora (motor 91213b8). */

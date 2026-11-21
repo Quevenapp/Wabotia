@@ -104,7 +104,7 @@ import br.com.queven.wabotia.ui.theme.Wb
 import kotlinx.coroutines.delay
 
 /**
- * O modo aparelho tem quatro lugares: parear com o Wabotia, escolher o papel (e os ajustes), a tela do papel (totem,
+ * O modo aparelho tem quatro lugares: parear com o Vinki, escolher o papel (e os ajustes), a tela do papel (totem,
  * painel de chamadas ou híbrido) e a impressora. Ajustes e saída ficam atrás da engrenagem e do PIN.
  */
 @Composable
@@ -209,8 +209,8 @@ private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () ->
     val code = state.pairing.userCode
     BackHandler { if (code != null) vm.cancelPairing() else onBack() }
     AuthScaffold(
-        title = if (code == null) "Painel ou totem" else "Aprove no Wabotia",
-        subtitle = if (code == null) "Este aparelho vira um totem de senhas, um painel de chamadas ou os dois." else "Digite este código no painel do Wabotia.",
+        title = if (code == null) "Painel ou totem" else "Aprove no Vinki",
+        subtitle = if (code == null) "Este aparelho vira um totem de senhas, um painel de chamadas ou os dois." else "Digite este código no painel do Vinki.",
         markSize = 64.dp,
         topSpace = 24.dp,
     ) {
@@ -279,7 +279,7 @@ private fun PairingScreen(state: DeviceState, vm: DeviceViewModel, onBack: () ->
                 }
             }
             Spacer(Modifier.height(16.dp))
-            AuthHelp("No painel do Wabotia, um administrador abre Integrações → Parear Senhapp, digita o código e aprova só “Ler a fila” e “Emitir senhas (totem)”. O código vale 10 minutos.")
+            AuthHelp("No painel do Vinki, um administrador abre Integrações → Parear Senhapp, digita o código e aprova só “Ler a fila” e “Emitir senhas (totem)”. O código vale 10 minutos.")
             Spacer(Modifier.height(16.dp))
             SecondaryButton("Cancelar", onClick = vm::cancelPairing)
         }
@@ -473,7 +473,7 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
                     SettingsRow(
                         Icons.Filled.LinkOff,
                         if (state.demo) "Sair da demonstração" else "Desfazer pareamento",
-                        subtitle = if (state.demo) null else "O aparelho esquece a credencial e avisa o Wabotia",
+                        subtitle = if (state.demo) null else "O aparelho esquece a credencial e avisa o Vinki",
                         tint = c.danger,
                         titleColor = c.danger,
                         onClick = { confirmLeave = true },
@@ -506,8 +506,8 @@ private fun DeviceSettingsScreen(state: DeviceState, vm: DeviceViewModel, idle: 
             title = { Text(if (state.demo) "Sair da demonstração?" else "Desfazer pareamento?") },
             text = {
                 Text(
-                    if (state.demo) "O aparelho volta à tela inicial do Wabotia."
-                    else "O aparelho esquece o vínculo e avisa o Wabotia. Para voltar a ser painel ou totem, pareie de novo.",
+                    if (state.demo) "O aparelho volta à tela inicial do Vinki."
+                    else "O aparelho esquece o vínculo e avisa o Vinki. Para voltar a ser painel ou totem, pareie de novo.",
                 )
             },
             confirmButton = {
@@ -569,7 +569,7 @@ private fun LockCard(lock: DeviceLockState, canPin: Boolean, onPin: () -> Unit, 
                 SettingsRow(
                     Icons.Filled.Lock,
                     "Modo quiosque ligado",
-                    subtitle = "O Wabotia é o administrador deste aparelho: Início, Recentes e a barra do sistema não saem do app, e só o PIN de saída solta a tela.",
+                    subtitle = "O Vinki é o administrador deste aparelho: Início, Recentes e a barra do sistema não saem do app, e só o PIN de saída solta a tela.",
                     tint = c.ok,
                 )
                 RowDivider()
@@ -589,7 +589,7 @@ private fun LockCard(lock: DeviceLockState, canPin: Boolean, onPin: () -> Unit, 
                 SettingsRow(
                     Icons.Filled.LockOpen,
                     "Tela não fixada",
-                    subtitle = "Quem está diante do aparelho sai pelo gesto de Início ou de Recentes, sem o PIN. Ao voltar à tela do papel, o Wabotia pede para fixar: toque em Fixar na pergunta do Android.",
+                    subtitle = "Quem está diante do aparelho sai pelo gesto de Início ou de Recentes, sem o PIN. Ao voltar à tela do papel, o Vinki pede para fixar: toque em Fixar na pergunta do Android.",
                     tint = c.warn,
                 )
                 Text(
@@ -597,7 +597,7 @@ private fun LockCard(lock: DeviceLockState, canPin: Boolean, onPin: () -> Unit, 
                         "• Samsung: Configurações → Segurança e privacidade → Mais configurações de segurança → Fixar apps (em versões antigas, Biometria e segurança → Outras configurações de segurança → Fixar janelas).\n" +
                         "• Outros Android: Configurações → Segurança (ou Segurança e privacidade) → Mais configurações de segurança → Fixação de app.\n" +
                         "Ligue também “Pedir PIN antes de liberar” (o aparelho precisa ter bloqueio de tela): sem ele, o gesto do sistema desafixa sem pedir nada.\n" +
-                        "Modo quiosque, sem pergunta nem gesto: o Wabotia precisa ser o administrador do aparelho, uma configuração feita pelo suporte num aparelho zerado.",
+                        "Modo quiosque, sem pergunta nem gesto: o Vinki precisa ser o administrador do aparelho, uma configuração feita pelo suporte num aparelho zerado.",
                     style = MaterialTheme.typography.bodySmall,
                     color = c.textSecondary,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -711,7 +711,7 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
                     Column(Modifier.fillMaxSize()) {
                         PanelHeaderBar(
                             name = config.name,
-                            role = if (state.demo) "Wabotia · demonstração" else "Wabotia",
+                            role = if (state.demo) "Vinki · demonstração" else "Vinki",
                             title = if (role.panel) "Chamadas" else "Retire sua senha",
                             onBack = null,
                             compact = compact,
@@ -741,8 +741,8 @@ private fun PanelScreen(state: DeviceState, vm: DeviceViewModel, onSettings: () 
                         Column(Modifier.fillMaxSize().padding(base * 0.9f), verticalArrangement = Arrangement.spacedBy(base * 0.7f)) {
                             if ((state.offline || state.revoked) && role.totem) {
                                 OfflineNotice(
-                                    if (state.revoked) "Este aparelho foi desconectado do Wabotia. Dirija-se ao balcão."
-                                    else "Sem conexão com o Wabotia: o totem não emite senhas agora. Dirija-se ao balcão.",
+                                    if (state.revoked) "Este aparelho foi desconectado do Vinki. Dirija-se ao balcão."
+                                    else "Sem conexão com o Vinki: o totem não emite senhas agora. Dirija-se ao balcão.",
                                 )
                             } else {
                                 state.notice?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("device.notice")) }
