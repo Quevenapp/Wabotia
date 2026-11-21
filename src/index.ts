@@ -1231,6 +1231,15 @@ app.all("/api/v1/profiles/:profile/erp-fiscal-cofre/*", async (c: any) => {
   const { erpFiscalVaultRoute } = await import("./erp/fiscal-cofre/routes");
   return erpFiscalVaultRoute(c.env, c.req.raw, profile, c.get("actor"));
 });
+// Compra pela nota recebida (Compras; src/erp/recebidas/): notas do cofre ou
+// importadas pelo XML, conferência, entrada, estorno e manifestação.
+app.all("/api/v1/profiles/:profile/erp-recebidas/*", async (c: any) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  const { erpRecebidasRoute } = await import("./erp/recebidas/routes");
+  return erpRecebidasRoute(c.env, c.req.raw, profile, c.get("actor"));
+});
 // Arquivo do ERP por URL assinada de curta duração (a exportação da empresa):
 // sem sessão, o token (HMAC) vale para um objeto de uma área até vencer
 // (src/erp-storage.ts). Os buckets do ERP nunca são públicos.

@@ -1,0 +1,33 @@
+.fagoo-root .notas-recebidas { max-width: 1240px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .notas-recebidas h1 { margin-bottom: .35rem; }
+.fagoo-root .notas-recebidas h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
+.fagoo-root .notas-recebidas p { line-height: 1.55; }
+.fagoo-root .notas-recebidas nav, .fagoo-root .notas-recebidas-toolbar, .fagoo-root .notas-recebidas-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; margin: 1rem 0; }
+.fagoo-root .notas-recebidas a { color: var(--link, #2454a6); text-underline-offset: .18em; }
+.fagoo-root .notas-recebidas button { font: inherit; padding: .55rem .85rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .notas-recebidas button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .notas-recebidas button:focus-visible, .fagoo-root .notas-recebidas a:focus-visible, .fagoo-root .notas-recebidas input:focus-visible, .fagoo-root .notas-recebidas select:focus-visible, .fagoo-root .notas-recebidas textarea:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .notas-recebidas label { display: block; margin: .6rem 0 .3rem; line-height: 1.5; }
+.fagoo-root .notas-recebidas-toolbar label { margin: 0; }
+.fagoo-root .notas-recebidas select, .fagoo-root .notas-recebidas textarea, .fagoo-root .notas-recebidas input:not([type="checkbox"]) { display: block; max-width: 100%; padding: .5rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .notas-recebidas textarea { width: 100%; max-width: 44rem; min-height: 5rem; }
+.fagoo-root .notas-recebidas input[type="checkbox"] { margin-right: .4rem; }
+.fagoo-root .notas-recebidas-card { border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: 1rem; margin: 1rem 0; background: var(--surface, #fff); }
+.fagoo-root .notas-recebidas-card summary { cursor: pointer; font-weight: 600; }
+.fagoo-root .notas-recebidas-table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-variant-numeric: tabular-nums; }
+.fagoo-root .notas-recebidas-table th, .fagoo-root .notas-recebidas-table td { text-align: left; vertical-align: top; padding: .5rem; border-bottom: 1px solid var(--border, #e3e8ef); }
+.fagoo-root .notas-recebidas-table small { display: block; color: var(--text-muted, #5a6878); margin-top: .2rem; }
+.fagoo-root .notas-recebidas-table select { width: 100%; min-width: 14rem; }
+.fagoo-root .notas-recebidas-inline { display: flex; align-items: center; gap: .35rem; margin: 0; }
+.fagoo-root .notas-recebidas-inline input { width: 6rem; }
+.fagoo-root .notas-recebidas-lot { display: flex; gap: .35rem; margin-top: .35rem; }
+.fagoo-root .notas-recebidas-lot input { width: 9rem; }
+.fagoo-root .notas-recebidas-problems span { display: block; color: #702929; }
+.fagoo-root .notas-recebidas-warning, .fagoo-root .notas-recebidas-blockers { border: 1px solid #be902c; border-radius: .4rem; padding: .7rem 1rem; background: #fff8e7; color: #59420c; }
+.fagoo-root .notas-recebidas-blockers { border-color: #bf5e5e; background: #fff2f2; color: #702929; margin: .75rem 0; }
+.fagoo-root .notas-recebidas-notice { border-left: 5px solid #256847; background: #e8f4ed; color: #174b32; padding: .6rem 1rem; }
+.fagoo-root .notas-recebidas-environment { font-weight: 700; border-left: 5px solid #967014; background: #fff6d9; padding: .5rem 1rem; color: #59430b; }
+.fagoo-root .notas-recebidas-environment.production { border-color: #256847; background: #e8f4ed; color: #174b32; }
+.fagoo-root .notas-recebidas-hint { color: var(--text-muted, #5a6878); }
+.fagoo-root .notas-recebidas-key { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; color: var(--text-muted, #5a6878); }
+.fagoo-root .notas-recebidas-empty { padding: 1.5rem 0; }

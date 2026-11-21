@@ -28,6 +28,10 @@ const RPC_GROUPS = {
     erp_com1_nfce_config_get erp_com1_nfce_config_save erp_com1_nfce_sales`,
   com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel`,
   com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
+  // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
+  inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
+    erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
+    erp_inbound_manifest_claim erp_inbound_manifest_record`,
   base: `erp_access_storage erp_access_gate_v2 erp_access_me erp_access_permissions_me erp_access_profile_me erp_access_security_policy_get
     erp_access_security_policy_save erp_access_user_controls_get erp_access_user_controls_save erp_activity_detail erp_activity_list
     erp_attachment_contact_claim erp_attachment_contact_delete erp_attachment_contact_finish erp_attachment_contact_list erp_attachment_contact_object
@@ -181,6 +185,7 @@ function documentRequirement(ctx: RpcContext, name: string, a: RpcArgs): ErpRequ
 const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_prepare: ["erp-fiscal", "erp-vendas"], com1_read: ["erp-fiscal"],
   com1_effect: ["erp-fiscal"],
+  inbound: ["erp-compras"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],

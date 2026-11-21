@@ -11,6 +11,7 @@ import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/blin
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 import { ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erpConversaParams } from "../../erp/conversa/contract.ts";
+import { RECEBIDAS_OPERATIONS, RECEBIDAS_ROUTE } from "../../erp/recebidas/operations.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -98,6 +99,12 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Documento do ERP ao próprio cliente pelo WhatsApp: enviar é sensível (o bot propõe, a pessoa confirma).
   ...ERP_CONVERSA_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "conversa", description: op.description, params: erpConversaParams(op) })),
+  // Compra pela nota recebida: buscar, importar, cadastrar fornecedor, dar entrada, estornar e manifestar gravam (sensíveis: o bot propõe, a pessoa confirma).
+  ...RECEBIDAS_OPERATIONS.filter(op => op.bot).map(op => ({ id: op.name, method: op.method, path: `${RECEBIDAS_ROUTE}/${op.path}`, summary: op.summary,
+    sensitive: op.sensitive, group: "nfe", description: op.description, params: { type: "object" as const, properties: {
+      ...(op.path.includes(":id") ? { id: uuid } : {}),
+      ...Object.fromEntries([...op.body, ...op.query].map(key => [key, key === "command_id" ? uuid : key === "escolhas" ? { type: "object" } : key.startsWith("autorizacao") || key === "reenviar" ? { type: "boolean" } : { type: "string" }])),
+    }, required: [...(op.path.includes(":id") ? ["id"] : []), ...op.body.filter(key => key === "command_id" || key === "xml" || key === "tipo" || key === "motivo")] } })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -107,6 +114,7 @@ export const ERP_BOT_SENSITIVE_READS: readonly string[] = ERP_BOT_OPERATIONS.fil
 export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): readonly ErpModuleId[] {
   if (op.path.startsWith("erp-comercial-nfe/nfce/")) return erpRequirement("erp-fiscal", "erp-pdv").all;
   if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
+  if (op.path.startsWith(`${RECEBIDAS_ROUTE}/`)) return RECEBIDAS_OPERATIONS.find(item => `${RECEBIDAS_ROUTE}/${item.path}` === op.path && item.method === op.method)?.parts ?? erpRequirement("erp-compras").all;
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));

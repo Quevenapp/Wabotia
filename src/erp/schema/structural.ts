@@ -192,4 +192,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia balcão com NFC-e: a venda do caixa pede o cupom ao cofre da NFapi pela mesma máquina da NF-e comercial (revisão imutável, reivindicação durável, retomada por consulta, cancelamento, efeitos e auditoria), sem a venda esperar a nota.",
     replaced_by: "Versão 14 aditiva (13→14): counter_emission, counter_revision, counter_command, counter_cancel, counter_effect e counter_audit em erp_fiscal_vault, com o DDL da versão 10 e a chave de acesso do modelo 65, e counter_settings (natureza do cupom). A conexão, o ambiente e a habilitação de produção são os de commercial_settings. Série, CSC e contingência ficam no cofre.",
   },
+  {
+    id: "compra-nota-recebida",
+    oracle: "Importação de XML da NF-e de entrada para a nota fiscal do ERP (erp_fiscal_invoice_import, não portada no motor) e conferência pelo check-in do recebimento; o Fagoo não dá entrada direta da nota recebida no estoque, no custo e nas contas a pagar.",
+    reason: "Compra pela nota do fornecedor, como no Bling: a nota recebida (do cofre da NFapi ou importada à mão) é conferida e dá entrada no estoque, no custo de entrada e nas contas a pagar pelas rotinas das telas (erp_stock_launch, erp_stock_lot_launch, erp_finance_title_execute), numa transação idempotente pela chave da nota; estorno pelas guardas existentes (erp_stock_reverse, title_cancel).",
+    replaced_by: "Versão 15 aditiva (14→15): erp_purchase_inbound__note (índice da nota; o XML fica no R2 da área), erp_purchase_inbound__entry (a entrada, uma ativa por nota, com o que foi feito e o estorno) e erp_purchase_inbound__settings (interruptor do administrador para manifestar, desligado). O vínculo código do fornecedor → produto é o erp_catalog__product_supplier e a conversão de unidade, o erp_stock__unit_conversion. A situação no cofre continua em erp_fiscal_vault__received/_change/_cursor e a manifestação, em erp_fiscal_vault__event (versão 9).",
+  },
 ];
