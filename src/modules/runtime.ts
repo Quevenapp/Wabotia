@@ -75,15 +75,19 @@ import "../erp/conversa/command.ts";
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.
 import { COM1_OPERATIONS } from "../erp/commercial-nfe/metadata.ts";
+import { NFCE_OPERATIONS } from "../erp/commercial-nfe/nfce-metadata.ts";
+import { NFE_EVENT_FILES, NFE_EVENT_OPERATIONS } from "../erp/commercial-nfe/events-metadata.ts";
 import { registerBinaryRoute, registerReadRoute, registerWriteRoute } from "./hooks";
 import { ApiError } from "../types";
-for (const operation of COM1_OPERATIONS) {
+// Catálogo comum: a NF-e do pedido, o cupom do balcão (nfce.*) e o que vem
+// depois da nota autorizada (nfe.*: carta de correção, inutilização e devolução).
+for (const operation of [...COM1_OPERATIONS, ...NFCE_OPERATIONS, ...NFE_EVENT_OPERATIONS]) {
   const path = `erp-comercial-nfe/${operation.path}`;
   if (operation.method !== "GET") {
     registerWriteRoute({ method: operation.method, path, op: operation.name });
     continue;
   }
-  const binary = ["com1.danfe", "com1.xml", "com1.cancel.xml"].includes(operation.name);
+  const binary = ["com1.danfe", "com1.xml", "com1.cancel.xml", "nfce.coupon"].includes(operation.name) || Object.hasOwn(NFE_EVENT_FILES, operation.name);
   if (binary) {
     registerBinaryRoute({ method: "GET", path, handler: async (env, actor, profile, request) => {
       const { commercialNfeRoute } = await import("../erp/commercial-nfe/routes.ts");

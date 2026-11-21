@@ -168,7 +168,7 @@ test("objeto da v6 (4748b75) com dados sobe para a versão atual numa abertura: 
   for (const t of tablesOf(db).filter((t) => !(t in before))) assert.equal(db.prepare(`SELECT count(*) n FROM ${q(t)}`).get().n, 0, t);
   // v9: as 5 tabelas do cofre e os 2 gatilhos de imutabilidade do __received_change.
   const vault = ["erp_fiscal_vault__cursor", "erp_fiscal_vault__emission", "erp_fiscal_vault__event", "erp_fiscal_vault__received", "erp_fiscal_vault__received_change"];
-  assert.deepEqual(tablesOf(db).filter((t) => t.startsWith("erp_fiscal_vault__")), [...vault, ...commercialTables, ...counterTables, ...serviceTables].sort());
+  assert.deepEqual(tablesOf(db).filter((t) => t.startsWith("erp_fiscal_vault__")), [...vault, ...commercialTables, ...counterTables, ...serviceTables, ...eventTables].sort());
   assert.deepEqual(
     db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='erp_fiscal_vault__received_change' ORDER BY name").all().map((r) => r.name),
     ["erp_fiscal_vault__received_change_immutable_delete", "erp_fiscal_vault__received_change_immutable_update"],
@@ -196,6 +196,8 @@ test("interrupção no meio do passo 7→8: a subida inteira é desfeita e a abe
 });
 
 const commercialTables = ERP_ENGINE_TABLES.filter(t => t.since === 10).map(t => t.table);
+// v18 (depois da NF-e autorizada): carta de correção, inutilização e devolução.
+const eventTables = ERP_ENGINE_TABLES.filter(t => t.since === 18).map(t => t.table);
 // v13 (balcão com NFC-e): as irmãs do modelo 65 e a natureza do cupom.
 const counterTables = ["audit", "cancel", "command", "effect", "emission", "revision", "settings"].map(name => `erp_fiscal_vault__counter_${name}`);
 // v15 (OS, parte 5): as irmãs da NFS-e da ordem e o cadastro fiscal do serviço.
@@ -236,13 +238,13 @@ function commercialRows(db) {
   return { emission, command, document, person };
 }
 
-test("v17 vazia tem 1139 instruções e 476 tabelas; repetição e restrições comerciais preservadas", () => {
+test("v18 vazia tem 1152 instruções e 479 tabelas; repetição e restrições comerciais preservadas", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   const first = migrate(storage(db));
   assert.equal(first.version, ERP_DDL_VERSION);
-  assert.equal(first.statements, 1139);
-  assert.equal(tablesOf(db).length, 476);
+  assert.equal(first.statements, 1152);
+  assert.equal(tablesOf(db).length, 479);
   assert.equal(migrate(storage(db)).status, "current");
   assert.equal(commercialTables.length, 7);
   for (const table of commercialTables) {

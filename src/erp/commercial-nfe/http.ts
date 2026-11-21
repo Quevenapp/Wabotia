@@ -12,6 +12,8 @@ import type { CommercialNfeHttpHandler } from "./slots.ts";
 import { createNfceService, type NfceService, type NfceVaultStatus } from "./nfce-service.ts";
 import { createOsNotesService, OS_NOTE_MESSAGES, type NfseVaultStatus, type OsNotesService } from "./os-notes-service.ts";
 import type { NfseCancelReason } from "./contracts.ts";
+import { createNfeEventsService, EVENT_MESSAGES, type NfeEventsService, type VoidVaultStatus } from "./events-service.ts";
+import type { CommercialVaultSession } from "./artifacts.ts";
 import type {
   CommercialSettings, ConfigSaveInput, EffectInput, EffectView, EmissionPage, EmissionView,
   ListInput, PreparationResult, PrepareInput, ReadInput,
@@ -48,6 +50,16 @@ export interface CommercialNfeHttpDependencies {
   nfce?(context: CommercialNfeHttpContext): NfceService | Promise<NfceService>;
   /** Notas da ordem de serviço (NFS-e e NF-e das peças); ausente, osnota.* e nfse.* recusam como não habilitadas. */
   osNotes?(context: CommercialNfeHttpContext): OsNotesService | Promise<OsNotesService>;
+  /** Carta de correção, inutilização e devolução; ausente, nfe.* recusam como não habilitadas. */
+  events?(context: CommercialNfeHttpContext): NfeEventsService | Promise<NfeEventsService>;
+}
+
+/** O que o último "Testar conexão" trouxe do cofre para a inutilização (sem nova ida ao cofre). */
+export async function voidVaultStatus(context: CommercialNfeHttpContext): Promise<VoidVaultStatus> {
+  const view = await emissorView(context.env, context.profile), checked = view.checked;
+  const state = checked?.ok ? checked.state : null;
+  return { configured: !!view.configured && !!checked?.ok, version: checked?.contract?.vault ?? null,
+    nfe: state ? state.documents.nfe : null, nfce: state ? state.documents.nfce : null, environments: state ? [...state.key.environments] : [] };
 }
 
 /** O que o último "Testar conexão" trouxe do cofre para a NFS-e (sem nova ida ao cofre). */
@@ -101,27 +113,54 @@ export function createDefaultCommercialNfeHttp(): CommercialNfeHttpHandler {
       // Carregada só aqui: a ponte da ordem lê o D1 do módulo (registro de módulos).
       order: async orderId => (await import("../../modules/os/fiscal/notes.ts")).osOrderFiscalState(context.env, context.profile, orderId),
       vaultStatus: () => nfseVaultStatus(context),
-      remember: async (orderId, notes) => (await import("../../modules/os/fiscal/notes.ts")).rememberOsNotes(context.env, context.profile, orderId, notes) }); } });
+      remember: async (orderId, notes) => (await import("../../modules/os/fiscal/notes.ts")).rememberOsNotes(context.env, context.profile, orderId, notes) }); },
+    events: context => createNfeEventsService({ bridge: once(context).bridge, vault: defaultVault(context), vaultStatus: () => voidVaultStatus(context),
+      fingerprint: async () => (await commercialConnectionCheck(context))?.fingerprint ?? null }) });
+}
+
+/** Sessão do cofre presa à conexão conferida e ao ambiente da emissão (nunca vem do navegador). */
+function defaultVault(context: CommercialNfeHttpContext) {
+  return async (emission: Pick<EmissionView, "environment" | "connection_fingerprint"> & Partial<EmissionView>): Promise<CommercialVaultSession> => {
+    const connection = await emissorConnection(context.env, context.profile);
+    const checked = await commercialConnectionCheck(context);
+    if (!connection || !checked) throw new CommercialNfeError(409, "fiscal_provider_not_configured", "Teste e confira a conexão do cofre antes de continuar.");
+    if (!checked.compatible) throw new CommercialNfeError(409, "fiscal_provider_incompatible", "A versão do cofre não é compatível com esta integração.");
+    if (!checked.environments.includes(emission.environment))
+      throw new CommercialNfeError(409, "fiscal_environment_not_allowed", "A chave do cofre não permite o ambiente desta emissão.");
+    if (connection.url !== checked.origin || connection.provider !== checked.provider)
+      throw new CommercialNfeError(409, "fiscal_connection_changed", "Confira a conexão original desta emissão.");
+    return freezeCommercialVaultSession(context, emission as EmissionView, {
+      provider: await fiscalProviderFor({ env: context.env, profile: context.profile }),
+      fingerprint: checked.fingerprint, connection,
+    });
+  };
 }
 
 function defaultService(context: CommercialNfeHttpContext, bridge: ReturnType<typeof createCommercialNfeBridge>) {
-  return createCommercialNfeService(context, {
-    bridge,
-    vault: async emission => {
-      const connection = await emissorConnection(context.env, context.profile);
-      const checked = await commercialConnectionCheck(context);
-      if (!connection || !checked) throw new CommercialNfeError(409, "fiscal_provider_not_configured", "Teste e confira a conexão do cofre antes de continuar.");
-      if (!checked.compatible) throw new CommercialNfeError(409, "fiscal_provider_incompatible", "A versão do cofre não é compatível com esta integração.");
-      if (!checked.environments.includes(emission.environment))
-        throw new CommercialNfeError(409, "fiscal_environment_not_allowed", "A chave do cofre não permite o ambiente desta emissão.");
-      if (connection.url !== checked.origin || connection.provider !== checked.provider)
-        throw new CommercialNfeError(409, "fiscal_connection_changed", "Confira a conexão original desta emissão.");
-      return freezeCommercialVaultSession(context, emission, {
-        provider: await fiscalProviderFor({ env: context.env, profile: context.profile }),
-        fingerprint: checked.fingerprint, connection,
-      });
-    },
-  });
+  return createCommercialNfeService(context, { bridge, vault: defaultVault(context) });
+}
+
+/** Carta de correção, inutilização e devolução: a visão de eventos da nota, a devolução ou o arquivo. */
+async function handleEvents(context: CommercialNfeHttpContext, service: NfeEventsService): Promise<unknown> {
+  const input = context.input, id = context.params.id!, command = String(input.command_id ?? "");
+  switch (context.operation.name) {
+    case "nfe.eventos": return service.events(id);
+    case "nfe.carta_correcao": return service.correct(id, command, String(input.text));
+    case "nfe.carta_correcao.consultar": return service.correctionConsult(id, String(input.correction_id));
+    case "nfe.carta_correcao.pdf": return service.correctionFile(id, Number(input.sequence ?? 0), "pdf");
+    case "nfe.carta_correcao.xml": return service.correctionFile(id, Number(input.sequence ?? 0), "xml");
+    case "nfe.devolucao": return service.createReturn(id, { command_id: command, items: input.items as { item: number; quantity: string }[],
+      finance_option: input.finance_option === "pagar" ? "pagar" : "credito" });
+    case "nfe.devolucao.get": return service.returnView(id);
+    case "nfe.devolucao.retomar": return service.resumeReturn(id, command);
+    case "nfe.devolucao.danfe": return service.returnFile(id, "danfe");
+    case "nfe.devolucao.xml": return service.returnFile(id, "xml");
+    case "nfe.inutilizacoes": return service.voids(input.environment as "homologacao" | "producao" | undefined, input.model as "nfe" | "nfce" | undefined);
+    case "nfe.inutilizacao": return service.voidRange({ command_id: command, model: input.model === "nfce" ? "nfce" : "nfe",
+      environment: input.environment === "producao" ? "producao" : "homologacao", series: Number(input.series), first: Number(input.first), last: Number(input.last),
+      justification: String(input.justification) });
+    default: throw new ApiError(404, "not_found", "Operação da nota não encontrada.");
+  }
 }
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -293,7 +332,23 @@ export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependenc
   return async context => {
     const counter = context.operation.name.startsWith("nfce.");
     const orderNotes = context.operation.name.startsWith("osnota.") || context.operation.name.startsWith("nfse.");
+    const nfeEvents = context.operation.name.startsWith("nfe.");
     try {
+      if (nfeEvents) {
+        if (!dependencies.events) throw new ErpError("0A000", "com1_not_ready");
+        const result = await handleEvents(context, await dependencies.events(context));
+        if (result instanceof Response) {
+          const headers = new Headers(result.headers);
+          for (const [key, value] of Object.entries(PRIVATE_HEADERS)) headers.set(key, value);
+          return new Response(result.body, { status: result.status, headers });
+        }
+        const masked = !!(context.actor.via || context.identity.actor?.is_agent || context.identity.actor?.is_technical) && context.actor.via?.masked !== false;
+        const pending = (value: unknown) => {
+          const r = value as { status?: string; void?: { state?: string } } | null;
+          return !!r && (["enviando", "processando", "incerta"].includes(r.status ?? "") || ["enviando", "incerto"].includes(r.void?.state ?? ""));
+        };
+        return Response.json(createPiiMask(masked).maskValue(result), { status: pending(result) ? 202 : 200, headers: PRIVATE_HEADERS });
+      }
       if (orderNotes) {
         if (!dependencies.osNotes) throw new ErpError("0A000", "com1_not_ready");
         const { result, status } = await handleOsNotes(context, await dependencies.osNotes(context));
@@ -348,6 +403,13 @@ export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependenc
         context.operation.name === "com1.prepare" && (result as PreparationResult).blockers.length > 0;
       return Response.json(dto, { status: blocked ? 422 : awaiting(result) ? 202 : 200, headers: PRIVATE_HEADERS });
     } catch (error) {
+      if (nfeEvents && (error instanceof ApiError || error instanceof CommercialNfeError || error instanceof ErpError)) {
+        const code = error instanceof ErpError ? (/^[a-z][a-z0-9_]{1,100}$/.test(error.message) ? error.message : "fiscal_operation_failed") : error.code;
+        const status = error instanceof ErpError ? (error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409) : error.status;
+        return Response.json({ code, message: EVENT_MESSAGES[code] ?? (error instanceof ErpError
+          ? "A operação na nota não terminou. Abra a nota de novo e confira as cartas, as devoluções e as inutilizações antes de tentar outra vez." : error.message) },
+          { status, headers: PRIVATE_HEADERS });
+      }
       if (orderNotes && (error instanceof ApiError || error instanceof CommercialNfeError || error instanceof ErpError)) {
         const code = error instanceof ErpError ? (/^[a-z][a-z0-9_]{1,100}$/.test(error.message) ? error.message : "fiscal_operation_failed") : error.code;
         const status = error instanceof ErpError ? (error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409) : error.status;

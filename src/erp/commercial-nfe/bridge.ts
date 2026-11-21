@@ -39,6 +39,26 @@ export interface CommercialNfeRpcMap {
   erp_com1_os_prepare: { input: { order_id: string; kind: OsNoteKind; command_id: string; expected_emission_version?: number; new_fiscal_version?: boolean }; output: PreparationResult };
   erp_com1_nfse_config_get: { input: undefined; output: NfseSettingsView };
   erp_com1_nfse_config_save: { input: Record<string, unknown>; output: NfseSettingsView };
+  // Depois da NF-e autorizada (domains/fiscal/comnfe/events.ts).
+  erp_com1_events_get: { input: { emission_id: string }; output: NfeEventsView };
+  erp_com1_correction_claim: { input: { emission_id: string; command_id: string; text: string }; output: CorrectionClaim };
+  erp_com1_correction_record: { input: Record<string, unknown> & { correction_id: string; command_id: string; state: string }; output: CorrectionView };
+  erp_com1_correction_file: { input: { emission_id: string; sequence: number }; output: CorrectionFile };
+  erp_com1_void_list: { input: { environment?: string; model?: string }; output: { items: VoidRangeView[] } };
+  erp_com1_void_claim: { input: { command_id: string; model: string; environment: string; series: number; first: number; last: number; justification: string };
+    output: { disposition: "send" | "resume" | "replay"; void: VoidRangeView; uf: string | null } };
+  erp_com1_void_record: { input: Record<string, unknown> & { void_id: string; command_id: string; state: string }; output: VoidRangeView };
+  erp_com1_return_prepare: { input: { emission_id: string; command_id: string; items: ReturnItemInput[]; finance_option: string }; output: ReturnView };
+  erp_com1_return_claim: { input: { return_id: string; command_id: string }; output: ReturnClaim };
+  erp_com1_return_record: { input: { return_id: string; command_id: string; result: unknown; error?: unknown }; output: ReturnView };
+  erp_com1_return_effects: { input: { return_id: string; command_id: string; axis: "stock" | "finance" }; output: ReturnView };
+  erp_com1_return_get: { input: { return_id: string }; output: { return: ReturnView; emission: CorrectionClaim["emission"] } };
+}
+import type { CorrectionClaim, ReturnClaim } from "../domains/fiscal/comnfe/events.ts";
+import type { CorrectionView, NfeEventsView, ReturnItemInput, ReturnView, VoidRangeView } from "./events-contracts.ts";
+export interface CorrectionFile {
+  correction: CorrectionView; xml: string | null; emission: CorrectionClaim["emission"];
+  issuer: { name: string; document: string }; recipient: { name: string; document: string };
 }
 import type { NfseSettingsView, OsNoteKind, OsNotesView } from "../domains/fiscal/comnfe/os-notes.ts";
 export interface NfceConfigView { version: number; nature_id: string | null; resolved_nature_id: string | null; natures: { id: string; description: string }[]; updated_at: string | null; updated_by: string | null }
@@ -70,6 +90,9 @@ const RPC_NAMES = new Set<keyof CommercialNfeRpcMap>([
   "erp_com1_cancel_xml_record", "erp_com1_effect_apply", "erp_com1_effect_reverse",
   "erp_com1_nfce_config_get", "erp_com1_nfce_config_save", "erp_com1_nfce_prepare", "erp_com1_nfce_sales", "erp_com1_nfce_sale_cancel",
   "erp_com1_os_notes", "erp_com1_os_prepare", "erp_com1_nfse_config_get", "erp_com1_nfse_config_save",
+  "erp_com1_events_get", "erp_com1_correction_claim", "erp_com1_correction_record", "erp_com1_correction_file",
+  "erp_com1_void_list", "erp_com1_void_claim", "erp_com1_void_record",
+  "erp_com1_return_prepare", "erp_com1_return_claim", "erp_com1_return_record", "erp_com1_return_effects", "erp_com1_return_get",
 ]);
 const EVIDENCE_NAMES = new Set<keyof CommercialNfeRpcMap>([
   "erp_com1_record", "erp_com1_cancel_record", "erp_com1_cancel_xml_record",

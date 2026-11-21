@@ -42,4 +42,8 @@ export const SYSTEM_RPCS: ReadonlySet<string> = new Set([
 export const COM1_INTERNAL_RPCS: ReadonlySet<string> = new Set([
   "erp_com1_claim", "erp_com1_record", "erp_com1_cancel_claim",
   "erp_com1_cancel_record", "erp_com1_cancel_xml_record",
+  // Depois da NF-e autorizada (domains/fiscal/comnfe/events.ts): o pedido ao
+  // cofre, o resultado dele e os efeitos da devolução só pela ponte do serviço.
+  "erp_com1_correction_claim", "erp_com1_correction_record", "erp_com1_void_claim", "erp_com1_void_record",
+  "erp_com1_return_claim", "erp_com1_return_record", "erp_com1_return_effects",
 ]);

@@ -94,6 +94,10 @@ export function com1ActionForRpc(name: string, value?: unknown): Com1Action | nu
   if (name === "erp_com1_config_save" || name === "erp_com1_nfce_config_save" || name === "erp_com1_nfse_config_save") return "configure";
   if (name === "erp_com1_prepare" || name === "erp_com1_nfce_prepare" || name === "erp_com1_os_prepare") return "prepare";
   if (name === "erp_com1_nfce_sale_cancel") return "cancel";
+  // Depois da nota autorizada (events.ts): leituras e eventos fiscais (papel fiscal).
+  if (["erp_com1_events_get", "erp_com1_void_list", "erp_com1_correction_file", "erp_com1_return_get"].includes(name)) return "read";
+  if (["erp_com1_correction_claim", "erp_com1_correction_record", "erp_com1_void_claim", "erp_com1_void_record",
+    "erp_com1_return_prepare", "erp_com1_return_claim", "erp_com1_return_record", "erp_com1_return_effects"].includes(name)) return "emit";
   if (name === "erp_com1_claim") return input.action === "emit" || input.action === "resume" ? input.action : null;
   if (name === "erp_com1_cancel_claim") return "cancel";
   if (["erp_com1_effect_apply", "erp_com1_effect_reverse"].includes(name))

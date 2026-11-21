@@ -10,7 +10,7 @@ import { ORDER_REASONS, contactSourceRecord, keyLookupRecord, orderSourceRecord,
 import {
   CRT_OPTIONS, FREIGHT_OPTIONS, IE_OPTIONS, IMPORT_FORM_OPTIONS, PAYMENT_OPTIONS, PERSON_OPTIONS, PRESENCE_OPTIONS, PURPOSE_OPTIONS, REFERENCE_OPTIONS, REGISTERED, ROUTE_OPTIONS,
   SPECIES_OPTIONS, TRANSPORT_OPTIONS, UF_EX_OPTIONS, UF_OPTIONS, checkDraft, cloneDraft, complementaryDraft, defaultNatureCode, draftToInput, installmentsFromCondition, installmentsMismatch, issueOptions, newDraft, returnDraft,
-  applyDiscountMode, carrierValues, compositionNotices, withReturnQuantities, formaOptions, formaValue, groupedOrderDraft, withForma, type PaymentMethodOption, isServiceItem, optionalTabs, orderDraft, withNatureSummary, orderLocks, orderOrigin, preferencesOf, withItemDiscounts, recordToDraft, xmlDraft, validationMessage, withPreferenceVolumes, type FormContext, type InstallmentDraft, type InvoiceDraft, type ItemDraft, type Values,
+  applyDiscountMode, carrierValues, compositionNotices, fiscalDocumentInput, withReturnQuantities, formaOptions, formaValue, groupedOrderDraft, withForma, type PaymentMethodOption, isServiceItem, optionalTabs, orderDraft, withNatureSummary, orderLocks, orderOrigin, preferencesOf, withItemDiscounts, recordToDraft, xmlDraft, validationMessage, withPreferenceVolumes, type FormContext, type InstallmentDraft, type InvoiceDraft, type ItemDraft, type Values,
 } from '../lib/fiscal-invoice-form-model';
 import { EDITABLE, FISCAL_BASE, statusClass, statusLabel, type ScreenConfig } from '../lib/fiscal-invoice-list-model';
 import { CONTACT_WRITER_ROLES, quickContactInitial } from '../lib/document-editor-pickers';
@@ -477,7 +477,7 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
           <button type="button" className="icon-button" title={CONTACT_WRITER_ROLES.includes(role) ? 'Adicionar novo' : 'Seu perfil não cadastra contatos.'} aria-label="Adicionar novo" disabled={locked || !CONTACT_WRITER_ROLES.includes(role)} onClick={() => setQuickContact(true)}><Icon name="plus" size={12} /></button></span></div>
       {field('fiscal-recipient-type', 'Tipo da pessoa*', select('fiscal-recipient-type', String(r.person_type ?? ''), PERSON_OPTIONS, value => setNested('recipient', 'person_type', value), { empty: 'Selecione' }))}
       {r.person_type === 'E' ? field('fiscal-recipient-foreign', 'Identificação do estrangeiro', text('fiscal-recipient-foreign', String(r.foreign_id ?? ''), value => setNested('recipient', 'foreign_id', value), { max: 20 }))
-        : field('fiscal-recipient-document', 'CNPJ / CPF', text('fiscal-recipient-document', String(r.document ?? ''), value => setNested('recipient', 'document', value.replace(/\D/g, '')), { max: 14, inputMode: 'numeric' }))}
+        : field('fiscal-recipient-document', 'CNPJ / CPF', text('fiscal-recipient-document', String(r.document ?? ''), value => setNested('recipient', 'document', fiscalDocumentInput(value)), { max: 18 }))}
       {field('fiscal-recipient-ie', 'Inscrição Estadual', text('fiscal-recipient-ie', String(r.ie ?? ''), value => setNested('recipient', 'ie', value.toUpperCase().replace(/[^0-9A-Z]/g, '')), { max: 14 }))}
       {field('fiscal-recipient-ie-indicator', 'Contribuinte', select('fiscal-recipient-ie-indicator', String(r.ie_indicator ?? ''), IE_OPTIONS, value => setNested('recipient', 'ie_indicator', value), { empty: 'Selecione' }))}
       <div className="form-field"><label htmlFor="fiscal-recipient-seller">Vendedor</label>
@@ -578,7 +578,7 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
       {field('fiscal-vehicle-plate', 'Placa do veículo', text('fiscal-vehicle-plate', String(t.vehicle.plate ?? ''), value => setTransport({ vehicle: { ...t.vehicle, plate: value.toUpperCase().replace(/[^A-Z0-9]/g, '') } }), { max: 7 }))}
       {field('fiscal-vehicle-state', 'UF do veículo', select('fiscal-vehicle-state', String(t.vehicle.state ?? ''), UF_OPTIONS, value => setTransport({ vehicle: { ...t.vehicle, state: value } }), { empty: 'UF ...' }))}
       <div className="form-field"><label htmlFor="fiscal-vehicle-rntc" title="Registro Nacional de Transportador de Carga (ANTT)">RNTC</label>{text('fiscal-vehicle-rntc', String(t.vehicle.rntc ?? ''), value => setTransport({ vehicle: { ...t.vehicle, rntc: value } }), { max: 20 })}</div>
-      {field('fiscal-carrier-document', 'CNPJ/CPF', text('fiscal-carrier-document', String(t.carrier.document ?? ''), value => setTransport({ carrier: { ...t.carrier, document: value.replace(/\D/g, '') } }), { max: 14, inputMode: 'numeric' }))}
+      {field('fiscal-carrier-document', 'CNPJ/CPF', text('fiscal-carrier-document', String(t.carrier.document ?? ''), value => setTransport({ carrier: { ...t.carrier, document: fiscalDocumentInput(value) } }), { max: 18 }))}
       {field('fiscal-carrier-ie', 'Inscrição Estadual', text('fiscal-carrier-ie', String(t.carrier.ie ?? ''), value => setTransport({ carrier: { ...t.carrier, ie: value.toUpperCase().replace(/[^0-9A-Z]/g, '') } }), { max: 14 }))}
       {field('fiscal-carrier-state', 'UF', select('fiscal-carrier-state', String(t.carrier.state ?? ''), UF_OPTIONS, value => setTransport({ carrier: { ...t.carrier, state: value } }), { empty: 'UF ...' }))}
       {field('fiscal-carrier-city', 'Município', text('fiscal-carrier-city', String(t.carrier.city ?? ''), value => setTransport({ carrier: { ...t.carrier, city: value } })))}
@@ -636,7 +636,7 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
   const im = draft.intermediary;
   const intermediaryTab = <div className="document-grid">
     {field('fiscal-intermediary', 'Intermediador', <select id="fiscal-intermediary" disabled={locked} value={im.present ? 'true' : 'false'} title="Indica se a operação foi realizada com intermediador, como Hub ou Marketplace por exemplo." onChange={event => update({ intermediary: event.target.value === 'true' ? { ...im, present: true } : { present: false } })}><option value="false">Não</option><option value="true">Sim</option></select>)}
-    {im.present && <>{field('fiscal-intermediary-cnpj', 'CNPJ', text('fiscal-intermediary-cnpj', String(im.cnpj ?? ''), value => setNested('intermediary', 'cnpj', value.replace(/\D/g, '')), { max: 14, inputMode: 'numeric' }))}
+    {im.present && <>{field('fiscal-intermediary-cnpj', 'CNPJ', text('fiscal-intermediary-cnpj', String(im.cnpj ?? ''), value => setNested('intermediary', 'cnpj', fiscalDocumentInput(value)), { max: 18 }))}
       <div className="form-field"><label htmlFor="fiscal-intermediary-id" title="Sua identificação no intermediador: nome da empresa, e-mail ou usuário.">Identificação no intermediador</label>{text('fiscal-intermediary-id', String(im.identification ?? ''), value => setNested('intermediary', 'identification', value))}</div></>}
   </div>;
   const infoTab = <div className="document-grid">

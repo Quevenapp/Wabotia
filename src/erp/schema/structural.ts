@@ -210,4 +210,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Compra pela nota do fornecedor, como no Bling: a nota recebida (do cofre da NFapi ou importada à mão) é conferida e dá entrada no estoque, no custo de entrada e nas contas a pagar pelas rotinas das telas (erp_stock_launch, erp_stock_lot_launch, erp_finance_title_execute), numa transação idempotente pela chave da nota; estorno pelas guardas existentes (erp_stock_reverse, title_cancel).",
     replaced_by: "Versão 17 aditiva (16→17): erp_purchase_inbound__note (índice da nota; o XML fica no R2 da área), erp_purchase_inbound__entry (a entrada, uma ativa por nota, com o que foi feito e o estorno) e erp_purchase_inbound__settings (interruptor do administrador para manifestar, desligado). O vínculo código do fornecedor → produto é o erp_catalog__product_supplier e a conversão de unidade, o erp_stock__unit_conversion. A situação no cofre continua em erp_fiscal_vault__received/_change/_cursor e a manifestação, em erp_fiscal_vault__event (versão 9).",
   },
+  {
+    id: "eventos-nfe",
+    oracle: "Carta de correção, inutilização e devolução pela tela de notas fiscais legada (event_request e nota de devolução no formulário), só em homologação e sem efeito no estoque nem nas contas.",
+    reason: "Fiscal, depois da nota autorizada: a carta de correção e a inutilização vão pelo cofre da NFapi, e a devolução de venda vira uma NF-e de devolução (finalidade 4, nota referenciada) emitida pelo cofre, com entrada no estoque e efeito nas contas uma vez só.",
+    replaced_by: "Versão 18 aditiva (17→18): order_correction (cartas da NF-e do pedido, sequência de 1 a 20, texto e XML do evento), void_range (inutilizações de NF-e e NFC-e por série e faixa) e order_return (devolução de venda: itens e quantidades, corpo da NF-e de devolução, resultado do cofre e o estado de cada efeito, estoque e financeiro, que só muda de pendente para aplicado uma vez). Número, assinatura e transmissão continuam no cofre.",
+  },
 ];

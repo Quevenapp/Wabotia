@@ -5,6 +5,7 @@ import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
 import { NFCE_OPERATIONS } from "../../erp/commercial-nfe/nfce-metadata.ts";
 import { OS_NOTE_OPERATIONS } from "../../erp/commercial-nfe/os-notes-metadata.ts";
+import { NFE_EVENT_OPERATIONS, NFE_EVENT_PROPERTIES } from "../../erp/commercial-nfe/events-metadata.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
 import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
@@ -80,6 +81,11 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   ...NFCE_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: "nfe", description: `${op.summary}. Exige Caixa / PDV e Fiscal ligados.${op.sensitive ? " Mexe no cupom fiscal: a pessoa com o papel confirma." : " Só consulta, sem mudar o cupom."}`,
     params: { type: "object" as const, properties: {}, required: [] } })),
+  // Depois da NF-e autorizada: carta de correção, inutilização e devolução mexem na nota (sensíveis, categoria nota fiscal).
+  ...NFE_EVENT_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: "nfe", description: `${op.summary}. Exige a parte Fiscal ligada e o cofre configurado.${op.sensitive ? " Mexe na nota fiscal: o bot propõe e a pessoa com o papel fiscal confirma." : " Só consulta, sem mudar a nota."}`,
+    params: { type: "object" as const, properties: Object.fromEntries([...(op.path.includes(":id") ? ["id"] : []), ...(op.query ?? []), ...op.body]
+      .map(key => [key, key === "id" ? uuid : NFE_EVENT_PROPERTIES[key] ?? { type: "string" }])), required: [...(op.path.includes(":id") ? ["id"] : []), ...op.required] } })),
   // Notas da ordem de serviço (NFS-e e NF-e das peças): emitir, consultar, cancelar e configurar mexem na nota (sensíveis).
   ...OS_NOTE_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: "nfe", description: `${op.summary}. Exige a parte Fiscal ligada e o cofre configurado (a nota de peças também Vendas e Produtos).${op.sensitive ? " Mexe na nota fiscal: a pessoa com o papel fiscal confirma." : " Só consulta, sem mudar a nota."}`,

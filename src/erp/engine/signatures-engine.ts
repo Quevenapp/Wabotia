@@ -50,6 +50,19 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_inbound_settings_save: [["p_user_id", "u"], ["p_input", "j"]],
   erp_inbound_manifest_claim: [["p_user_id", "u"], ["p_input", "j"]],
   erp_inbound_manifest_record: [["p_user_id", "u"], ["p_input", "j"]],
+  // Depois da NF-e autorizada (carta de correção, inutilização e devolução): src/erp/domains/fiscal/comnfe/events.ts.
+  erp_com1_events_get: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_correction_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_correction_record: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_correction_file: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_void_list: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_void_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_void_record: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_return_prepare: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_return_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_return_record: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_return_effects: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_return_get: [["p_user_id", "u"], ["p_input", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

@@ -26,8 +26,11 @@ const RPC_GROUPS = {
   com1_claim: `erp_com1_claim`,
   com1_read: `erp_com1_config_get erp_com1_config_save erp_com1_get erp_com1_list erp_com1_cancel_claim
     erp_com1_nfce_config_get erp_com1_nfce_config_save erp_com1_nfce_sales
-    erp_com1_nfse_config_get erp_com1_nfse_config_save erp_com1_os_notes erp_com1_os_prepare`,
-  com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel`,
+    erp_com1_nfse_config_get erp_com1_nfse_config_save erp_com1_os_notes erp_com1_os_prepare
+    erp_com1_events_get erp_com1_correction_claim erp_com1_correction_record erp_com1_correction_file
+    erp_com1_void_list erp_com1_void_claim erp_com1_void_record
+    erp_com1_return_prepare erp_com1_return_claim erp_com1_return_record erp_com1_return_get`,
+  com1_effect: `erp_com1_effect_apply erp_com1_effect_reverse erp_com1_nfce_sale_cancel erp_com1_return_effects`,
   com1_evidence: `erp_com1_record erp_com1_cancel_record erp_com1_cancel_xml_record`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review

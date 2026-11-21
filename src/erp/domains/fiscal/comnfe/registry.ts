@@ -20,6 +20,7 @@ import { recapturePreparationFingerprint } from "./source.ts";
 import { applyEffects, reverseEffects } from "./effects.ts";
 import { com1Model, withCom1Model, withEmissionModel } from "./model.ts";
 import "./nfce.ts";
+import "./events.ts";
 import { recaptureServiceFingerprint } from "./os-notes.ts";
 
 // Encaixe único do motor. Cada chamada continua dentro de sua própria

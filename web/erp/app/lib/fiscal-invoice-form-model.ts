@@ -381,6 +381,10 @@ const fiscalDocument = (value: unknown, preserveLegacyNumeric = false): string =
   // A cópia portável conserva cadastros numéricos antigos; a preparação comercial valida sempre o DV.
   return /^\d{11}$/.test(text) || preserveLegacyNumeric && /^\d{14}$/.test(text) ? text : fiscalCnpj(value);
 };
+/** Digitação de CPF/CNPJ no formulário: tira só a máscara e conserva as letras do CNPJ alfanumérico (até 14). */
+export const fiscalDocumentInput = (value: unknown): string => String(value ?? '').toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 14);
+/** CPF (11 dígitos) ou CNPJ numérico ou alfanumérico com os dígitos verificadores certos. */
+export const validFiscalDocument = (value: unknown): boolean => { const text = fiscalDocumentInput(value); return /^\d{11}$/.test(text) || fiscalCnpj(text) === text && text.length === 14; };
 const trimZeros = (value: string) => value.includes('.') ? value.replace(/0+$/, '').replace(/\.$/, '') : value;
 /** Weight with up to ten decimals rounded half up to the three decimals of the note. */
 const weightOf = (value: string | null | undefined) => {
