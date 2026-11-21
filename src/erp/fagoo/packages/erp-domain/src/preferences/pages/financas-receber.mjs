@@ -1,8 +1,10 @@
 // Preferências > Finanças > Contas a receber (Origin preferencias.php#financas/financas-contas-receber).
 // Left out (payment integrations / Origin Conta): payment link on save, Pix and payment-link charge models and the transaction status e-mail.
 import{definePage,PREFERENCE_READERS}from'../core.mjs';
-import{area,choice,email,emails,info,integer,text,toggle}from'../fields.mjs';
+import{EMAIL_VARIABLES,area,choice,email,emails,info,integer,text,toggle}from'../fields.mjs';
 const G='geral',B='boletos',C='cobrancas',K='carta',R='retornos',mail='Guardado. O ERP ainda não envia e-mails.';
+// "Enviar por e-mail" da conta a receber (src/erp/email): os e-mails de cobrança já usam estes valores.
+const sent=(what,extra={})=>({status:'applied',note:`Aplicado: ${what} no "Enviar por e-mail" da conta a receber (boleto, Pix ou link).`,...extra});
 export default definePage({id:'financas-receber',category:'financas',path:'contas-receber',title:'Contas a receber',scope:'company',readRoles:PREFERENCE_READERS.finance,subsections:false,
  sections:[{id:G,title:'Geral'},{id:B,title:'Envio automático de boletos'},{id:C,title:'E-mails de cobranças'},{id:K,title:'Carta de Cobrança'},{id:R,title:'Leitura de retornos'}],
  fields:[
@@ -14,12 +16,12 @@ export default definePage({id:'financas-receber',category:'financas',path:'conta
   integer('financas.boletos_dias_antes',B,'Dias antes do vencimento',0,365,0,{note:mail}),
   integer('financas.boletos_dias_apos',B,'Dias após o vencimento',0,365,0,{note:mail}),
   toggle('financas.boletos_no_vencimento',B,'No dia do vencimento',false,{note:mail}),
-  emails('financas.cobranca_email_copia',C,'E-mail padrão de cópia',{note:mail}),
-  text('financas.cobranca_remetente',C,'Nome padrão do remetente',100,{note:mail}),
-  email('financas.cobranca_email_resposta',C,'E-mail padrão de resposta',{note:mail}),
-  choice('financas.cobranca_email_contato',C,'E-mail do contato',[['principal','E-mail principal'],['nfe','E-mail para envio da NFe'],['nfe_ou_principal','E-mail para envio da NFe ou Principal']],'principal',{note:mail}),
-  text('financas.cobranca_boleto_assunto',C,'Assunto padrão do e-mail',100,{group:'Cobrança por boleto',note:mail}),
-  area('financas.cobranca_boleto_mensagem',C,'Mensagem padrão',4000,{group:'Cobrança por boleto',note:mail}),
+  emails('financas.cobranca_email_copia',C,'E-mail padrão de cópia',sent('endereços sugeridos em cópia')),
+  text('financas.cobranca_remetente',C,'Nome padrão do remetente',100,sent('nome que o cliente vê como remetente',{hint:'Vazio: o nome da empresa. O endereço de envio é o da instalação (Gestão → Sistema → E-mail).'})),
+  email('financas.cobranca_email_resposta',C,'E-mail padrão de resposta',sent('endereço que recebe as respostas do cliente',{hint:'Vazio: o e-mail dos Dados da empresa.'})),
+  choice('financas.cobranca_email_contato',C,'E-mail do contato',[['principal','E-mail principal'],['nfe','E-mail para envio da NFe'],['nfe_ou_principal','E-mail para envio da NFe ou Principal']],'principal',sent('destinatário sugerido pelo cadastro do cliente')),
+  text('financas.cobranca_boleto_assunto',C,'Assunto padrão do e-mail',100,{group:'Cobrança por boleto',...sent('assunto do e-mail',{hint:`Vazio: o assunto padrão. ${EMAIL_VARIABLES}`})}),
+  area('financas.cobranca_boleto_mensagem',C,'Mensagem padrão',4000,{group:'Cobrança por boleto',...sent('texto do e-mail',{hint:`Vazio: o texto padrão. ${EMAIL_VARIABLES} {link} traz o link de pagamento, o Pix copia e cola ou a linha digitável do boleto.`})}),
   text('financas.carta_assunto',K,'Assunto',100,{note:mail}),
   emails('financas.carta_email_copia',K,'Email de cópia',{note:mail}),
   text('financas.carta_remetente',K,'Nome do remetente',100,{note:mail}),

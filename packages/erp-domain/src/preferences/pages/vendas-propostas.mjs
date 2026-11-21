@@ -32,5 +32,5 @@ export default definePage({id:'vendas-propostas',category:'vendas',path:'propost
   p('vencimento_parcelas','Exibir data de vencimento das parcelas',false,true),
   radio('propostas.tipo_cabecalho',I,'Exibir tipo de cabeçalho',HEADER_TYPES,'padrao',{status:'applied',note:'Aplicada (migração 270): Personalizado imprime a proposta com o cabeçalho personalizado (texto formatado editado pelo administrador); Padrão do Sistema, o logotipo e a identificação da empresa. Sem texto personalizado, vale o padrão.'}),
   applied('propostas.cabecalho_personalizado',I,'Cabeçalho personalizado','Texto do cabeçalho impresso quando “Exibir tipo de cabeçalho” é Personalizado.',{link:{label:'Editar cabeçalho personalizado',to:'/documentos-empresa?tipo=sales_proposals&acao=cabecalho',roles:['admin']}}),
-  ...emailBlock('propostas',M,{copy:'E-mail padrão como cópia'}),
+  ...emailBlock('propostas',M,{copy:'E-mail padrão como cópia',sends:true}),
  ]});

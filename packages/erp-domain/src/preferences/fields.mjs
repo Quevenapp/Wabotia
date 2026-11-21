@@ -16,8 +16,19 @@ export const documents=(key,section,label,maxItems,extra={})=>stored({key,sectio
 export const keymap=(key,section,label,options,value,extra={})=>stored({key,section,label,kind:'keymap',options,default:value,...extra});
 export const info=(id,section,label,text,extra={})=>({id,info:true,section,label,text,status:'unavailable',...extra});
 export const applied=(id,section,label,text,extra={})=>info(id,section,label,text,{status:'applied',...extra});
-/** Origin's e-mail block repeated on several pages; sending e-mail is not built yet, so every value is kept for it. */
-export function emailBlock(prefix,section,{subject='Assunto padrão',copy='Email padrão de cópia',sender='Nome padrão do remetente',reply='Email padrão de resposta',message='Mensagem padrão',subjectLength=100}={}){
+/** Variáveis dos modelos de e-mail dos documentos (src/erp/email/templates.ts). */
+export const EMAIL_VARIABLES='Variáveis: {cliente}, {numero}, {valor}, {vencimento}, {link} e {empresa}.';
+/** Origin's e-mail block repeated on several pages. `sends`: the document of the page already goes by e-mail (src/erp/email), so the
+ * values are applied; the other pages keep them for later. */
+export function emailBlock(prefix,section,{subject='Assunto padrão',copy='Email padrão de cópia',sender='Nome padrão do remetente',reply='Email padrão de resposta',message='Mensagem padrão',subjectLength=100,sends=false}={}){
+ if(sends){
+  const used=(what)=>({status:'applied',note:`Aplicado: ${what} no "Enviar por e-mail" do documento (editável antes de enviar).`});
+  return[text(`${prefix}.email_assunto`,section,subject,subjectLength,{...used('assunto do e-mail'),hint:`Vazio: o assunto padrão. ${EMAIL_VARIABLES}`}),
+   emails(`${prefix}.email_copia`,section,copy,used('endereços sugeridos em cópia')),
+   text(`${prefix}.email_remetente`,section,sender,100,{...used('nome que o cliente vê como remetente'),hint:'Vazio: o nome da empresa. O endereço de envio é o da instalação (Gestão → Sistema → E-mail).'}),
+   email(`${prefix}.email_resposta`,section,reply,{...used('endereço que recebe as respostas do cliente'),hint:'Vazio: o e-mail dos Dados da empresa.'}),
+   area(`${prefix}.email_mensagem`,section,message,4000,{...used('texto do e-mail'),hint:`Vazio: o texto padrão. ${EMAIL_VARIABLES} O ERP guarda e envia texto simples.`})];
+ }
  const note='Guardado. O ERP ainda não envia e-mails; o texto será usado quando o envio existir.';
  return[text(`${prefix}.email_assunto`,section,subject,subjectLength,{note}),emails(`${prefix}.email_copia`,section,copy,{note}),text(`${prefix}.email_remetente`,section,sender,100,{note}),
   email(`${prefix}.email_resposta`,section,reply,{note}),area(`${prefix}.email_mensagem`,section,message,4000,{note,hint:'O sistema de origem usa texto formatado; o ERP guarda o texto simples.'})];

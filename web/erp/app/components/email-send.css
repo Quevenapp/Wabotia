@@ -1,0 +1,12 @@
+/* "Enviar por e-mail" dos documentos do ERP (EmailSend.tsx). */
+.email-send { display: flex; flex-direction: column; gap: 12px; min-width: min(560px, 80vw); }
+.email-send label { display: flex; flex-direction: column; gap: 4px; }
+.email-send textarea { font: inherit; resize: vertical; }
+.email-send-check { flex-direction: row !important; align-items: center; gap: 8px !important; }
+.email-send-preview pre { white-space: pre-wrap; word-break: break-word; margin: 0; padding: 10px; border-radius: 6px; background: rgba(0, 0, 0, 0.04); font: inherit; }
+.email-send-preview h3, .email-send-history h3 { margin: 0 0 6px; font-size: 0.95em; }
+.email-send-preview p { margin: 4px 0; }
+.email-send-history ul { margin: 0; padding-left: 18px; }
+.email-send-entry { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.email-send-state.is-falhou, .email-send-state.is-devolvido { color: #b42318; font-weight: 600; }
+.email-send-state.is-enviado { color: #067647; }

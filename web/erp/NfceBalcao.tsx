@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { correctionTarget, createCommandIntent, CommercialNfeError, type CommercialNfePort, type NfceConfigView, type NfceSituation, type NfceSalesQuery } from "./commercial-nfe";
 import { canNfce } from "./nfce-access.ts";
 import { erpPorts } from "./ports";
+import { EmailSendButton } from "./app/components/EmailSend";
 
 /** A porta do cupom quando a área tem Fiscal e Caixa / PDV ligados e o papel lê o cupom. */
 export function useNfcePort(): CommercialNfePort | null {
@@ -92,6 +93,7 @@ export function NfceSaleCoupon({ port, saleId, number, initial, emitting = false
       {row.actions.includes("imprimir") && <button type="button" className="primary-button" onClick={() => void file("consumidor", false)}>Imprimir cupom</button>}
       {row.actions.includes("imprimir") && row.coupon?.provider_status === "contingency" && <button type="button" className="secondary-button" onClick={() => void file("estabelecimento", false)}>Imprimir via do estabelecimento</button>}
       {row.actions.includes("imprimir") && <button type="button" className="secondary-button" onClick={() => void file("consumidor", true)}>Mandar ao cliente</button>}
+      {row.situation === "autorizado" && row.coupon?.status === "autorizada" && <EmailSendButton type="nfce" id={saleId} />}
       {emitter && row.actions.includes("tentar_de_novo") && <button type="button" className="secondary-button" onClick={() => void run("emit", "Emitindo o cupom fiscal…", command => port.nfceEmit!({ sale_id: saleId, command_id: command }))}>Tentar de novo</button>}
       {emitter && row.actions.includes("corrigir_e_reenviar") && blocker && <Link className="secondary-button" to={correctionTarget(blocker, row.document_id)}>Corrigir e reenviar</Link>}
       {emitter && row.actions.includes("corrigir_e_reenviar") && !blocker && <Link className="secondary-button" to={`/documentos-empresa?tipo=sales_orders&documento=${encodeURIComponent(row.document_id)}`}>Corrigir e reenviar</Link>}
