@@ -135,8 +135,8 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   ...RECEBIDAS_OPERATIONS.filter(op => op.bot).map(op => ({ id: op.name, method: op.method, path: `${RECEBIDAS_ROUTE}/${op.path}`, summary: op.summary,
     sensitive: op.sensitive, group: "nfe", description: op.description, params: { type: "object" as const, properties: {
       ...(op.path.includes(":id") ? { id: uuid } : {}),
-      ...Object.fromEntries([...op.body, ...op.query].map(key => [key, key === "command_id" ? uuid : key === "escolhas" ? { type: "object" } : key.startsWith("autorizacao") || key === "reenviar" ? { type: "boolean" } : { type: "string" }])),
-    }, required: [...(op.path.includes(":id") ? ["id"] : []), ...op.body.filter(key => key === "command_id" || key === "xml" || key === "tipo" || key === "motivo")] } })),
+      ...Object.fromEntries([...op.body, ...op.query].map(key => [key, key === "command_id" ? uuid : key === "escolhas" ? { type: "object" } : key === "itens" ? { type: "array", items: { type: "object" } } : key.startsWith("autorizacao") || key === "reenviar" ? { type: "boolean" } : { type: "string" }])),
+    }, required: [...(op.path.includes(":id") ? ["id"] : []), ...op.body.filter(key => key === "command_id" || key === "xml" || key === "tipo" || key === "motivo" || key === "itens")] } })),
   // Campos próprios de contato (Cadastros): ler é consulta comum; gravar, o bot propõe e a pessoa confirma.
   // Campo sensível nunca chega ao bot sem a liberação do administrador naquele campo.
   ...ERP_CONTACT_FIELD_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,

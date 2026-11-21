@@ -31,3 +31,7 @@
 .fagoo-root .notas-recebidas-hint { color: var(--text-muted, #5a6878); }
 .fagoo-root .notas-recebidas-key { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; color: var(--text-muted, #5a6878); }
 .fagoo-root .notas-recebidas-empty { padding: 1.5rem 0; }
+.fagoo-root .notas-recebidas-tabs { border-bottom: 1px solid var(--border, #cdd6e2); padding-bottom: .5rem; }
+.fagoo-root .notas-recebidas-tabs a { padding: .35rem .6rem; border-radius: .3rem; text-decoration: none; }
+.fagoo-root .notas-recebidas-tabs a[aria-current="page"] { background: var(--surface-alt, #eef3fa); font-weight: 700; text-decoration: underline; }
+.fagoo-root .notas-recebidas-table input:not([type="checkbox"]) { width: 100%; min-width: 6rem; }

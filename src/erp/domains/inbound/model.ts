@@ -20,6 +20,8 @@ export interface InboundItem {
   gtin: string | null;
   description: string;
   ncm: string | null;
+  /** CEST, só quando a nota traz (7 dígitos). */
+  cest?: string | null;
   cfop: string;
   /** uCom: a unidade em que o fornecedor vendeu (CX, UN, KG...). */
   unit: string;

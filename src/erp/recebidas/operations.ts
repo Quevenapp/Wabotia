@@ -24,6 +24,9 @@ export interface RecebidasOperation {
 
 const C = erpRequirement("erp-compras").all;
 const CF = erpRequirement("erp-compras", "erp-fiscal").all;
+const CP = erpRequirement("erp-compras", "erp-produtos").all;
+const CE = erpRequirement("erp-compras", "erp-estoque").all;
+const E = erpRequirement("erp-estoque").all;
 
 export const RECEBIDAS_OPERATIONS: readonly RecebidasOperation[] = [
   { name: "recebidas.listar", method: "GET", path: "notas", sensitive: false, bot: true, body: [], query: ["ambiente", "situacao", "pagina"], parts: C,
@@ -62,6 +65,22 @@ export const RECEBIDAS_OPERATIONS: readonly RecebidasOperation[] = [
   { name: "recebidas.configurar", method: "PUT", path: "configuracao", sensitive: true, bot: false, body: ["expected_version", "manifestar", "ciente_ato_fiscal"], query: [], parts: C,
     summary: "Permitir ou não manifestar notas recebidas",
     description: "Liga ou desliga a manifestação do destinatário. Só o administrador; ligar exige a ciência de que manifestar é ato fiscal perante a SEFAZ." },
+  // Compra sem retrabalho: produto pelo XML, reposição pelo mínimo e máximo e inventário valorizado.
+  { name: "recebidas.produto_previa", method: "GET", path: "notas/:id/produto", sensitive: false, bot: true, body: [], query: ["posicoes"], parts: CP,
+    summary: "Ver o produto que o item da nota vira",
+    description: "Mostra, para os itens da nota que ainda não têm produto no cadastro, o produto proposto com a descrição, o NCM, o CEST, a unidade, o GTIN e o custo que vieram no XML, e o que impede o cadastro (GTIN ou código que já são de outro produto). Só consulta." },
+  { name: "recebidas.criar_produto", method: "POST", path: "notas/:id/produto", sensitive: true, bot: true, body: ["command_id", "itens"], query: [], parts: CP,
+    summary: "Cadastrar produto a partir do item da nota",
+    description: "Cadastra o produto com os dados do XML (descrição, NCM, CEST, unidade, GTIN e custo da nota), já ligado ao código do produto no fornecedor: na conferência, o item casa sozinho. Repetir o pedido não cria outro produto." },
+  { name: "recebidas.reposicao", method: "GET", path: "reposicao", sensitive: false, bot: true, body: [], query: ["deposito", "fornecedor", "todos"], parts: CE,
+    summary: "Ver a sugestão de compras pelo estoque mínimo e máximo",
+    description: "Lista os produtos abaixo do estoque mínimo com a quantidade sugerida (máximo menos o saldo e os pedidos de compra em aberto), o fornecedor e o valor estimado. Só consulta." },
+  { name: "recebidas.gerar_pedidos", method: "POST", path: "reposicao/pedidos", sensitive: true, bot: true, body: ["command_id", "deposito", "itens"], query: [], parts: CE,
+    summary: "Gerar os pedidos de compra da sugestão",
+    description: "Cria os pedidos de compra das quantidades escolhidas, um por fornecedor, pela mesma rotina da tela de pedidos de compra. Repetir o pedido não cria outros." },
+  { name: "recebidas.inventario", method: "GET", path: "inventario", sensitive: false, bot: true, body: [], query: ["data", "deposito", "zerados", "formato"], parts: E,
+    summary: "Ver o inventário valorizado numa data",
+    description: "Mostra o saldo de cada produto por depósito numa data e o valor pelo custo médio daquela data, com o total. Também em planilha (CSV). Só consulta; o custo aparece só para quem vê pedidos de compra." },
 ];
 
 export function recebidasOperationFor(method: string, path: string): { operation: RecebidasOperation; id?: string } | null {

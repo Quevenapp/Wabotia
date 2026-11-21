@@ -21,6 +21,7 @@ import { fiscalProviderFor } from "../emissor/index.ts";
 import { FiscalError, type FiscalContext, type FiscalEnvironment, type FiscalReceivedNote } from "../emissor/provider.ts";
 import { InboundXmlError, INBOUND_XML_MAX_BYTES, inboundXmlKey, parseInboundXml, xmlSha256 } from "./xml.ts";
 import { RECEBIDAS_ROUTE, recebidasOperationFor, type RecebidasOperation } from "./operations.ts";
+import { todaySaoPaulo as todayInSaoPaulo } from "../engine/time.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const noStore = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -91,6 +92,26 @@ const MESSAGES: Record<string, string> = {
   erp_stock_price_decimals_exceeded: "O custo passa das casas do preço de entrada. Confira a preferência de casas decimais.",
   erp_stock_reverse_via_document: "Este lançamento é de um documento e se estorna pelo documento.",
   erp_catalog_warning_unacknowledged: "O cadastro do fornecedor tem avisos a confirmar. Cadastre-o pela tela de contatos.",
+  // Produto pelo XML, reposição e inventário.
+  inbound_product_items_invalid: "Escolha os itens da nota que viram produto (com nome, unidade, NCM, CEST e GTIN em texto).",
+  inbound_product_supplier_missing: "Cadastre o fornecedor da nota antes de cadastrar os produtos dela.",
+  erp_catalog_access_denied: "Seu papel no ERP não cadastra produtos. Peça a alguém com o papel de estoque ou ao administrador.",
+  erp_catalog_invalid_text: "Um dado do produto passa do tamanho aceito ou tem caractere inválido. Confira o nome e a unidade.",
+  erp_catalog_invalid_identifier: "O CEST ou o GTIN do produto não é válido. Corrija ou apague o campo.",
+  erp_catalog_invalid_data: "Os dados do produto não puderam ser gravados. Confira o nome, a unidade e o NCM.",
+  inbound_replenishment_denied: "Seu papel no ERP não vê pedidos de compra, por isso não vê a reposição. Peça ao administrador.",
+  inbound_replenishment_order_denied: "Seu papel no ERP não cria pedidos de compra. Peça a alguém com o papel de estoque ou ao administrador.",
+  inbound_replenishment_invalid: "Alguma escolha da reposição não é válida. Atualize a tela e confira de novo.",
+  inbound_warehouse_not_found: "O depósito escolhido não existe mais. Atualize a tela.",
+  inbound_supplier_not_found: "O fornecedor escolhido não está ativo no cadastro de contatos.",
+  inbound_inventory_date_invalid: "Escolha a data do inventário no calendário (entre 1900 e 2100).",
+  inbound_inventory_invalid: "Algum filtro do inventário não é válido. Atualize a tela.",
+  erp_stock_access_denied: "Seu papel no ERP não consulta o estoque. Peça ao administrador em Pessoas e acessos.",
+  erp_document_access_denied: "Seu papel no ERP não cria pedidos de compra. Peça a alguém com o papel de estoque ou ao administrador.",
+};
+const PRODUCT_PROBLEMS: Record<string, string> = {
+  name_missing: "falta o nome", unit_missing: "falta a unidade", already_linked: "o item já está ligado a um produto",
+  gtin_exists: "o GTIN já é de outro produto (case o item com ele)", code_exists: "o código já é de outro produto",
 };
 const BLOCKERS: Record<string, string> = {
   note_not_authorized: "a nota não está autorizada (cancelada ou denegada)",
@@ -101,6 +122,14 @@ const BLOCKERS: Record<string, string> = {
   installments_missing: "a nota não tem valor para gerar contas a pagar",
   nothing_chosen: "escolha lançar o estoque, as contas a pagar ou os dois",
   already_entered: "a nota já deu entrada",
+  order_received_before: "o pedido de compra já recebeu estes itens pela tela do pedido e a nota traz mais do que falta (desmarque o estoque ou estorne o recebimento do pedido)",
+};
+/** Quem depende da parte desligada, na mensagem de parte desligada. */
+const OFF_SUBJECT: Record<string, string> = {
+  "recebidas.buscar": "Buscar e manifestar notas pelo cofre dependem", "recebidas.manifestar": "Buscar e manifestar notas pelo cofre dependem",
+  "recebidas.produto_previa": "Cadastrar produto pela nota depende", "recebidas.criar_produto": "Cadastrar produto pela nota depende",
+  "recebidas.reposicao": "A reposição pelo estoque mínimo depende", "recebidas.gerar_pedidos": "A reposição pelo estoque mínimo depende",
+  "recebidas.inventario": "O inventário valorizado depende",
 };
 const DONE: Record<string, string> = { part_disabled: "parte desligada", role_missing: "seu papel não permite", not_chosen: "não escolhido", nothing: "nada a lançar" };
 
@@ -110,6 +139,16 @@ function rpcError(status: number, body: { code?: string; message?: string } | nu
     return new ApiError(409, "module_disabled", "Uma parte do ERP de que esta ação precisa está desligada. Peça ao administrador para ligá-la em Gestão → Módulos.");
   if (message.startsWith("inbound_blocked:"))
     return new ApiError(422, "recebidas_blocked", `Ainda não dá para dar entrada: ${message.slice(16).split(",").map((b) => BLOCKERS[b] ?? b).join("; ")}.`);
+  if (message.startsWith("inbound_product_blocked:")) {
+    const [, position, problems] = message.split(":");
+    return new ApiError(422, "recebidas_product_blocked", `O item ${position} não vira produto novo: ${(problems ?? "").split(",").map((p) => PRODUCT_PROBLEMS[p] ?? p).join("; ")}.`);
+  }
+  if (message.startsWith("inbound_replenishment_supplier_missing:"))
+    return new ApiError(422, "recebidas_supplier_missing", `O produto ${message.slice(39)} não tem fornecedor. Escolha o fornecedor na linha ou cadastre-o na aba Fornecedores do produto.`);
+  if (message.startsWith("inbound_replenishment_quantity_invalid:"))
+    return new ApiError(422, "recebidas_quantity_invalid", "Informe a quantidade a comprar maior que zero, com até 6 casas.");
+  if (message.startsWith("inbound_replenishment_product_unavailable:"))
+    return new ApiError(422, "recebidas_product_unavailable", "Um produto da sugestão foi inativado ou deixou de ser produto. Atualize a reposição.");
   if (message.startsWith("inbound_nothing_done:")) {
     const [stock, finance] = message.slice(21).split(",");
     return new ApiError(409, "recebidas_nothing_done", `Nada foi lançado: estoque (${DONE[stock] ?? stock}) e contas a pagar (${DONE[finance] ?? finance}). Ligue a parte ou peça a alguém com o papel.`);
@@ -189,6 +228,35 @@ const commandOf = (value: unknown) => {
   if (typeof value !== "string" || !UUID.test(value)) throw new ApiError(400, "invalid_request", "Informe command_id (uuid) para que repetir o pedido não duplique nada.");
   return value;
 };
+
+const uuidParam = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string" || !UUID.test(value)) throw new ApiError(400, "invalid_request", "Identificador do depósito ou do fornecedor inválido.");
+  return value;
+};
+
+/** Decimal do motor ("1234.5600") para a planilha brasileira ("1234,56"), sem zeros à direita além das casas pedidas. */
+const csvNumber = (value: string | null, keep = 2) => {
+  if (value === null || value === undefined) return "";
+  const [whole, fraction = ""] = String(value).split(".");
+  const trimmed = fraction.replace(/0+$/, "");
+  const digits = trimmed.length < keep ? fraction.slice(0, keep).padEnd(keep, "0") : trimmed;
+  return digits ? `${whole},${digits}` : whole;
+};
+const csvText = (value: unknown) => {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[";\n\r]/.test(text) || /^[=+\-@]/.test(text) ? `"${(/^[=+\-@]/.test(text) ? "'" : "") + text.replace(/"/g, '""')}"` : text;
+};
+
+/** Inventário em planilha: separador ponto e vírgula e vírgula decimal (o Excel em português abre direto). */
+function inventoryCsv(result: { filters: { date: string }; cost_visible: boolean; items: Record<string, any>[]; totals: { value: string | null } }) {
+  const head = ["Código", "Produto", "Unidade", "Depósito", "Quantidade", ...(result.cost_visible ? ["Custo médio na data", "Valor"] : [])];
+  const lines = result.items.map((i) => [csvText(i.code), csvText(i.name), csvText(i.unit), csvText(i.warehouse_name), csvNumber(i.quantity, 0),
+    ...(result.cost_visible ? [csvNumber(i.average_cost, 2), csvNumber(i.value, 2)] : [])].join(";"));
+  if (result.cost_visible) lines.push(["", "Total", "", "", "", "", csvNumber(result.totals.value, 2)].join(";"));
+  const body = "﻿" + [head.join(";"), ...lines].join("\r\n") + "\r\n";
+  return new Response(body, { headers: { ...noStore, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="inventario-${result.filters.date}.csv"` } });
+}
 
 /** XML guardado no R2 da área, conferido pelo hash do índice. */
 async function storedXml(c: Call, note: { xml: { key: string; sha256: string } | null }) {
@@ -385,7 +453,7 @@ export async function erpRecebidasRoute(env: Env, request: Request, profile: str
     const parts = (identity.parts ?? {}) as Record<string, boolean>;
     const off = operation.parts.filter((part) => PART_KEY[part] && parts[PART_KEY[part]!] !== true);
     if (off.length)
-      throw new ApiError(409, "module_disabled", `${operation.name === "recebidas.buscar" || operation.name === "recebidas.manifestar" ? "Buscar e manifestar notas pelo cofre" : "As notas recebidas"} dependem de ${off.map((p) => ERP_PART_NAMES[p]).join(" e ")} ligado. Peça ao administrador para ligar em Gestão → Módulos.`);
+      throw new ApiError(409, "module_disabled", `${OFF_SUBJECT[operation.name] ?? "As notas recebidas dependem"} de ${off.map((p) => ERP_PART_NAMES[p]).join(" e ")} ligado. Peça ao administrador para ligar em Gestão → Módulos.`);
     const c: Call = { env, profile, actor, identity, options };
     await gate(c);
     return await dispatch(c, operation, id, body, url);
@@ -441,6 +509,35 @@ async function dispatch(c: Call, operation: RecebidasOperation, id: string | und
       });
       await audit(c.env, c.actor, c.profile, "erp_recebidas.configurar", `manifestar=${saved.manifest_enabled}`, uid());
       return json(saved);
+    }
+    case "recebidas.produto_previa": {
+      const { note, xml } = await noteWithXml(c, id!);
+      const raw = url.searchParams.get("posicoes");
+      const positions = raw ? raw.split(",").map((p) => Number(p.trim())) : null;
+      if (positions && positions.some((p) => !Number.isSafeInteger(p) || p < 1 || p > 990)) throw new ApiError(400, "invalid_request", "Informe os itens pelo número na nota, separados por vírgula (por exemplo, 1,3).");
+      return json(await rpc(c, "erp_inbound_product_preview", { id, xml_sha256: note.xml.sha256, note: xml.parsed.note, ...(positions ? { items: positions.map((position) => ({ position })) } : {}) }));
+    }
+    case "recebidas.criar_produto": {
+      const { note, xml } = await noteWithXml(c, id!);
+      const result = await rpc(c, "erp_inbound_product_create", { id, xml_sha256: note.xml.sha256, note: xml.parsed.note, command_id: commandOf(body.command_id), items: body.itens ?? [] });
+      if (!result.replayed) await audit(c.env, c.actor, c.profile, "erp_recebidas.produto", `${note.access_key} ${result.created.length}`, uid());
+      return json(result, result.replayed ? 200 : 201);
+    }
+    case "recebidas.reposicao": {
+      const q = url.searchParams;
+      return json(await rpc(c, "erp_inbound_replenishment", { warehouse_id: uuidParam(q.get("deposito")), supplier_id: uuidParam(q.get("fornecedor")), only_below: q.get("todos") !== "1" }));
+    }
+    case "recebidas.gerar_pedidos": {
+      const result = await rpc(c, "erp_inbound_replenishment_generate", { command_id: commandOf(body.command_id), warehouse_id: uuidParam(body.deposito ?? null), items: body.itens ?? [] });
+      if (!result.replayed) await audit(c.env, c.actor, c.profile, "erp_recebidas.reposicao", `${result.orders.length} pedidos`, uid());
+      return json(result, result.replayed ? 200 : 201);
+    }
+    case "recebidas.inventario": {
+      const q = url.searchParams;
+      const result = await rpc(c, "erp_inbound_inventory", { date: q.get("data") ?? todayInSaoPaulo(), warehouse_id: uuidParam(q.get("deposito")), include_zero: q.get("zerados") === "1" });
+      if (q.get("formato") === "csv") return inventoryCsv(result);
+      if (q.get("formato") !== null) throw new ApiError(400, "invalid_request", "O formato do inventário é csv (planilha) ou nenhum (tela).");
+      return json(result);
     }
   }
   throw new ApiError(404, "not_found", "Operação não encontrada.");

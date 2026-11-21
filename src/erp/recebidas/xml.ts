@@ -123,6 +123,7 @@ export function parseInboundXml(xml: string): ParsedInbound {
         if (code) lots.push({ code: code.slice(0, 60), quantity: at(n as El, "qLote"), manufactured_on: day(at(n as El, "dFab")), expires_on: day(at(n as El, "dVal")) });
       }
     }
+    const cest = at(prod, "CEST");
     const position = Number(det.getAttribute("nItem") ?? i + 1);
     if (!Number.isSafeInteger(position) || position < 1 || position > 990) fail("xml_item_invalid", `O número do item ${i + 1} do XML não é válido.`);
     items.push({
@@ -131,6 +132,8 @@ export function parseInboundXml(xml: string): ParsedInbound {
       gtin: gtin && /^([0-9]{8}|[0-9]{12,14})$/.test(gtin) ? gtin : null,
       description: (at(prod, "xProd") ?? "").slice(0, 120) || `Item ${position}`,
       ncm: at(prod, "NCM"),
+      // CEST só entra quando a nota traz (a chave não aparece nas outras).
+      ...(cest && /^[0-9]{7}$/.test(cest) ? { cest } : {}),
       cfop: at(prod, "CFOP") ?? "",
       unit: (at(prod, "uCom") ?? "UN").slice(0, 6),
       quantity: quantity(at(prod, "qCom")),

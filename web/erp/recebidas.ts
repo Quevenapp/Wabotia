@@ -7,7 +7,8 @@ export interface RecebidasAccess {
   role: string | null;
   admin: boolean;
   demo: boolean;
-  parts: { purchases: boolean; stock: boolean; finance: boolean; fiscal: boolean };
+  /** products: Produtos (cadastrar produto pela nota); ausente conta como ligado e o servidor confere. */
+  parts: { purchases: boolean; stock: boolean; finance: boolean; fiscal: boolean; products?: boolean };
 }
 
 export class RecebidasError extends Error {
@@ -58,7 +59,45 @@ export interface NotesPage {
 }
 export interface Review { note: ReceivedNote; review: any | null; missing_xml: boolean }
 
+/** Produto proposto a partir do item da nota (src/erp/domains/inbound/rpc.ts, productProposal). */
+export interface ProductProposal {
+  position: number; supplier_code: string; description: string; note_unit: string; quantity: string;
+  proposal: { name: string; code: string | null; unit: string; ncm: string | null; cest: string | null; gtin: string | null; purchase_price: string; cost_price: string };
+  existing: { id: string; name: string; code: string | null } | null;
+  problems: string[]; notices: string[];
+}
+export interface ProductPreview { supplier: { id: string; name: string } | null; can_create: boolean; blockers: string[]; items: ProductProposal[] }
+export interface ProductInput { position: number; name?: string; code?: string | null; unit?: string; ncm?: string | null; cest?: string | null; gtin?: string | null }
+
+/** Reposição pelo mínimo e máximo (src/erp/domains/inbound/replenishment.ts). */
+export interface ReplenishmentItem {
+  product_id: string; code: string | null; name: string; unit: string | null; stock_min: string | null; stock_max: string | null;
+  balance: string; ordered: string; orders: { id: string; number: string | null; quantity: string }[]; below_min: boolean; suggestion: string;
+  covered_by_orders: boolean; supplier_id: string | null; supplier_name: string | null; suppliers: { id: string; name: string }[];
+  unit_price: string | null; price_source: string | null; value: string | null;
+}
+export interface Replenishment {
+  filters: { warehouse_id: string | null; supplier_id: string | null; only_below: boolean }; can_order: boolean;
+  warehouses: { id: string; name: string }[]; total: number; items: ReplenishmentItem[];
+  totals: { below_min: number; to_buy: number; without_supplier: number; value: string };
+}
+export interface GeneratedOrders { orders: { document_id: string; number: string | number | null; supplier_id: string; supplier_name: string | null; items: number; replayed: boolean }[]; replayed: boolean }
+export interface Inventory {
+  filters: { date: string; warehouse_id: string | null; include_zero: boolean }; cost_visible: boolean; cost_basis: string;
+  warehouses_available: { id: string; name: string }[]; total: number;
+  items: { product_id: string; code: string | null; name: string; unit: string | null; warehouse_id: string; warehouse_name: string; ignored: boolean; quantity: string; average_cost: string | null; value: string | null }[];
+  warehouses: { warehouse_id: string; name: string; products: number; value: string | null }[];
+  totals: { value: string | null; uncosted: number | null };
+}
+export interface InventoryQuery { data: string; deposito?: string | null; zerados?: boolean }
+
 const uuid = () => crypto.randomUUID();
+const inventoryQuery = (query: InventoryQuery) => {
+  const q = new URLSearchParams({ data: query.data });
+  if (query.deposito) q.set("deposito", query.deposito);
+  if (query.zerados) q.set("zerados", "1");
+  return q.toString();
+};
 
 export interface RecebidasPort {
   access(): RecebidasAccess;
@@ -76,6 +115,15 @@ export interface RecebidasPort {
   xmlUrl(id: string): string;
   /** Um identificador novo por intenção (repetir o mesmo pedido não duplica nada no servidor). */
   command(): string;
+  /** Produto pelo XML: prévia dos itens sem produto (ou dos escolhidos) e o cadastro. */
+  productPreview?(id: string, positions?: number[], signal?: AbortSignal): Promise<ProductPreview>;
+  createProducts?(id: string, command: string, items: ProductInput[]): Promise<{ created: { position: number; product: { id: string; name: string; code: string | null } }[]; replayed: boolean }>;
+  /** Reposição pelo estoque mínimo e máximo e os pedidos de compra gerados. */
+  replenishment?(query: { deposito?: string | null; fornecedor?: string | null; todos?: boolean }, signal?: AbortSignal): Promise<Replenishment>;
+  generateOrders?(command: string, input: { deposito?: string | null; itens: { product_id: string; quantity: string; supplier_id?: string | null }[] }): Promise<GeneratedOrders>;
+  /** Inventário valorizado numa data (tela e planilha). */
+  inventory?(query: InventoryQuery, signal?: AbortSignal): Promise<Inventory>;
+  inventoryCsvUrl?(query: InventoryQuery): string;
 }
 
 export function createRecebidasPort(profile: string, options: { access: () => RecebidasAccess; fetch?: typeof fetch }): RecebidasPort {
@@ -133,5 +181,17 @@ export function createRecebidasPort(profile: string, options: { access: () => Re
     saveSettings: (input) => request("PUT", "configuracao", input),
     xmlUrl: (note) => `${base}/notas/${id(note)}/xml`,
     command: uuid,
+    productPreview: (note, positions, signal) => request("GET", `notas/${id(note)}/produto${positions?.length ? `?posicoes=${positions.join(",")}` : ""}`, undefined, signal),
+    createProducts: (note, command, items) => request("POST", `notas/${id(note)}/produto`, { command_id: command, itens: items }),
+    replenishment: (query, signal) => {
+      const q = new URLSearchParams();
+      if (query.deposito) q.set("deposito", query.deposito);
+      if (query.fornecedor) q.set("fornecedor", query.fornecedor);
+      if (query.todos) q.set("todos", "1");
+      return request("GET", `reposicao${q.size ? `?${q}` : ""}`, undefined, signal);
+    },
+    generateOrders: (command, input) => request("POST", "reposicao/pedidos", { command_id: command, deposito: input.deposito ?? null, itens: input.itens }),
+    inventory: (query, signal) => request("GET", `inventario?${inventoryQuery(query)}`, undefined, signal),
+    inventoryCsvUrl: (query) => `${base}/inventario?${inventoryQuery(query)}&formato=csv`,
   };
 }

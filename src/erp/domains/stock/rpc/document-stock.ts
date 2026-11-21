@@ -21,6 +21,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, todaySaoPaulo, validDate } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
+import { inboundPostedForDocument } from "../../inbound/public.ts";
 import { updateDocument } from "../../documents/public.ts";
 import * as preferences from "../../preferences/public.ts";
 import { guardCom1DirectReverse, requireCom1Posting } from "../../fiscal/comnfe/effect-policy.ts";
@@ -294,6 +295,8 @@ export function documentPreviewData(ctx: RpcContext, d: Row, day: string | null,
   if (one(db, `SELECT 1 x FROM "erp_stock__document_posting" WHERE document_id=? AND state='active'`, d.id)) raise("40001", "erp_document_stock_already_posted");
   // 259: o pedido cuja nota lançou o estoque não lança de novo.
   if (invoicePostedForDocument(db, String(d.id))) raise("40001", "erp_document_stock_posted_by_invoice");
+  // Compra pela nota: o pedido que a nota recebida baixou (lançando o estoque) não lança de novo.
+  if (inboundPostedForDocument(db, String(d.id))) raise("40001", "erp_document_stock_posted_by_inbound");
   // As travas do Postgres (catálogo, componentes e lotes, em ordem de id) não
   // existem no SQLite; a dos lotes lê os lotes de todos os itens e recusa os
   // inválidos antes do depósito.
