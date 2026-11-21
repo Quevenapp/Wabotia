@@ -1312,6 +1312,13 @@ const erpBoleto = async (c: any) => {
   return erpBoletoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 };
 app.all("/api/v1/profiles/:profile/erp-boleto/*", erpBoleto);
+// Maquininha integrada ao caixa (Caixa / PDV: cobrança enviada pela nuvem ao
+// terminal, Mercado Pago Point primeiro): src/erp/terminal/routes.ts.
+const erpTerminal = async (c: any) => {
+  const { erpTerminalRoute } = await import("./erp/terminal/routes");
+  return erpTerminalRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-maquininha/*", erpTerminal);
 // Campos próprios de contato do ERP (Preferências › Cadastros, cadastro, lista,
 // ficha do atendimento e bots): src/erp/contact-fields/routes.ts.
 const erpContactFields = async (c: any) => {
@@ -3352,6 +3359,13 @@ app.post("/webhooks/payments/:provider/:account", async (c) => {
 app.post("/webhooks/boleto/:token", async (c) => {
   const { erpBoletoWebhookRoute } = await import("./erp/boleto-api/routes");
   return erpBoletoWebhookRoute(c.env, c.req.raw, c.req.param("token"), c.req.header("CF-Connecting-IP") || "local");
+});
+// Aviso do provedor da maquininha integrada ao caixa (docs/MAQUININHA.md): o
+// código do endereço identifica a área, a assinatura é conferida e o
+// pagamento só vale depois da consulta ao provedor (src/erp/terminal/service.ts).
+app.post("/webhooks/maquininha/:token", async (c) => {
+  const { erpTerminalWebhookRoute } = await import("./erp/terminal/routes");
+  return erpTerminalWebhookRoute(c.env, c.req.raw, c.req.param("token"), c.req.header("CF-Connecting-IP") || "local");
 });
 // Telegram was removed. A bot still pointing here gets a final answer.
 app.post("/webhooks/telegram/:id", () => {

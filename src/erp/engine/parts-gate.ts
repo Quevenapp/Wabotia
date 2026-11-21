@@ -49,6 +49,8 @@ const RPC_GROUPS = {
     erp_reconciliation_bank_candidates erp_reconciliation_bank_action erp_reconciliation_rule_save erp_reconciliation_layout_save
     erp_reconciliation_card_import erp_reconciliation_card_lines erp_reconciliation_card_candidates erp_reconciliation_card_action
     erp_reconciliation_card_receive erp_reconciliation_card_rate_save`,
+  // Pagamento aprovado na maquininha integrada ao caixa entrando na conciliação de cartões: Financeiro e o PDV.
+  reconciliation_terminal: `erp_reconciliation_card_terminal`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
     erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
@@ -223,6 +225,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   contracts: ["erp-contratos"],
   stores: ["erp"],
   reconciliation: ["erp-financeiro"],
+  reconciliation_terminal: ["erp-financeiro", "erp-pdv"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],

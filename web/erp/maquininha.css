@@ -1,0 +1,15 @@
+/* Maquininha integrada ao caixa: o diálogo da Frente de caixa (MaquininhaCaixa.tsx) e a preferência (MaquininhaSettings.tsx). */
+.fagoo-root .maquininha-caixa, .fagoo-root .maquininha-preferencia { display: flex; flex-direction: column; gap: 8px; }
+.fagoo-root .maquininha-caixa p, .fagoo-root .maquininha-preferencia p { margin: 0; }
+.fagoo-root .maquininha-caixa label, .fagoo-root .maquininha-preferencia label { display: flex; flex-direction: column; gap: 4px; }
+.fagoo-root .maquininha-valor { font-size: 1.1rem; }
+.fagoo-root .maquininha-situacao { display: flex; flex-direction: column; gap: 4px; border: 1px solid #e4e7ec; border-radius: 6px; padding: 10px 12px; }
+.fagoo-root .maquininha-aguardando, .fagoo-root .maquininha-processando, .fagoo-root .maquininha-enviando, .fagoo-root .maquininha-incerto { border-color: #fdb022; background: #fffaeb; }
+.fagoo-root .maquininha-aprovado { border-color: #32d583; background: #ecfdf3; }
+.fagoo-root .maquininha-recusado, .fagoo-root .maquininha-cancelado, .fagoo-root .maquininha-erro { border-color: #fda29b; background: #fef3f2; }
+.fagoo-root .maquininha-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.fagoo-root .maquininha-preferencia { max-width: 720px; padding: 0 24px 24px; margin-top: 12px; }
+.fagoo-root .maquininha-preferencia h2 { margin: 0; font-size: 1.1rem; }
+.fagoo-root .maquininha-caixas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fagoo-root .maquininha-caixas li { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid #e4e7ec; padding-top: 8px; }
+.fagoo-root .maquininha-preferencia input[readonly] { font-family: monospace; }

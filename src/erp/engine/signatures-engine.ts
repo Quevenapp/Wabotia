@@ -178,6 +178,8 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_reconciliation_card_action: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   erp_reconciliation_card_receive: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   erp_reconciliation_card_rate_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  // Maquininha integrada ao caixa (src/erp/domains/reconciliation/terminal.ts).
+  erp_reconciliation_card_terminal: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],
