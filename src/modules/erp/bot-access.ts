@@ -23,6 +23,7 @@ import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpSh
 import { ERP_FREIGHT_OPERATIONS, erpFreightParams } from "../../erp/frete/contract.ts";
 import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams } from "../../erp/lojas/contract.ts";
 import { ERP_BOLETO_OPERATIONS, ERP_BOLETO_PART, ERP_BOLETO_ROUTE, erpBoletoParams } from "../../erp/boleto-api/contract.ts";
+import { ERP_CONCILIACAO_PART, ERP_CONCILIACAO_ROUTE, ERP_RECONCILIATION_OPERATIONS, erpReconciliationParams } from "../../erp/conciliacao/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -40,6 +41,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "expedicao", title: "Expedição" },
   { id: "frete", title: "Frete e rastreio" },
   { id: "lojas", title: "Lojas e filiais" },
+  { id: "conciliacao", title: "Conciliação bancária e de cartões" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -159,6 +161,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // registrar, alterar o vencimento, baixar e confirmar a baixa são sensíveis. PDF, interruptores e conta financeira, só pela tela.
   ...ERP_BOLETO_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "cobranca", description: op.description, params: erpBoletoParams(op) })),
+  // Conciliação: consultar as pendências é leitura comum; conciliar uma linha do extrato e receber o cartão na conta (baixas) são sensíveis.
+  ...ERP_RECONCILIATION_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "conciliacao", description: op.description, params: erpReconciliationParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -186,6 +191,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path === ERP_LOJAS_ROUTE || op.path.startsWith(`${ERP_LOJAS_ROUTE}/`)) return erpRequirement(ERP_LOJAS_PART).all;
   // Boleto pela API do banco: a Cobrança bancária (com o Financeiro).
   if (op.path.startsWith(`${ERP_BOLETO_ROUTE}/`)) return erpRequirement(ERP_BOLETO_PART).all;
+  // Conciliação: a parte Financeiro.
+  if (op.path.startsWith(`${ERP_CONCILIACAO_ROUTE}/`)) return erpRequirement(ERP_CONCILIACAO_PART).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }

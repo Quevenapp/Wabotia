@@ -9,6 +9,7 @@ import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
 import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
 import { ERP_BOLETO_MODULE_CONTRACT } from "../../erp/boleto-api/contract.ts";
+import { ERP_CONCILIACAO_MODULE_CONTRACT } from "../../erp/conciliacao/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -81,7 +82,13 @@ export const erpComprasModule: ModuleDefinition = {
   routes: ["erp-recebidas"],
 };
 export const erpEstoqueModule = definition("erp-estoque", "Depósitos, saldos, movimentos, reservas, lotes, composições físicas e inventário.");
-export const erpFinanceiroModule = definition("erp-financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões.");
+// Conciliação bancária e de cartões (src/erp/conciliacao/contract.ts): extrato OFX ou planilha, sugestões, cartão e taxas.
+export const erpFinanceiroModule: ModuleDefinition = {
+  ...definition("erp-financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões."),
+  routes: [...ERP_CONCILIACAO_MODULE_CONTRACT.routes],
+  operations: [...ERP_CONCILIACAO_MODULE_CONTRACT.operations],
+  bot: ERP_CONCILIACAO_MODULE_CONTRACT.definition.bot,
+};
 export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),
   // Para o contador (src/erp/contador/contract.ts): as operações nfe.contador.* já são do prefixo nfe.

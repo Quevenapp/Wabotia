@@ -11,6 +11,7 @@ import type { RecebidasPort } from "./recebidas";
 import type { ProducaoPort } from "./producao";
 import type { ExpedicaoPort } from "./expedicao-api";
 import type { LojasPort } from "./lojas-api";
+import type { ConciliacaoPort } from "./conciliacao-api";
 
 export type ErpPorts = {
   /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
@@ -72,6 +73,8 @@ export type ErpPorts = {
   expedicao?: ExpedicaoPort;
   /** Cadastros › Lojas e filiais e a barra "Loja em uso" (web/erp/lojas-api.ts). */
   lojas?: LojasPort;
+  /** Financeiro › Conciliação bancária e Conciliação de cartões (web/erp/conciliacao-api.ts). */
+  conciliacao?: ConciliacaoPort;
 };
 
 let current: ErpPorts | null = null;

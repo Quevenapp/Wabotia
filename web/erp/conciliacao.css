@@ -1,0 +1,53 @@
+.fagoo-root .conciliacao { max-width: 1280px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .conciliacao h1 { margin-bottom: .35rem; }
+.fagoo-root .conciliacao h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
+.fagoo-root .conciliacao h3 { font-size: 1rem; margin: .6rem 0 .3rem; }
+.fagoo-root .conciliacao p { line-height: 1.55; }
+.fagoo-root .conciliacao-tabs, .fagoo-root .conciliacao-toolbar, .fagoo-root .conciliacao-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; margin: 1rem 0; }
+.fagoo-root .conciliacao button { font: inherit; padding: .5rem .8rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .conciliacao button.conciliacao-primary { background: #23508f; border-color: #23508f; color: #fff; }
+.fagoo-root .conciliacao button[aria-pressed="true"] { background: #dbe7f8; border-color: #23508f; font-weight: 600; }
+.fagoo-root .conciliacao button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .conciliacao button:focus-visible, .fagoo-root .conciliacao input:focus-visible, .fagoo-root .conciliacao select:focus-visible, .fagoo-root .conciliacao summary:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .conciliacao label { display: block; margin: 0 0 .3rem; line-height: 1.5; }
+.fagoo-root .conciliacao label.conciliacao-check { display: flex; align-items: center; gap: .4rem; }
+.fagoo-root .conciliacao select, .fagoo-root .conciliacao input:not([type="checkbox"]) { display: block; max-width: 100%; padding: .45rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .conciliacao-card { border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: 1rem; margin: 1rem 0; background: var(--surface, #fff); }
+.fagoo-root .conciliacao-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: .5rem .8rem; }
+.fagoo-root .conciliacao-mapping summary { cursor: pointer; font-weight: 600; margin: .4rem 0; }
+.fagoo-root .conciliacao-table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-variant-numeric: tabular-nums; }
+.fagoo-root .conciliacao-table th, .fagoo-root .conciliacao-table td { text-align: left; vertical-align: top; padding: .5rem; border-bottom: 1px solid var(--border, #e3e8ef); }
+.fagoo-root .conciliacao-table .num { text-align: right; white-space: nowrap; }
+.fagoo-root .conciliacao-table td.out { color: #9b1c1c; }
+.fagoo-root .conciliacao-table td.in { color: #17603a; }
+.fagoo-root .conciliacao-table small { display: block; color: var(--text-muted, #5a6878); margin-top: .2rem; }
+.fagoo-root .conciliacao-table tr.reconciled td, .fagoo-root .conciliacao-table tr.received td { background: #f3faf5; }
+.fagoo-root .conciliacao-table tr.ignored td, .fagoo-root .conciliacao-muted { color: var(--text-muted, #5a6878); }
+.fagoo-root .conciliacao-table tr.conciliacao-more td { background: var(--surface-alt, #f7f9fc); }
+.fagoo-root .conciliacao-table tr.conciliacao-more li { margin: .3rem 0; }
+.fagoo-root .conciliacao-table tr.conciliacao-more li button { margin-left: .6rem; }
+.fagoo-root .conciliacao-row-actions { display: flex; flex-wrap: wrap; gap: .35rem; }
+.fagoo-root .conciliacao-link { display: block; }
+.fagoo-root .conciliacao-confidence { display: inline-block; padding: .05rem .5rem; border-radius: 1rem; font-size: .85em; white-space: nowrap; background: #eef2f7; }
+.fagoo-root .conciliacao-confidence.high { background: #e3f4ea; color: #174b32; }
+.fagoo-root .conciliacao-confidence.medium { background: #fff4d6; color: #6b4b00; }
+.fagoo-root .conciliacao-confidence.low { background: #fbe9e9; color: #7a1f1f; }
+.fagoo-root .conciliacao .conciliacao-diff, .fagoo-root .conciliacao-table tr.conciliacao-diff td { background: #fff1f0; color: #8a1c13; }
+.fagoo-root .conciliacao-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .8rem; }
+.fagoo-root .conciliacao-summary > div { padding: .4rem .6rem; border-radius: .4rem; }
+.fagoo-root .conciliacao-summary span { display: block; color: var(--text-muted, #5a6878); font-size: .9em; }
+.fagoo-root .conciliacao-summary strong { font-size: 1.2rem; }
+.fagoo-root .conciliacao-summary small { display: block; }
+.fagoo-root .conciliacao-coming { grid-column: 1 / -1; }
+.fagoo-root .conciliacao-coming summary { cursor: pointer; font-weight: 600; }
+.fagoo-root .conciliacao-hint { color: var(--text-muted, #5a6878); }
+.fagoo-root .conciliacao-error { color: #9b1c1c; font-weight: 600; }
+.fagoo-root .conciliacao-notice { color: #17603a; font-weight: 600; }
+.fagoo-root .conciliacao-warning { color: #6b4b00; background: #fff8e6; padding: .5rem .7rem; border-radius: .35rem; }
+.fagoo-root .conciliacao .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+@media (max-width: 720px) {
+  .fagoo-root .conciliacao-lines thead { display: none; }
+  .fagoo-root .conciliacao-lines tr { display: block; border-bottom: 1px solid var(--border, #e3e8ef); padding: .4rem 0; }
+  .fagoo-root .conciliacao-lines td { display: block; border: 0; padding: .2rem .5rem; }
+  .fagoo-root .conciliacao-table .num { text-align: left; }
+}

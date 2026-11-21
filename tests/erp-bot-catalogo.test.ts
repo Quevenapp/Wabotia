@@ -57,7 +57,7 @@ describe("catálogo do bot com as operações nominais do ERP", () => {
   it("o catálogo comum continua sem o repasse; o inventário tem assunto e descrição", () => {
     expect(fullCatalog().some(op => op.path.startsWith("erp/v1/"))).toBe(false);
     for (const op of ERP_BOT_OPERATIONS) {
-      expect(op.group, op.id).toMatch(/^(negocio|financeiro|cobranca|nfe|importacao|atividades|bling|backup|conversa|producao|expedicao|frete|lojas)$/);
+      expect(op.group, op.id).toMatch(/^(negocio|financeiro|cobranca|nfe|importacao|atividades|bling|backup|conversa|producao|expedicao|frete|lojas|conciliacao)$/);
       expect(op.description.length, op.id).toBeGreaterThan(10);
       expect(op.description, op.id).not.toMatch(/\.mjs\b/);
     }
@@ -141,7 +141,7 @@ describe("catálogo do bot com as operações nominais do ERP", () => {
     const response = await internalCall(env, f.admin, { path: `/profiles/${f.profile}/bots/erp-operations` });
     const body = await response.json<any>();
     expect(response.status, JSON.stringify(body)).toBe(200);
-    expect(body.groups.map((group: any) => group.id)).toEqual(["negocio", "financeiro", "cobranca", "nfe", "importacao", "atividades", "bling", "backup", "conversa", "producao", "expedicao", "frete", "lojas"]);
+    expect(body.groups.map((group: any) => group.id)).toEqual(["negocio", "financeiro", "cobranca", "nfe", "importacao", "atividades", "bling", "backup", "conversa", "producao", "expedicao", "frete", "lojas", "conciliacao"]);
     const all = body.groups.flatMap((group: any) => group.operations);
     expect(all.map((op: any) => op.id).sort()).toEqual(ERP_BOT_OPERATIONS.map(op => op.id).sort());
     expect(all.find((op: any) => op.id === "erp.activity.list")).toMatchObject({ kind: "read", sensitive: true, autonomous: true });

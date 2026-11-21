@@ -138,6 +138,22 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_store_assign: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   erp_store_operations: [["p_user_id", "u"], ["p_args", "j"]],
   erp_store_report: [["p_user_id", "u"], ["p_args", "j"]],
+  // Conciliação bancária e de cartões (structural.ts, conciliacao; src/erp/domains/reconciliation/rpc.ts):
+  // consultas com p_args; gravações com p_command_id.
+  erp_reconciliation_overview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_preview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_bank_import: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_bank_lines: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_bank_candidates: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_bank_action: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_rule_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_layout_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_import: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_lines: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_candidates: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_action: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_receive: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_reconciliation_card_rate_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

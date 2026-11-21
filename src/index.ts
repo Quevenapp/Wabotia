@@ -1345,6 +1345,13 @@ app.all("/api/v1/profiles/:profile/erp-lojas/*", async (c: any) => {
   const { erpLojasRoute } = await import("./erp/lojas/routes");
   return erpLojasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Conciliação do ERP (extrato do banco em OFX ou planilha, sugestões, conciliar,
+// baixar, lançar, ignorar e desfazer; extrato da adquirente, taxas e recebimento
+// do cartão): parte Financeiro (src/erp/conciliacao/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-conciliacao/*", async (c: any) => {
+  const { erpConciliacaoRoute } = await import("./erp/conciliacao/routes");
+  return erpConciliacaoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
