@@ -28,46 +28,54 @@ final class ServiceNavigationTests: XCTestCase {
         XCTAssertEqual(settings?.tab, "conversations", "Ajustes não é mais aba: abre por cima")
         XCTAssertEqual(launch("service")?.tab, "service")
         XCTAssertEqual(launch("atendimento")?.tab, "service")
-        let erp = launch("erp-order")
-        XCTAssertEqual(erp?.tab, "service")
-        XCTAssertEqual(erp?.route, .erpOrder)
+        let caixa = launch("caixa")
+        XCTAssertEqual(caixa?.tab, "service")
+        XCTAssertEqual(caixa?.route, .caixa)
         XCTAssertEqual(launch("os")?.tab, "service")
         XCTAssertNotNil(HomeTab(rawValue: launch("counter")?.tab ?? ""))
     }
 
     // MARK: O que a aba Atendimento mostra
 
-    func testAttendanceListsEnabledModulesManagementAndLines() {
-        let modules: Set<String> = Set(["queue", "agenda", "os", "reserva", "mensalidade", "pedido"]).union(erpParts)
-        let erp = ErpAccess.of(modules: modules, grants: [], isAdmin: true)
-        let entries = ServiceHub.entries(modules: modules, erp: erp, isAdmin: true)
+    func testAttendanceListsEnabledModulesBasicsAssistantAndLines() {
+        let modules: Set<String> = Set(["queue", "agenda", "os", "reserva", "mensalidade", "pedido", "mesas", "entrega"]).union(erpParts)
+        let entries = ServiceHub.entries(modules: modules, grants: [], isAdmin: true)
         XCTAssertEqual(entries.map(\.id), [
-            "counter", "agenda", "os", "reserva", "mensalidade", "pedido",
-            "erp.customers", "erp.products", "erp.order", "erp.bills",
+            "counter", "agenda", "mensalidade", "reserva", "mesas", "entrega", "pedido", "os",
+            "caixa", "clientes", "equipamentos",
+            "assistente", "web",
             "lines", "menus", "bot-lines",
         ])
         XCTAssertEqual(entries.first { $0.id == "counter" }?.route, .counter)
         XCTAssertEqual(entries.first { $0.id == "os" }?.route, .serviceOrders)
-        XCTAssertEqual(entries.first { $0.id == "erp.customers" }?.route, .erpCustomers)
-        XCTAssertEqual(entries.first { $0.id == "erp.order" }?.route, .erpOrder)
+        XCTAssertEqual(entries.first { $0.id == "caixa" }?.route, .caixa)
+        XCTAssertEqual(entries.first { $0.id == "assistente" }?.route, .assistente)
+        XCTAssertEqual(entries.first { $0.id == "web" }?.webPath, "/app/erp")
         XCTAssertEqual(entries.first { $0.id == "menus" }?.route, .menus)
-        XCTAssertEqual(ServiceHub.sections(entries).map(\.section), [.modules, .management, .lines])
+        XCTAssertEqual(ServiceHub.sections(entries).map(\.section), [.modules, .daily, .assistant, .lines])
+        XCTAssertFalse(entries.contains { $0.id.hasPrefix("erp.") }, "o ERP saiu do app")
     }
 
     func testAttendanceHidesWhatIsOffOrNotAllowed() {
-        let bare = ServiceHub.entries(modules: [], erp: nil, isAdmin: false)
-        XCTAssertEqual(bare.map(\.id), ["lines"])
-        XCTAssertEqual(ServiceHub.sections(bare).map(\.section), [.lines])
-        let os = ServiceHub.entries(modules: ["os"], erp: ErpAccess.of(modules: ["os"], grants: ["erp:vendas"], isAdmin: false), isAdmin: false)
-        XCTAssertEqual(os.map(\.id), ["os", "lines"])
-        let vendas = ErpAccess.of(modules: erpParts, grants: ["erp:vendas"], isAdmin: false)
-        XCTAssertEqual(ServiceHub.entries(modules: erpParts, erp: vendas, isAdmin: false).map(\.id), ["erp.customers", "erp.products", "erp.order", "lines"])
-        let onlyCustomers = ServiceHub.entries(modules: ["erp"], erp: ErpAccess.of(modules: ["erp"], grants: [], isAdmin: true), isAdmin: true).map(\.id)
-        XCTAssertTrue(onlyCustomers.contains("erp.customers"))
-        XCTAssertFalse(onlyCustomers.contains("erp.products"))
+        let bare = ServiceHub.entries(modules: [], grants: [], isAdmin: false)
+        XCTAssertEqual(bare.map(\.id), ["clientes", "equipamentos", "assistente", "web", "lines"])
+        XCTAssertEqual(bare.first { $0.id == "web" }?.webPath, "/app/gestao/inicio")
+        let os = ServiceHub.entries(modules: ["os"], grants: ["erp:vendas"], isAdmin: false).map(\.id)
+        XCTAssertTrue(os.contains("os"))
+        XCTAssertFalse(os.contains("caixa"))
+        XCTAssertFalse(ServiceHub.entries(modules: erpParts, grants: ["erp:vendas"], isAdmin: false).map(\.id).contains("caixa"))
+        XCTAssertTrue(ServiceHub.entries(modules: erpParts, grants: ["erp:financeiro"], isAdmin: false).map(\.id).contains("caixa"))
+        XCTAssertFalse(ServiceHub.entries(modules: erpParts.subtracting(["erp-financeiro"]), grants: [], isAdmin: true).map(\.id).contains("caixa"))
     }
 
-    // MARK: Gestão para o administrador de verdade
+    func testWebPanelAddressesUseTheSessionServer() {
+        XCTAssertEqual(WebPanel.url(server: "https://loja.exemplo/", path: "/app/erp")?.absoluteString, "https://loja.exemplo/app/erp")
+        XCTAssertNil(WebPanel.url(server: nil, path: "/app/erp"))
+        XCTAssertNil(WebPanel.url(server: DemoMode.serverURL.absoluteString, path: "/app/erp"), "a demonstração não tem painel")
+        XCTAssertEqual(WebPanel.cash, "/app/erp/financeiro-empresa?area=controle-caixa")
+    }
+
+    // MARK: O administrador de verdade
 
     /// O que o servidor manda hoje para um administrador (src/modules/capabilities.ts): sem papel erp:* em `grants`.
     private var adminCapabilities: [String: Any] {
@@ -82,7 +90,7 @@ final class ServiceNavigationTests: XCTestCase {
         ]
     }
 
-    func testAdminSeesManagementFromWhatTheServerSends() {
+    func testAdminSeesAdminEntriesFromWhatTheServerSends() {
         let json = adminCapabilities
         let modules = ModuleCapabilities.enabledIds(json, profileId: "p1") ?? []
         let grants = ModuleCapabilities.grants(json, profileId: "p1")
@@ -91,26 +99,24 @@ final class ServiceNavigationTests: XCTestCase {
         // Login gravado como atendente (promovido depois): o papel atual do servidor vale.
         let admin = AdminRole.isAdmin(serverRole: ModuleCapabilities.actorRole(json), sessionIsAdmin: false)
         XCTAssertTrue(admin)
-        let erp = ErpAccess.of(modules: modules, grants: grants, isAdmin: admin)
-        XCTAssertEqual(erp?.role, .admin, "Gestão aparece para o administrador sem papel erp:*")
-        let ids = ServiceHub.entries(modules: modules, erp: erp, isAdmin: admin).map(\.id)
-        XCTAssertTrue(["erp.customers", "erp.products", "erp.order"].allSatisfy(ids.contains))
-        XCTAssertFalse(ids.contains("erp.bills"), "Financeiro desligado: sem Contas")
+        let ids = ServiceHub.entries(modules: modules, grants: grants, isAdmin: admin).map(\.id)
+        XCTAssertTrue(["counter", "assistente", "web", "menus", "bot-lines"].allSatisfy(ids.contains))
+        XCTAssertFalse(ids.contains("caixa"), "Financeiro desligado: sem caixa")
     }
 
     @MainActor
     func testModuleFeatureUsesTheCurrentServerRole() {
         let feature = ModuleFeature()
-        feature.apply(["erp", "erp-produtos"], profile: "p1")
+        feature.apply(["erp", "erp-financeiro"], profile: "p1")
         feature.applyGrants([], profile: "p1")
-        XCTAssertNil(feature.erpAccess("p1", isAdmin: false), "sem papel e sem administrador: some")
+        XCTAssertFalse(feature.cashAllowed("p1", isAdmin: false), "sem papel e sem administrador: some")
         feature.applyRole("admin", profile: "p1")
-        XCTAssertEqual(feature.erpAccess("p1", isAdmin: false)?.role, .admin, "promovido depois do login: aparece")
+        XCTAssertTrue(feature.cashAllowed("p1", isAdmin: false), "promovido depois do login: aparece")
         XCTAssertTrue(feature.isAdmin("p1", sessionIsAdmin: false))
         feature.applyRole("operator", profile: "p1")
-        XCTAssertNil(feature.erpAccess("p1", isAdmin: true), "rebaixado depois do login: some")
+        XCTAssertFalse(feature.cashAllowed("p1", isAdmin: true), "rebaixado depois do login: some")
         feature.applyRole(nil, profile: "p1")
-        XCTAssertEqual(feature.erpAccess("p1", isAdmin: true)?.role, .admin, "servidor antigo sem actor: vale o do login")
+        XCTAssertTrue(feature.cashAllowed("p1", isAdmin: true), "servidor antigo sem actor: vale o do login")
     }
 
     func testCurrentServerRoleWinsOverTheStoredOne() {
@@ -129,14 +135,15 @@ final class ServiceNavigationTests: XCTestCase {
         XCTAssertNil(ModuleCapabilities.actorRole(["actor": ["kind": "user", "role": ""]]))
     }
 
-    func testPersonWithoutErpRoleNeverSeesManagement() {
+    func testPersonWithoutFinanceRoleNeverSeesTheCash() {
         let json: [String: Any] = [
             "actor": ["kind": "user", "role": "operator"],
-            "profiles": [["id": "p1", "modules": [["id": "erp"]], "grants": ["os:technician"]] as [String: Any]],
+            "profiles": [["id": "p1", "modules": [["id": "erp"], ["id": "erp-financeiro"]], "grants": ["os:technician"]] as [String: Any]],
         ]
         let admin = AdminRole.isAdmin(serverRole: ModuleCapabilities.actorRole(json), sessionIsAdmin: false)
-        XCTAssertNil(ErpAccess.of(modules: ModuleCapabilities.enabledIds(json, profileId: "p1") ?? [], grants: ModuleCapabilities.grants(json, profileId: "p1"), isAdmin: admin))
-        XCTAssertFalse(ServiceHub.entries(modules: ["erp"], erp: nil, isAdmin: admin).contains { $0.section == .management })
+        let modules = ModuleCapabilities.enabledIds(json, profileId: "p1") ?? []
+        XCTAssertFalse(ServiceHub.cashAllowed(modules: modules, grants: ModuleCapabilities.grants(json, profileId: "p1"), isAdmin: admin))
+        XCTAssertFalse(ServiceHub.entries(modules: modules, grants: ModuleCapabilities.grants(json, profileId: "p1"), isAdmin: admin).contains { $0.id == "caixa" })
     }
 
     @MainActor

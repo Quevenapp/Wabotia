@@ -3,15 +3,14 @@ package br.com.queven.wabotia.ui
 import br.com.queven.wabotia.core.AdminRole
 import br.com.queven.wabotia.core.model.WabotiaJson
 import br.com.queven.wabotia.demo.DemoMode
+import br.com.queven.wabotia.modules.BasicRoutes
 import br.com.queven.wabotia.modules.ModuleRoutes
-import br.com.queven.wabotia.modules.erp.ErpAccess
-import br.com.queven.wabotia.modules.erp.ErpRole
-import br.com.queven.wabotia.modules.erp.ErpRoutes
 import br.com.queven.wabotia.queue.ModuleCapabilities
 import br.com.queven.wabotia.ui.home.HomeTab
 import br.com.queven.wabotia.ui.nav.Routes
 import br.com.queven.wabotia.ui.service.ServiceHub
 import br.com.queven.wabotia.ui.service.ServiceSection
+import br.com.queven.wabotia.ui.service.WebPanel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -44,48 +43,56 @@ class ServiceNavigationTest {
 
     // ------------------------------------------------------------------ o que a aba Atendimento mostra
 
-    @Test fun attendanceListsEnabledModulesManagementAndLines() {
-        val modules = setOf("queue", "agenda", "os", "reserva", "mensalidade", "pedido") + erpParts
-        val erp = ErpAccess.of(modules, emptySet(), isAdmin = true)
-        val entries = ServiceHub.entries(modules, erp, isAdmin = true)
+    @Test fun attendanceListsEnabledModulesBasicsAssistantAndLines() {
+        val modules = setOf("queue", "agenda", "os", "reserva", "mensalidade", "pedido", "mesas", "entrega") + erpParts
+        val entries = ServiceHub.entries(modules, emptySet(), isAdmin = true)
         assertEquals(
             listOf(
-                "counter", "agenda", "os", "reserva", "mensalidade", "pedido",
-                "erp.customers", "erp.products", "erp.order", "erp.bills",
+                "counter", "agenda", "mensalidade", "reserva", "mesas", "entrega", "pedido", "os",
+                "caixa", "clientes", "equipamentos",
+                "assistente", "web",
                 "lines", "menus", "bot-lines",
             ),
             entries.map { it.id },
         )
         assertEquals(Routes.COUNTER, entries.first { it.id == "counter" }.route)
         assertEquals(ModuleRoutes.SERVICE_ORDERS, entries.first { it.id == "os" }.route)
-        assertEquals(ErpRoutes.CUSTOMERS, entries.first { it.id == "erp.customers" }.route)
-        assertEquals(ErpRoutes.ORDER, entries.first { it.id == "erp.order" }.route)
+        assertEquals(BasicRoutes.CAIXA, entries.first { it.id == "caixa" }.route)
+        assertEquals(BasicRoutes.ASSISTENTE, entries.first { it.id == "assistente" }.route)
+        assertEquals("/app/erp", entries.first { it.id == "web" }.webPath)
         assertEquals(Routes.MENUS, entries.first { it.id == "menus" }.route)
         assertEquals(
-            listOf(ServiceSection.MODULES, ServiceSection.MANAGEMENT, ServiceSection.LINES),
+            listOf(ServiceSection.MODULES, ServiceSection.DAILY, ServiceSection.ASSISTANT, ServiceSection.LINES),
             ServiceHub.sections(entries).map { it.first },
         )
+        assertFalse("o ERP saiu do app", entries.any { it.id.startsWith("erp.") })
     }
 
     @Test fun attendanceHidesWhatIsOffOrNotAllowed() {
-        // Nada ligado e atendente: só as linhas de atendimento (consulta), sem menus nem linhas dos bots.
-        val bare = ServiceHub.entries(emptySet(), null, isAdmin = false)
-        assertEquals(listOf("lines"), bare.map { it.id })
-        assertEquals(listOf(ServiceSection.LINES), ServiceHub.sections(bare).map { it.first })
-        // Ordens de serviço ligadas, ERP desligado: sem Gestão.
-        val os = ServiceHub.entries(setOf("os"), ErpAccess.of(setOf("os"), setOf("erp:vendas"), false), isAdmin = false)
-        assertEquals(listOf("os", "lines"), os.map { it.id })
-        // Papel de vendas: clientes, produtos e pedido rápido; contas não.
-        val vendas = ErpAccess.of(erpParts, setOf("erp:vendas"), isAdmin = false)
-        val ids = ServiceHub.entries(erpParts, vendas, isAdmin = false).map { it.id }
-        assertEquals(listOf("erp.customers", "erp.products", "erp.order", "lines"), ids)
-        // Só Cadastros ligado: Gestão com Clientes.
-        val onlyCustomers = ServiceHub.entries(setOf("erp"), ErpAccess.of(setOf("erp"), emptySet(), true), isAdmin = true).map { it.id }
-        assertTrue("erp.customers" in onlyCustomers)
-        assertFalse("erp.products" in onlyCustomers)
+        // Nada ligado e atendente: clientes, equipamentos, o assistente, o navegador e as linhas (consulta).
+        val bare = ServiceHub.entries(emptySet(), emptySet(), isAdmin = false)
+        assertEquals(listOf("clientes", "equipamentos", "assistente", "web", "lines"), bare.map { it.id })
+        assertEquals("/app/gestao/inicio", bare.first { it.id == "web" }.webPath)
+        // Ordens de serviço ligadas, ERP desligado: sem caixa.
+        val os = ServiceHub.entries(setOf("os"), setOf("erp:vendas"), isAdmin = false).map { it.id }
+        assertTrue("os" in os)
+        assertFalse("caixa" in os)
+        // Financeiro ligado: o caixa é do papel Financeiro (ou administrador), não de Vendas.
+        assertFalse("caixa" in ServiceHub.entries(erpParts, setOf("erp:vendas"), isAdmin = false).map { it.id })
+        assertTrue("caixa" in ServiceHub.entries(erpParts, setOf("erp:financeiro"), isAdmin = false).map { it.id })
+        // Financeiro desligado: nem o administrador vê o caixa.
+        assertFalse("caixa" in ServiceHub.entries(erpParts - "erp-financeiro", emptySet(), isAdmin = true).map { it.id })
     }
 
-    // ------------------------------------------------------------------ Gestão para o administrador de verdade
+    @Test fun webPanelAddressesUseTheSessionServer() {
+        assertEquals("https://loja.exemplo/app/erp", WebPanel.url("https://loja.exemplo/", "/app/erp"))
+        assertNull("demonstração, sem servidor", WebPanel.url(null, "/app/erp"))
+        assertNull(WebPanel.url("demo", "/app/erp"))
+        assertNull("a demonstração não tem painel", WebPanel.url(DemoMode.SERVER, "/app/erp"))
+        assertEquals("/app/erp/financeiro-empresa?area=controle-caixa", WebPanel.CASH)
+    }
+
+    // ------------------------------------------------------------------ o administrador de verdade
 
     /** O que o servidor manda hoje para um administrador (src/modules/capabilities.ts): sem papel erp:* em `grants`. */
     private val adminCapabilities = """
@@ -97,7 +104,7 @@ class ServiceNavigationTest {
          "modules":[{"id":"queue"},{"id":"erp"},{"id":"erp-produtos"},{"id":"erp-vendas"}]}
     """.trimIndent()
 
-    @Test fun adminSeesManagementFromWhatTheServerSends() {
+    @Test fun adminSeesAdminEntriesFromWhatTheServerSends() {
         val json = WabotiaJson.parseToJsonElement(adminCapabilities)
         val modules = ModuleCapabilities.enabledModules(json, "p1")!!
         val grants = ModuleCapabilities.grants(json, "p1")
@@ -106,12 +113,10 @@ class ServiceNavigationTest {
         // Login gravado como atendente (promovido depois): o papel atual do servidor vale.
         val admin = AdminRole.isAdmin(ModuleCapabilities.actorRole(json), sessionRole = "operator")
         assertTrue(admin)
-        val erp = ErpAccess.of(modules, grants, admin)
-        assertNotNull("Gestão aparece para o administrador sem papel erp:*", erp)
-        assertEquals(ErpRole.ADMIN, erp!!.role)
-        val ids = ServiceHub.entries(modules, erp, admin).map { it.id }
-        assertTrue(ids.containsAll(listOf("erp.customers", "erp.products", "erp.order")))
-        assertFalse("Financeiro desligado: sem Contas", "erp.bills" in ids)
+        val ids = ServiceHub.entries(modules, grants, admin).map { it.id }
+        assertTrue(ids.containsAll(listOf("counter", "assistente", "menus", "bot-lines")))
+        assertFalse("Financeiro desligado: sem caixa", "caixa" in ids)
+        assertNotNull(ServiceHub.entries(modules, grants, admin).firstOrNull { it.id == "web" })
     }
 
     @Test fun currentServerRoleWinsOverTheStoredOne() {
@@ -132,12 +137,13 @@ class ServiceNavigationTest {
         assertNull(role("""{"actor":{"kind":"user","role":""}}"""))
     }
 
-    @Test fun personWithoutErpRoleNeverSeesManagement() {
+    @Test fun personWithoutFinanceRoleNeverSeesTheCash() {
         val json = WabotiaJson.parseToJsonElement(
-            """{"actor":{"kind":"user","role":"operator"},"profiles":[{"id":"p1","modules":[{"id":"erp"}],"grants":["os:technician"]}]}""",
+            """{"actor":{"kind":"user","role":"operator"},"profiles":[{"id":"p1","modules":[{"id":"erp"},{"id":"erp-financeiro"}],"grants":["os:technician"]}]}""",
         )
         val admin = AdminRole.isAdmin(ModuleCapabilities.actorRole(json), "operator")
-        assertNull(ErpAccess.of(ModuleCapabilities.enabledModules(json, "p1")!!, ModuleCapabilities.grants(json, "p1"), admin))
-        assertFalse(ServiceHub.entries(setOf("erp"), null, admin).any { it.section == ServiceSection.MANAGEMENT })
+        val modules = ModuleCapabilities.enabledModules(json, "p1")!!
+        assertFalse(ServiceHub.cashAllowed(modules, ModuleCapabilities.grants(json, "p1"), admin))
+        assertFalse(ServiceHub.entries(modules, ModuleCapabilities.grants(json, "p1"), admin).any { it.id == "caixa" })
     }
 }

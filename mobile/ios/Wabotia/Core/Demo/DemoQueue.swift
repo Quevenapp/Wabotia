@@ -211,7 +211,8 @@ final class DemoQueue {
             ["id": "suporte", "name": "Suporte pago", "version": "1.0.0"],
             ["id": "forms", "name": "Formulários", "version": "1.0.0"],
             ["id": "payments", "name": "Cobrança", "version": "1.0.0"],
-            // Gestão (ERP): as partes usadas pelos aplicativos (`DemoErp`); a pessoa da demonstração é administradora.
+            // ERP ligado na área (a pessoa da demonstração é administradora): no app só o Financeiro aparece, pelo Caixa
+            // simples (`DemoCaixa`); o resto do ERP fica no navegador e no assistente.
             ["id": "erp", "name": "Cadastros", "version": "1.0.0"],
             ["id": "erp-produtos", "name": "Produtos e serviços", "version": "1.0.0"],
             ["id": "erp-vendas", "name": "Vendas", "version": "1.0.0"],

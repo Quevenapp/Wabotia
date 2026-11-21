@@ -16,7 +16,15 @@ import br.com.queven.wabotia.core.ModuleIds
 import br.com.queven.wabotia.modules.agenda.AgendaScreen
 import br.com.queven.wabotia.modules.agenda.AppointmentScreen
 import br.com.queven.wabotia.modules.agenda.BookingScreen
-import br.com.queven.wabotia.modules.erp.erpScreens
+import androidx.compose.runtime.collectAsState
+import br.com.queven.wabotia.modules.caixa.CaixaScreen
+import br.com.queven.wabotia.modules.clientes.ClientesScreen
+import br.com.queven.wabotia.modules.clientes.ContactFormScreen
+import br.com.queven.wabotia.modules.entrega.EntregaScreen
+import br.com.queven.wabotia.modules.mesas.MesasScreen
+import br.com.queven.wabotia.ui.nav.Routes
+import br.com.queven.wabotia.ui.service.AssistantScreen
+import br.com.queven.wabotia.ui.service.EquipmentScreen
 import br.com.queven.wabotia.modules.mensalidade.InstallmentScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeViewModel
@@ -106,6 +114,22 @@ object ModuleRoutes {
     }
 }
 
+/**
+ * Rotas do básico do atendimento na aba Atendimento: caixa simples, clientes, mesas, entregas, equipamentos e o
+ * assistente (a conversa interna com o bot, onde se consulta o ERP).
+ */
+object BasicRoutes {
+    const val CAIXA = "caixa"
+    const val CLIENTES = "clientes"
+    const val CLIENTE = "clientes/form?id={id}"
+    const val MESAS = "mesas"
+    const val ENTREGA = "entrega"
+    const val EQUIPAMENTOS = "equipamentos"
+    const val ASSISTENTE = "assistente"
+
+    fun cliente(id: String?): String = "clientes/form" + (id?.let { "?id=${Uri.encode(it)}" } ?: "")
+}
+
 /** Um atalho de módulo no menu da conversa. */
 data class ModuleShortcut(val label: String, val icon: ImageVector, val route: String)
 
@@ -113,8 +137,28 @@ private fun optional(name: String) = navArgument(name) { type = NavType.StringTy
 
 /** As telas dos módulos no grafo de navegação do app logado. */
 fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostController, openConversation: (String) -> Unit, openPrinter: () -> Unit) {
-    // Gestão (ERP): clientes, produtos e estoque, pedido rápido e contas (modules/erp).
-    erpScreens(container, nav)
+    // O básico do atendimento (aba Atendimento). O ERP fica no navegador; no app, pelo assistente.
+    composable(BasicRoutes.CAIXA) { CaixaScreen(container, onBack = { nav.popBackStack() }) }
+    composable(BasicRoutes.CLIENTES) { entry ->
+        val saved = entry.savedStateHandle.getStateFlow("clientes.saved", 0).collectAsState()
+        ClientesScreen(container, onBack = { nav.popBackStack() }, openForm = { nav.navigate(BasicRoutes.cliente(it)) }, refreshKey = saved.value)
+    }
+    composable(BasicRoutes.CLIENTE, arguments = listOf(optional("id"))) { entry ->
+        val id = entry.arguments?.getString("id")?.let(Uri::decode)
+        ContactFormScreen(container, id, onBack = { nav.popBackStack() }, onSaved = {
+            nav.previousBackStackEntry?.savedStateHandle?.let { it["clientes.saved"] = (it.get<Int>("clientes.saved") ?: 0) + 1 }
+            nav.popBackStack()
+        })
+    }
+    composable(BasicRoutes.MESAS) { MesasScreen(container, onBack = { nav.popBackStack() }) }
+    composable(BasicRoutes.ENTREGA) { EntregaScreen(container, onBack = { nav.popBackStack() }) }
+    composable(BasicRoutes.EQUIPAMENTOS) { EquipmentScreen(container, onBack = { nav.popBackStack() }, openPrinter = openPrinter) }
+    composable(BasicRoutes.ASSISTENTE) {
+        // Um bot só: a conversa toma o lugar desta tela (voltar não reabre a escolha).
+        AssistantScreen(container, onBack = { nav.popBackStack() }, openChat = { peer ->
+            nav.navigate(Routes.internalChat(peer)) { popUpTo(BasicRoutes.ASSISTENTE) { inclusive = true } }
+        })
+    }
     // Ordem de serviço por modelo. Servidor sem modelos, catálogo só com o modelo simples e ordem do modelo simples
     // caem nas telas antigas dentro das próprias telas novas (WorkOrdersEntry, WorkOrderScreen, NewWorkOrderScreen).
     composable(ModuleRoutes.SERVICE_ORDERS) {

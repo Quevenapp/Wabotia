@@ -133,10 +133,10 @@ internal object DemoServer {
     private var cobranca: DemoCobranca? = null
     private var actionReplays = DemoReplays()
 
-    /** A Gestão (ERP) da demonstração: recriada a cada entrada. */
-    private var erp: DemoErp? = null
+    /** O caixa da demonstração (controle de caixa do Financeiro): recriado a cada entrada. */
+    private var caixa: DemoCaixa? = null
 
-    private fun erpOf(s: DemoState): DemoErp = erp ?: DemoErp(s.t0).also { erp = it }
+    private fun caixaOf(): DemoCaixa = caixa ?: DemoCaixa().also { caixa = it }
 
     private fun cobrancaOf(s: DemoState): DemoCobranca = cobranca ?: DemoCobranca(s.t0).also { cobranca = it }
 
@@ -155,7 +155,8 @@ internal object DemoServer {
             j("id" to "suporte", "name" to "Suporte pago", "version" to "1.0.0"),
             j("id" to "forms", "name" to "Formulários", "version" to "1.0.0"),
             j("id" to "payments", "name" to "Cobrança", "version" to "1.0.0"),
-            // Gestão (ERP): as partes usadas pelos aplicativos ([DemoErp]); a pessoa da demonstração é administradora.
+            // ERP ligado na área (a pessoa da demonstração é administradora): no app só o Financeiro aparece, pelo Caixa
+            // simples ([DemoCaixa]); o resto do ERP fica no navegador e no assistente.
             j("id" to "erp", "name" to "Cadastros", "version" to "1.0.0"),
             j("id" to "erp-produtos", "name" to "Produtos e serviços", "version" to "1.0.0"),
             j("id" to "erp-vendas", "name" to "Vendas", "version" to "1.0.0"),
@@ -198,7 +199,7 @@ internal object DemoServer {
         pedido = null
         suporte = null
         cobranca = null
-        erp = null
+        caixa = null
         actionReplays = DemoReplays()
         // Um evento inicial faz a primeira consulta (cursor 0) avançar o cursor; sem ele os primeiros eventos reais seriam pulados.
         fresh.emit("demo.started", null, j("profile" to Ids.PROFILE), fresh.t0)
@@ -341,7 +342,25 @@ internal object DemoServer {
                 ok(c.json())
             } else notFound()
             // Busca no cadastro (abrir ordem de serviço com objeto): nome ou telefone, só contatos da equipe.
-            "contacts" -> if (r.size == 1 && method == "GET") {
+            // Clientes da aba Atendimento: sem `q`, a lista toda; cadastro e edição simples.
+            "contacts" -> if (r.size == 1 && method == "GET" && url.queryParameter("q") == null) {
+                ok(j("data" to s.contacts.values.sortedBy { it.str("name").orEmpty().lowercase() }.take(50), "next_cursor" to null))
+            } else if (r.size == 1 && method == "POST") {
+                val body = bodyJson(request)
+                if (body.str("name").isNullOrBlank()) return Reply.error(400, "invalid_request", "Informe o nome do contato.")
+                val id = "ct-" + java.util.UUID.randomUUID().toString().take(8)
+                s.contacts[id] = j("id" to id, "name" to body.str("name")!!.trim(), "phone" to body.str("phone").orEmpty().filter(Char::isDigit), "email" to body.str("email").orEmpty(), "company" to "", "notes" to body.str("notes").orEmpty(), "version" to 1)
+                ok(s.contacts[id]!!)
+            } else if (r.size == 2 && method == "PATCH") {
+                val old = s.contacts[r[1]] ?: return notFound("Contato não encontrado.")
+                val body = bodyJson(request)
+                val version = (old["version"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 1
+                s.contacts[r[1]] = JsonObject(
+                    old + listOf("name", "email", "notes").mapNotNull { k -> body.str(k)?.let { k to JsonPrimitive(it.trim()) } } +
+                        listOfNotNull(body.str("phone")?.let { "phone" to JsonPrimitive(it.filter(Char::isDigit)) }) + ("version" to JsonPrimitive(version + 1)),
+                )
+                ok(s.contacts[r[1]]!!)
+            } else if (r.size == 1 && method == "GET") {
                 val q = url.queryParameter("q")?.trim()?.lowercase().orEmpty()
                 val digits = q.filter(Char::isDigit)
                 val found = s.contacts.values.filter { c ->
@@ -413,8 +432,8 @@ internal object DemoServer {
             "suporte" -> suporteOf(s).handle(method, r.drop(1), bodyJson(request), request.header("Idempotency-Key"), now, s.emitter(now))
             "pedido" -> pedidoOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
             "reserva" -> reservaOf(s).handle(method, r.drop(1), bodyJson(request), url::queryParameter, request.header("Idempotency-Key"), now, s.emitter(now))
-            // Gestão (ERP): a erp-api (`erp/v1/…`) e o envio do pedido pelo WhatsApp (`erp-conversa/…`).
-            "erp", "erp-conversa" -> erpOf(s).handle(method, r, bodyJson(request), url::queryParameter)
+            // ERP: só o controle de caixa do Financeiro (`erp/v1/financeiro/…`), para o Caixa simples.
+            "erp" -> caixaOf().handle(method, r, bodyJson(request)) ?: notFound()
             // Dados do estabelecimento (cabeçalho dos comprovantes) e pessoas da área (responsável de uma ordem).
             "establishment" -> ok(demoEstablishment())
             "people" -> ok(j("data" to s.users.map { (id, name) -> j("id" to id, "name" to name, "role" to if (id == Ids.ME) "admin" else "operator") }.sortedBy { it.str("name") }))

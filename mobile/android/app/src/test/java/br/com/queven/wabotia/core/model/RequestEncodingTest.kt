@@ -1,17 +1,5 @@
 package br.com.queven.wabotia.core.model
 
-import br.com.queven.wabotia.modules.erp.ErpClient
-import br.com.queven.wabotia.modules.erp.ErpInstallmentBody
-import br.com.queven.wabotia.modules.erp.ErpOrderData
-import br.com.queven.wabotia.modules.erp.ErpOrderItemBody
-import br.com.queven.wabotia.modules.erp.ErpOrderRequest
-import br.com.queven.wabotia.modules.erp.ErpQuickContactData
-import br.com.queven.wabotia.modules.erp.ErpQuickContactRequest
-import br.com.queven.wabotia.modules.erp.ErpSendRequest
-import br.com.queven.wabotia.modules.erp.ErpSettleData
-import br.com.queven.wabotia.modules.erp.ErpSettleRequest
-import br.com.queven.wabotia.modules.erp.ErpStockLine
-import br.com.queven.wabotia.modules.erp.ErpStockMovementRequest
 import br.com.queven.wabotia.modules.os.ChecklistMarkRequest
 import br.com.queven.wabotia.modules.os.CompleteDocumentRequest
 import br.com.queven.wabotia.modules.os.CreateWorkOrderRequest
@@ -121,55 +109,4 @@ class RequestEncodingTest {
         assertFalse(WabotiaJson.encodeToString(TicketCreate(conversation_id = "c1", title = "T")).parseJsonObject().containsKey("category"))
     }
 
-    // Gestão (ERP): a erp-api valida os corpos com listas fechadas de chaves (src/erp/fagoo/workers/erp-api/src).
-
-    @Test fun stockMovementSendsTheBalanceVersionEvenWhenZero() {
-        val body = ErpClient.encode(
-            ErpStockMovementRequest.serializer(),
-            ErpStockMovementRequest("6f1c1c1e-0000-4000-8000-000000000001", "receipt", "2026-11-21", "Contagem", listOf(ErpStockLine("p", "w", "5", 0))),
-        )
-        assertEquals(setOf("command_id", "kind", "occurred_on", "reason", "items"), body.keys)
-        val line = (body["items"] as JsonArray).single() as JsonObject
-        assertEquals(setOf("product_id", "warehouse_id", "quantity", "expected_version"), line.keys)
-        assertEquals(JsonPrimitive(0), line["expected_version"])
-        assertEquals(JsonPrimitive("5"), line["quantity"])
-    }
-
-    @Test fun quickOrderAlwaysSendsTheDiscount() {
-        val body = ErpClient.encode(
-            ErpOrderRequest.serializer(),
-            ErpOrderRequest("c", ErpOrderData("2026-11-21", "ct", listOf(ErpOrderItemBody("p", "Café", null, "PCT", "1", "18.9")))),
-        )
-        assertEquals(setOf("command_id", "data"), body.keys)
-        val data = body["data"] as JsonObject
-        // O servidor calcula o total com o modo e o valor do desconto; o aplicativo manda os dois sempre, mesmo zerados.
-        assertEquals(JsonPrimitive("amount"), data["discount_mode"])
-        assertEquals(JsonPrimitive("0.00"), data["discount_value"])
-        assertFalse("sem forma escolhida, sem parcela", data.containsKey("installments") && (data["installments"] as JsonArray).isNotEmpty())
-        val item = (data["items"] as JsonArray).single() as JsonObject
-        assertEquals(setOf("product_id", "description", "unit", "quantity", "unit_price"), item.keys)
-        val withPayment = ErpClient.encode(
-            ErpOrderData.serializer(),
-            ErpOrderData("2026-11-21", "ct", emptyList(), "percent", "10.0000", listOf(ErpInstallmentBody("2026-11-21", "17.01", "Pix", "m"))),
-        )
-        val installment = (withPayment["installments"] as JsonArray).single() as JsonObject
-        assertEquals(setOf("due_date", "amount", "method", "payment_method_id"), installment.keys)
-    }
-
-    @Test fun quickCustomerSendsSituationTaxpayerAndType() {
-        val body = ErpClient.encode(ErpQuickContactRequest.serializer(), ErpQuickContactRequest("c", ErpQuickContactData("Maria", "F")))
-        val data = body["data"] as JsonObject
-        assertEquals(setOf("name", "person_type", "situation", "taxpayer", "types"), data.keys)
-        assertEquals(JsonPrimitive("A"), data["situation"])
-        assertEquals(JsonPrimitive("9"), data["taxpayer"])
-        assertEquals(JsonArray(listOf(JsonPrimitive("customer"))), data["types"])
-    }
-
-    @Test fun settleAndSendBodiesAreExact() {
-        val settle = ErpClient.encode(ErpSettleRequest.serializer(), ErpSettleRequest("c", ErpSettleData("t", 1, "a", "2026-11-21", "4137")))
-        assertEquals(setOf("id", "expected_version", "account_id", "posted_on", "principal_cents"), (settle["data"] as JsonObject).keys)
-        assertEquals(JsonPrimitive("4137"), (settle["data"] as JsonObject)["principal_cents"])
-        val send = ErpClient.encode(ErpSendRequest.serializer(), ErpSendRequest("5520900001101", "linha-1"))
-        assertEquals(setOf("telefone", "linha"), send.keys)
-    }
 }

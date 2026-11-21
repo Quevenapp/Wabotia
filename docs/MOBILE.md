@@ -13,7 +13,7 @@ O que os aplicativos oferecem:
 - **Bots:** conversar com os bots habilitados no perfil (execuções da Equipe Bot) e acompanhar resultados e anexos.
 - **Notificações push:** novas mensagens, atendimentos na fila, transferências, protocolos abertos, protocolos vencendo ou atrasados.
 - **Disponibilidade:** marcar presença e ausência.
-- **Gestão (ERP):** clientes, produtos e estoque (com código de barras pela câmera), pedido rápido e contas a receber e a pagar, conforme as partes ligadas e o papel da pessoa no ERP (seção 6).
+- **Atendimento do dia:** os módulos básicos ligados na área (fila de senhas, agenda, mensalidades, reservas, mesas, entregas, pedidos, ordens de serviço), caixa simples, cadastro básico de clientes e equipamentos (painéis de senha e impressora). O ERP fica no navegador; no celular, consulta-se pelo assistente (seção 6).
 
 Este guia descreve a parte do servidor (autenticação móvel, dispositivos e push), o gateway de notificações e como compilar os aplicativos. A homologação em aparelhos reais com número WhatsApp real continua sendo a etapa final com o proprietário.
 
@@ -171,45 +171,46 @@ Rotas usadas (todas em `/api/v1/profiles/{p}/`, escritas com `Idempotency-Key`):
 | `POST service-orders/{id}/checklist` | Marcar ou desmarcar item (`photo_document_id` quando o item pede foto). |
 | `POST service-orders/{id}/quote/send` | Enviar o orçamento pelo WhatsApp (`notify: true`). |
 
-## 6. Gestão (ERP) nos aplicativos
+## 6. O que fica no app e o que vai para a web e para o bot
 
-Os dois aplicativos trazem uma parte do ERP para o celular, com as mesmas telas e regras nas duas plataformas. A **Gestão** fica na aba **Atendimento** da barra de baixo (grupo "Gestão", com Clientes, Produtos e estoque, Pedido rápido e Contas direto na aba) e só aparece quando o ERP (parte Cadastros, módulo `erp`) está ligado na área **e** a pessoa tem um papel do ERP: `erp:<papel>` em **Pessoas e acessos** (vem em `profiles[].grants` de `GET /api/v1/profiles/{p}/capabilities`) ou é administradora do Wabotia, que vale `erp:admin`.
+Os aplicativos servem para o que dá para fazer sem computador: atender os canais, controlar os equipamentos (painéis de senha e impressoras) e os recursos básicos do dia. Tudo o que é avançado (ERP, relatórios, configurações dos módulos) fica no painel, no navegador, e no celular se consulta pelo bot. Exemplo que guia o desenho: um barbeiro com o painel de senha ligado no WhatsApp, a agenda, o caixa e o cadastro básico dos clientes, tudo pelo celular.
 
-**Quem é administrador.** O servidor não põe `erp:admin` em `grants` para o administrador (o papel de módulo só vem da lista de acesso da pessoa; `src/module-grants.ts`), e o ERP trata o administrador como `admin` pelo papel atual da conta (`src/modules/erp/identity.ts`). Por isso os aplicativos decidem "administrador" pelo `actor.role` que a mesma resposta de capacidades já traz (`{"actor":{"id","kind":"user","role":"admin"}}`), e só sem ele (servidor antigo) pelo `user.role` gravado no login. Antes valia só o do login, que fica guardado até a sessão renovar: quem virou administrador depois de entrar, ou entrou com um papel antigo, não via a Gestão. Nenhum campo novo foi preciso no servidor. Cada item respeita a parte do ERP dele (`src/erp/parts.ts`) e some quando ela está desligada; se a parte for desligada com a tela aberta, a rota responde `409 module_disabled`, a entrada some e a tela diz qual módulo ligar em **Gestão → Módulos**.
+A aba **Atendimento** mostra, nas duas plataformas, a mesma lista (`ui/service/ServiceHub.kt` no Android, `ServiceHub` em `Features/Service/ServiceView.swift` no iOS):
 
-| Item | Parte(s) | Papéis que veem | Escrita no aplicativo |
-| --- | --- | --- | --- |
-| Clientes | Cadastros (`erp`) | todos | cadastro rápido: todos menos Consulta |
-| Produtos e estoque | Produtos e serviços (`erp-produtos`); saldo com Estoque (`erp-estoque`) | Administração, Consulta, Vendas, Estoque, Fiscal | ajuste de estoque: Administração e Estoque |
-| Pedido rápido | Vendas e Produtos | Administração e Vendas | salvar o pedido de venda |
-| Contas | Financeiro (`erp-financeiro`) | Administração, Consulta e Financeiro | baixa: Administração e Financeiro |
+| Grupo | Entrada | Aparece quando |
+| --- | --- | --- |
+| Módulos da área | Fila de senhas (guichê: chamar, rechamar, finalizar), Agenda, Mensalidades, Reservas, Mesas, Entregas, Pedidos, Ordens de serviço | o módulo está ligado na área (`queue`, `agenda`, `mensalidade`, `reserva`, `mesas`, `entrega`, `pedido`, `os`) |
+| Do dia a dia | Caixa | a parte Financeiro do ERP (`erp-financeiro`) está ligada **e** a pessoa é administradora ou tem o papel `erp:financeiro` (o controle de caixa é do Financeiro) |
+| Do dia a dia | Clientes, Equipamentos | sempre |
+| Gestão | Perguntar ao assistente, Abrir no navegador | sempre (o navegador some na demonstração, que não tem painel) |
+| Linhas e menus | Linhas de atendimento; Menus e Linhas dos bots | linhas sempre; menus e bots só para administrador |
 
-O papel só decide o que aparece; quem decide é o servidor. Uma recusa (papel, horário de acesso, segundo fator, limite de crédito, desconto acima do limite, registro mudado por outra pessoa) aparece em palavras, dizendo o que fazer.
+"Administrador" é o `actor.role` que vem em `GET /api/v1/profiles/{p}/capabilities` (o papel atual); só sem ele (servidor antigo) vale o `user.role` gravado no login. Módulo desligado com a tela aberta: a rota responde `409 module_disabled`, a entrada some e a tela diz qual módulo ligar em **Gestão → Módulos**.
 
-- **Clientes:** busca por nome, CPF/CNPJ, telefone ou código; ficha com dados, contato, endereço, últimos pedidos de venda (com Vendas ligada) e contas a receber em aberto (com Financeiro ligado e papel que lê contas); **Ligar** abre o discador e **WhatsApp** abre a conversa no WhatsApp do aparelho com o celular do cadastro (ou o telefone). **Novo cliente** cadastra nome, pessoa física ou empresa, CPF/CNPJ, celular e e-mail (situação Ativo, não contribuinte, tipo Cliente, como o contato rápido do painel); o resto se completa no painel.
-- **Produtos e estoque:** busca por nome, código ou GTIN (o mesmo campo do painel) e pelo **código de barras pela câmera** (Android: foto da câmera do sistema lida pelo zxing que o app já usava; iOS: leitor do AVFoundation). Achando exatamente um produto, a ficha abre direto. A ficha mostra preço, unidade, códigos, marca, a primeira foto do cadastro e o saldo por depósito (com o reservado). Quem tem o papel de estoque toca em **+** no depósito para lançar **Entrada** ou **Saída** com quantidade e motivo (mínimo 3 letras); o lançamento leva a versão do saldo, e se outra pessoa mexeu antes o servidor recusa, o saldo é relido e a tela avisa.
-- **Pedido rápido:** cliente (busca no cadastro), itens (busca ou código de barras; o mesmo produto lido de novo soma 1), quantidade com vírgula (até 6 casas), desconto em R$ ou % e forma de pagamento (`GET documentos/sales_orders/pagamento`). O total é calculado como o servidor (item a item em centavos, meio para cima) e vai numa parcela única com vencimento hoje e a forma escolhida; sem forma cadastrada, o pedido sai sem parcela. Produto sem preço não entra. Salvo o pedido, se o servidor oferece o envio (`GET erp-conversa/pedido/{id}` com linha, telefone e modo diferente de `bloqueado`), aparece **Enviar ao cliente pelo WhatsApp**; senão, a tela mostra o motivo que o servidor deu.
-- **Contas:** **A receber** e **A pagar**, **Vencem hoje** (`option=open` com o período de hoje) e **Vencidas** (`option=overdue`), com total do filtro. **Dar baixa** (papel financeiro) baixa o saldo inteiro com a data de hoje na conta financeira escolhida; juros, multa, desconto e baixa parcial ficam no painel.
-- **Sem conexão:** cada leitura já vista (listas, fichas, saldos, contas) fica guardada no aparelho por área, apagada ao sair da conta (Android: `noBackupFiles/erp-cache`; iOS: `cache.erp.<área>.*` na pasta privada). Sem internet a tela mostra a cópia com o aviso da hora e esconde os botões de mudança; nenhuma escrita é enfileirada. Toda escrita leva `command_id` (o ERP devolve a mesma resposta para o mesmo comando) e `Idempotency-Key`; depois de uma queda, tocar de novo repete com a mesma chave.
-- **Demonstração:** a área de exemplo liga as partes Cadastros, Produtos, Vendas, Estoque e Financeiro com a pessoa administradora. É uma mercearia fictícia: seis clientes (telefones com DDD 20, e-mails `.example`), oito produtos com códigos de barras da faixa `20…` (de uso interno, como `2000000000015` para o café), dois depósitos (um saldo negativo e um reservado para conferir as cores), pedidos antigos e contas a receber e a pagar vencendo hoje e vencidas. O pedido salvo vira conta a receber de hoje, a baixa tira a conta da lista e o envio pelo WhatsApp responde como enviado. Tudo em memória, como o resto da demonstração. No iOS, `WABOTIA_DEMO=erp` (ou `erp-customers`, `erp-products`, `erp-order`, `erp-bills`) abre direto a tela no build de depuração.
+**O ERP saiu do app.** A antiga área Gestão (clientes do ERP, produtos e estoque, pedido rápido, contas) foi tirada das duas plataformas, com a demonstração e os testes dela. No lugar:
 
-Rotas usadas (todas em `/api/v1/profiles/{p}/`; as da erp-api são as mesmas do painel):
+- **Perguntar ao assistente** abre a conversa interna com o bot da área (a mesma de Equipe → Bots, `internal-chats` com `bot:<id>`). Com um bot só ligado, a conversa abre direto; com mais de um, a pessoa escolhe. O bot consulta o ERP em linguagem natural com as operações de leitura que o administrador concedeu a ele no painel (Bots → acesso ao ERP). Sem bot ligado, a tela diz para criar um em **Gestão → Bots**.
+- **Abrir no navegador** leva ao painel na tela certa: `/app/erp` (ou `/app/gestao/inicio` sem ERP). As telas do básico também têm o link para a versão completa: controle de caixa (`/app/erp/financeiro-empresa?area=controle-caixa`), mesas (`/app/gestao/mesas`), entregas (`/app/gestao/entregas`) e filas e painéis (`/app/gestao/filas`).
+- Quem atualizar o app perde a cópia sem conexão da antiga Gestão: no Android a pasta `noBackupFiles/erp-cache` é apagada ao sair da conta; no iOS a cópia ficava na pasta privada, que já é apagada ao sair.
 
-| Rota | Uso |
-| --- | --- |
-| `GET erp/v1/cadastros/contatos?page=&size=&q=&sort=` | Busca de clientes. |
-| `GET erp/v1/cadastros/contatos/{id}`, `GET …/{id}/historico` | Ficha e últimos pedidos de venda. |
-| `POST erp/v1/cadastros/contatos` | Cadastro rápido (`command_id`, `data`). |
-| `GET erp/v1/cadastros/products?limit=&active=true&q=`, `GET erp/v1/cadastros/products/{id}` | Busca (nome, código, GTIN) e ficha. |
-| `GET erp/v1/anexos-cadastros/produtos/{id}`, `GET …/{id}/{imagem}/download` | Foto do produto. |
-| `GET erp/v1/estoque/saldos?product_id=` | Saldo por depósito (com a versão de cada posição). |
-| `POST erp/v1/estoque/movimentos` | Ajuste: `kind` `receipt` ou `issue`, `occurred_on`, `reason`, `items` com `expected_version`. |
-| `GET erp/v1/documentos/sales_orders/pagamento`, `POST erp/v1/documentos/sales_orders` | Formas de pagamento e o pedido de venda. |
-| `GET erp-conversa/pedido/{id}`, `POST erp-conversa/pedido/{id}/enviar` | Envio do pedido pelo WhatsApp (`telefone`, `linha`). |
-| `GET erp/v1/financeiro/titles?page=1&kind=&option=&from=&to=&q=`, `GET erp/v1/financeiro/accounts` | Contas do dia e vencidas; contas financeiras da baixa. |
-| `POST erp/v1/financeiro/actions/settle` | Baixa (`id`, `expected_version`, `account_id`, `posted_on`, `principal_cents`). |
+### Caixa simples
 
-Nenhuma rota ou campo novo foi criado no servidor para isso.
+Usa o controle de caixa do Financeiro que o servidor já tem (o mesmo do painel e da frente de caixa); nenhuma rota nova foi criada.
+
+- **Abrir:** conta do tipo Caixa (`GET erp/v1/financeiro/accounts`, só `kind: cash`) e o troco inicial → `POST erp/v1/financeiro/actions/session_open` (`account_id`, `change_cents`). Sem conta do tipo Caixa, a tela pede para cadastrar uma no painel.
+- **Lançar entrada e saída:** `POST …/actions/session_move` com `kind` `supply` (entrada) ou `withdrawal` (saída), `amount_cents`, `posted_on` (hoje em Brasília) e a forma de pagamento e a descrição na observação (`note`: "Pix · Corte e barba", até 240 caracteres). As formas vêm de `GET erp/v1/documentos/sales_orders/pagamento`; sem elas (parte Vendas desligada), o app usa Dinheiro, Pix, Cartão de débito e Cartão de crédito.
+- **Fechar com conferência:** o app mostra o dinheiro esperado na gaveta (troco + entradas em dinheiro − saídas em dinheiro; lançamento sem forma conhecida conta como dinheiro), a pessoa digita o que contou e vê "Confere", "Sobrou" ou "Faltou". `POST …/actions/session_close` leva em `values` o contado na forma Dinheiro e, nas outras formas, a soma dos lançamentos. Sem formas do servidor, `values` vai vazio e a conferência por forma fica no painel.
+- O caixa aberto é o da pessoa (`GET erp/v1/financeiro/controle-caixa?state=open`, detalhe em `…/controle-caixa/{id}`). Toda ação leva `command_id` UUID, que também é a `Idempotency-Key`: depois de uma queda, tocar de novo repete com a mesma chave e o servidor não lança duas vezes. Versão antiga (outro aparelho mexeu) volta `409` e a tela pede para atualizar. Sangria com conferido, reabrir, excluir e os caixas das outras pessoas ficam no painel.
+
+### Clientes, mesas, entregas e equipamentos
+
+- **Clientes:** o cadastro de contatos da área (`GET contacts?q=&limit=50`, `GET contacts/{id}`, `POST contacts`, `PATCH contacts/{id}` com `expected_version`), só com nome, telefone (com `phone_mode: human_br`, aceita "(11) 99999-0000"), e-mail e observação. Documento, endereço, histórico e o cadastro do ERP ficam em Contatos, no painel.
+- **Mesas** (módulo `mesas`): o mapa das mesas por setor (`GET mesas`), abrir uma mesa livre com pessoas e nome do cliente (`POST mesas/tabs`) e pedir a conta (`POST mesas/tabs/{id}/bill`). Só o papel Garçom (ou administrador) opera; os outros veem. Lançar itens, receber, transferir e juntar ficam no painel.
+- **Entregas** (módulo `entrega`): o entregador vê as entregas dele (`GET entrega/mine`), sai para entregar (`POST entrega/deliveries/{id}/start`) e confirma com o código do cliente quando a loja pede (`POST …/delivered`); a equipe vê as abertas (`GET entrega/deliveries`) e confirma sem código. O envio contínuo da posição pelo GPS não está no app: o rastreio fica no painel.
+- **Equipamentos:** a impressora térmica (parear, imprimir um teste e ver a situação, a mesma tela de antes) e, para o administrador com a fila ligada, os painéis de senha: **parear painel ou totem pelo código** (o aparelho em "Usar este aparelho como painel ou totem" mostra o código; o app chama `POST /api/v1/pairings/lookup` e `POST /api/v1/pairings/{id}/approve` com a área e as permissões que o aparelho pediu, só para o cliente `senhapp`), a lista dos pareados com a situação e **Desligar** (`DELETE /api/v1/pairings/{id}`), e **Criar painel de TV** (`POST queue/displays`; o link com a chave aparece uma vez para enviar à TV) e desligar (`DELETE queue/displays/{id}`).
+- **Ordens de serviço** continuam no app como estavam (trabalho de campo do técnico), dentro da aba Atendimento quando o módulo está ligado.
+
+**Demonstração:** a área de exemplo continua com as partes do ERP ligadas e a pessoa administradora. O caixa começa fechado, com a conta "Caixa do salão" e as formas Dinheiro, Pix e cartões; abrir, lançar e fechar funcionam em memória. Clientes lista, cadastra e edita os contatos de exemplo. Mesas e Entregas não estão na demonstração (os módulos não vêm ligados nela). No iOS, `WABOTIA_DEMO=caixa` (ou `clientes`, `equipamentos`, `assistente`) abre direto a tela no build de depuração.
 
 ## 7. Limites conhecidos
 

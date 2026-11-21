@@ -138,8 +138,8 @@ final class DemoServer {
     /// Pedido (lanchonete) e Suporte pago (passagem para humano), em `DemoPedidoSuporte.swift`.
     private(set) lazy var pedido = DemoPedido(t0: start)
     private(set) lazy var suporte = DemoSuporte(t0: start)
-    /// Gestão (ERP): mercearia fictícia com clientes, produtos, estoque, pedidos e contas, em `DemoErp.swift`.
-    private(set) lazy var erp = DemoErp()
+    /// O caixa da demonstração (controle de caixa do Financeiro), em `DemoCaixa.swift`.
+    private(set) lazy var caixa = DemoCaixa()
     /// Formulários (passo web) e cobranças por conversa: `web_steps` e `payments` do detalhe.
     private var webSteps: [String: [Row]] = [:]
     private var payments: [String: [Row]] = [:]
@@ -696,6 +696,26 @@ final class DemoServer {
             let version = headers.first { $0.key.caseInsensitiveCompare("Upload-Version") == .orderedSame }?.value
             return ordens.work?.upload(Array(parts.dropFirst(5)), data: data, uploadVersion: version, key: key) ?? fail(404, "not_found", "Recurso não encontrado.")
         }
+        // Clientes da aba Atendimento: sem `q`, a lista toda; cadastro e edição simples.
+        if get, m("api/v1/profiles/*/contacts") != nil, query["q"] == nil {
+            let all = contacts.values.sorted { ($0["name"] as? String ?? "").lowercased() < ($1["name"] as? String ?? "").lowercased() }.prefix(50)
+            return ok(["data": Array(all), "next_cursor": NSNull()])
+        }
+        if post, m("api/v1/profiles/*/contacts") != nil {
+            guard let name = (body["name"] as? String)?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return fail(400, "invalid_request", "Informe o nome do contato.") }
+            let id = "ct_" + UUID().uuidString.prefix(8).lowercased()
+            contacts[id] = ["id": id, "name": name, "phone": (body["phone"] as? String ?? "").filter(\.isNumber), "email": body["email"] as? String ?? "",
+                            "company": "", "notes": body["notes"] as? String ?? "", "version": 1]
+            return ok(contacts[id]!)
+        }
+        if patch, let c = m("api/v1/profiles/*/contacts/*") {
+            guard var row = contacts[c[1]] else { return fail(404, "not_found", "Contato não encontrado.") }
+            for k in ["name", "email", "notes"] { if let v = body[k] as? String { row[k] = v.trimmingCharacters(in: .whitespaces) } }
+            if let phone = body["phone"] as? String { row["phone"] = phone.filter(\.isNumber) }
+            row["version"] = (row["version"] as? Int ?? 1) + 1
+            contacts[c[1]] = row
+            return ok(row)
+        }
         if get, m("api/v1/profiles/*/contacts") != nil {
             let q = (query["q"] ?? "").trimmingCharacters(in: .whitespaces).lowercased()
             let digits = q.filter(\.isNumber)
@@ -712,8 +732,8 @@ final class DemoServer {
         if let reply = mensalidade.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = pedido.route(method: method, parts: parts, body: body, query: query, key: key, now: now, emit: emitter) { return reply }
         if let reply = suporte.route(method: method, parts: parts, body: body, key: key, now: now, emit: emitter) { return reply }
-        // Gestão (ERP): a erp-api (`erp/v1/…`) e o envio do pedido pelo WhatsApp (`erp-conversa/…`).
-        if let reply = erp.route(method: method, parts: parts, body: body, query: query) { return reply }
+        // ERP: só o controle de caixa do Financeiro (`erp/v1/financeiro/…`), para o Caixa simples.
+        if let reply = caixa.route(method: method, parts: parts, body: body) { return reply }
         if get, m("api/v1/profiles/*/forms") != nil { return ok(["data": forms]) }
 
         // Descoberta e conta
