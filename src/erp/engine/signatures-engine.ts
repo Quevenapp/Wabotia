@@ -64,6 +64,14 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_inbound_settings_save: [["p_user_id", "u"], ["p_input", "j"]],
   erp_inbound_manifest_claim: [["p_user_id", "u"], ["p_input", "j"]],
   erp_inbound_manifest_record: [["p_user_id", "u"], ["p_input", "j"]],
+  // Produto a partir do item da nota (prévia e cadastro), na mesma rota.
+  erp_inbound_product_preview: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_product_create: [["p_user_id", "u"], ["p_input", "j"]],
+  // Reposição pelo mínimo e máximo (com os pedidos de compra por fornecedor) e
+  // inventário valorizado numa data: src/erp/domains/inbound/replenishment.ts.
+  erp_inbound_replenishment: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_replenishment_generate: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_inventory: [["p_user_id", "u"], ["p_input", "j"]],
   // Depois da NF-e autorizada (carta de correção, inutilização e devolução): src/erp/domains/fiscal/comnfe/events.ts.
   erp_com1_events_get: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_correction_claim: [["p_user_id", "u"], ["p_input", "j"]],

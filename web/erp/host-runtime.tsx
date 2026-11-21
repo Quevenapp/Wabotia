@@ -178,7 +178,7 @@ export function acquireErpHost(context: ErpHostContext) {
             role: state?.membership?.role ?? null,
             admin: state?.membership?.role === "admin",
             demo: !!simulation,
-            parts: { purchases: modules["erp-compras"] === true, stock: modules["erp-estoque"] === true, finance: modules["erp-financeiro"] === true, fiscal: modules["erp-fiscal"] === true },
+            parts: { purchases: modules["erp-compras"] === true, stock: modules["erp-estoque"] === true, finance: modules["erp-financeiro"] === true, fiscal: modules["erp-fiscal"] === true, products: modules["erp-produtos"] === true },
           };
         },
         fetch: async (input, init) => {

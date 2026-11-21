@@ -177,7 +177,7 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (["/historico-fiscal", "/notas-bling", "/contador-fiscal", "/sped-fiscal", "/reforma-tributaria", "/notas-entrada", "/notas-recebidas", "/numeracao-fiscal", "/naturezas-operacao", "/inutilizacoes-nfe", "/cartas-correcao", "/certificado-a1", "/conexao-sefaz", "/emissor-fiscal"].includes(path)) owner = N;
   else if (path === "/checkin-recebimentos") { owner = N; extra.push(E); if (q.get("order_id")) extra.push(C); }
   // Compras › Notas recebidas: Estoque, Financeiro e Fiscal são conferidos por ação na rota.
-  else if (path === "/notas-recebidas-compras") owner = C;
+  else if (path === "/notas-recebidas-compras") { owner = C; if (["reposicao", "inventario"].includes(q.get("aba") ?? "")) extra.push(E); }
   else if (path === "/frente-caixa-empresa") owner = V;
   // Estoque › Ordens de produção (parte Produção; Vendas e Compras são conferidos por ação na rota).
   else if (path === "/producao") owner = R;

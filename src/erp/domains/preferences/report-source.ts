@@ -13,6 +13,7 @@ import { todaySaoPaulo } from "../../engine/time.ts";
 import { decText, formatScaled, fromColumn } from "../../engine/dec.ts";
 import { actorLabel } from "../access/public.ts";
 import { commissionRows, statementLines } from "../finance/public.ts";
+import { enteredNotes } from "../inbound/public.ts";
 import { situationBaseLabel } from "./center.ts";
 import { utcStamp } from "./framework.ts";
 import { compareText } from "./order.ts";
@@ -176,6 +177,19 @@ export function reportSource(db: SqlDriver, base: string, parts: Readonly<ErpPar
         },
       });
     }
+    // No motor, as notas de entrada são também as notas recebidas que deram entrada pela compra pela nota.
+    if (base === "notas_entrada")
+      for (const n of enteredNotes(db)) {
+        if (n.issued_on === null) continue;
+        out.push({
+          sort: invoiceKey({ id: n.note_id, issue_date: n.issued_on, number: n.number }),
+          data: stripNulls({
+            numero: n.number === null ? null : String(n.number), serie: n.series === null ? null : String(n.series), emissao: n.issued_on,
+            contato: clean(n.emitter_name, 200), documento: clean(n.emitter_document, 20), natureza: clean(n.nature, 60), situacao: "Autorizada",
+            total: n.total_cents === null ? null : formatScaled(BigInt(n.total_cents), 2), chave: n.access_key,
+          }),
+        });
+      }
   } else if (base === "recebimentos" || base === "pagamentos") {
     const reversed = new Set(db.exec('SELECT reverses_id FROM "erp_finance__settlement" WHERE reverses_id IS NOT NULL').rows.map((r) => String(r.reverses_id)));
     for (const s of db.exec(

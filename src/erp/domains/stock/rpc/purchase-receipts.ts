@@ -15,6 +15,7 @@ import { nextIdentity } from "../../../engine/sequence.ts";
 import { pgBtrim, pgCompareText } from "../../../engine/text.ts";
 import { jsonTimestamp } from "../../../engine/time.ts";
 import * as documents from "../../documents/public.ts";
+import * as inbound from "../../inbound/public.ts";
 import type { Row } from "../document-guards.ts";
 import { QTY, QTY_MAX, balanceKept, negativeAllowed, reservedQuantity, sha256 } from "../internal.ts";
 import { invoicePostedForDocument, reservationPositionHash } from "../read.ts";
@@ -36,9 +37,14 @@ export function access(db: SqlDriver, actor: string | null) {
     raise("42501", "purchase_receipt_access_denied");
 }
 
-/** erp_purchase_receipts.received(p_document, p_item): o recebido do item, sem os estornados. */
+/**
+ * erp_purchase_receipts.received(p_document, p_item): o recebido do item, sem os estornados.
+ * No motor, mais o que a nota recebida baixou do pedido (compra pela nota,
+ * entrada ativa que lançou o estoque): o pedido não recebe de novo o que a
+ * nota já trouxe.
+ */
 export function received(db: SqlDriver, document: string, item: string): bigint {
-  let total = 0n;
+  let total = inbound.orderAttended(db, document).get(item) ?? 0n;
   for (const r of db.exec(
     `SELECT r.snapshot FROM "erp_purchase_receipts__receipt" r WHERE r.document_id=? AND NOT EXISTS(SELECT 1 FROM "erp_purchase_receipts__reversal" x WHERE x.receipt_id=r.id)`,
     document,

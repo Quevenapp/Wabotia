@@ -9,6 +9,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgBtrim, pgCompareText } from "../../../engine/text.ts";
 import { fold } from "../../catalog/public.ts";
+import * as inbound from "../../inbound/public.ts";
 import { averageCosts, costVisible, PRICE } from "../costs.ts";
 import { QTY, requireAccess } from "../internal.ts";
 import { priceText } from "../ledger.ts";
@@ -365,6 +366,10 @@ registerRpc("erp_stock_report_entry_notes", (ctx: RpcContext, a: RpcArgs) => {
       const t = text(totals?.total);
       return { id: String(n.id), nature: n.nature_description as string | null, supplier: text(recipient?.name), document: text(recipient?.document), issue: String(n.issue_date), total: t === null ? null : exact(t) };
     });
+  // No motor, também as notas recebidas que deram entrada pela compra pela nota (sem as que já estão acima pela chave).
+  const entered = inbound.enteredNotes(db, from, to).filter((n) => n.issued_on !== null);
+  for (const n of entered)
+    notes.push({ id: n.note_id, nature: n.nature, supplier: n.emitter_name, document: n.emitter_document, issue: n.issued_on!, total: n.total_cents === null ? null : rescale(BigInt(n.total_cents), 2, 30) });
   // Valores exatos (escala 30): soma; saída arredondada (numeric(38,2) / (38,4)).
   type Row = { key: string | null; label: string | null; code: string | null; notes: number; quantity: bigint | null; value: bigint | null };
   const sumOf = (xs: (bigint | null)[]) => (xs.some((x) => x !== null) ? xs.reduce<bigint>((t, x) => t + (x ?? 0n), 0n) : null);
@@ -407,6 +412,15 @@ registerRpc("erp_stock_report_entry_notes", (ctx: RpcContext, a: RpcArgs) => {
             };
           })
       : [];
+    // Itens das notas recebidas com entrada: o produto casado na conferência, a quantidade que entrou e o valor dos produtos.
+    for (const n of entered)
+      for (const l of n.lines) {
+        const r = l.product_id === null ? null : one(db, 'SELECT name, code FROM "erp_catalog__record" WHERE id=?', l.product_id);
+        items.push({
+          key: l.product_id ?? `item:${n.note_id}:${l.position}`, label: (r?.name as string | null) ?? "Item sem descrição", code: (r?.code as string | null) ?? null, invoice: n.note_id,
+          quantity: l.quantity === null ? null : rescale(l.quantity, 6, 30), total: l.goods_cents === null ? null : rescale(BigInt(l.goods_cents), 2, 30),
+        });
+      }
     rows = groupBy(items, (i) => i.key).map((g) => ({
       key: g.key, label: minText(g.items.map((i) => i.label)), code: minText(g.items.map((i) => i.code)),
       notes: new Set(g.items.map((i) => i.invoice)).size, quantity: sumOf(g.items.map((i) => i.quantity)), value: sumOf(g.items.map((i) => i.total)),

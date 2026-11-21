@@ -6,7 +6,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { erpPorts } from "./ports";
-import { RecebidasError, type Choices, type Environment, type ItemChoice, type NotesPage, type ReceivedNote, type RecebidasPort, type Review } from "./recebidas";
+import {
+  RecebidasError, type Choices, type Environment, type GeneratedOrders, type ItemChoice, type NotesPage, type ProductInput, type ProductPreview, type ReceivedNote,
+  type RecebidasPort, type Review,
+} from "./recebidas";
 import "./recebidas.css";
 
 const ROUTE = "/notas-recebidas-compras";
@@ -57,7 +60,25 @@ export default function NotasRecebidas({ port: injected }: { port?: RecebidasPor
   const access = port.access();
   if (!access.parts.purchases)
     return <section className="real-state-panel"><h1>Notas recebidas</h1><p>As notas recebidas são de Compras, que está desligado nesta área. Peça ao administrador para ligar Compras em Gestão → Módulos.</p></section>;
-  return note ? <NoteDetail key={note} port={port} id={note} /> : <NoteList port={port} />;
+  if (note) return <NoteDetail key={note} port={port} id={note} />;
+  const tab = new URLSearchParams(location.search).get("aba");
+  if (tab === "reposicao") return <Replenishment port={port} />;
+  if (tab === "inventario") return <Inventory port={port} />;
+  return <NoteList port={port} />;
+}
+
+/** Abas da tela: as notas, a reposição pelo mínimo e o inventário valorizado. */
+function Tabs({ current }: { current: "notas" | "reposicao" | "inventario" }) {
+  const tabs = [
+    { id: "notas", label: "Notas recebidas", to: ROUTE },
+    { id: "reposicao", label: "Reposição pelo estoque mínimo", to: `${ROUTE}?aba=reposicao` },
+    { id: "inventario", label: "Inventário valorizado", to: `${ROUTE}?aba=inventario` },
+  ];
+  return (
+    <nav className="notas-recebidas-tabs" aria-label="Compras pela nota">
+      {tabs.map((t) => <Link key={t.id} to={t.to} aria-current={t.id === current ? "page" : undefined}>{t.label}</Link>)}
+    </nav>
+  );
 }
 
 function NoteList({ port }: { port: RecebidasPort }) {
@@ -100,6 +121,7 @@ function NoteList({ port }: { port: RecebidasPort }) {
   }
   return (
     <section className="notas-recebidas">
+      <Tabs current="notas" />
       <header>
         <h1>Notas recebidas</h1>
         <p>As notas que os fornecedores emitiram para a sua empresa. Confira cada uma e dê entrada: o estoque, o custo e as contas a pagar são lançados de uma vez.</p>
@@ -196,6 +218,7 @@ function NoteDetail({ port, id }: { port: RecebidasPort; id: string }) {
   const [result, setResult] = useState<any>(null);
   const [reason, setReason] = useState("");
   const [settings, setSettings] = useState<{ manifest_enabled: boolean } | null>(null);
+  const [productOpen, setProductOpen] = useState(false);
   const intents = useRef(new Map<string, { command: string; key: string }>());
   /** O mesmo pedido repetido (clique duplo, resposta perdida) usa o mesmo comando; mudou o pedido, comando novo. */
   const commandFor = (action: string, payload: unknown) => {
@@ -315,6 +338,19 @@ function NoteDetail({ port, id }: { port: RecebidasPort; id: string }) {
               </tbody>
             </table>
             <p className="notas-recebidas-hint">O produto e a conversão que você confirmar ficam lembrados para a próxima nota deste fornecedor.</p>
+            {r.lines.some((l: any) => l.problems.includes("product_missing")) && (
+              productOpen
+                ? <ProductFromXml port={port} id={id} supplierReady={!!r.supplier} onClose={() => setProductOpen(false)}
+                    onCreated={async (positions) => {
+                      // Os itens novos casam pelo código do fornecedor: sai a escolha manual deles.
+                      setItems((all) => Object.fromEntries(Object.entries(all).filter(([k]) => !positions.includes(Number(k)))));
+                      setProductOpen(false);
+                      await refresh({ ...choices, items: Object.values(items).filter((i) => !positions.includes(i.position)) });
+                    }} />
+                : <button type="button" disabled={!!busy || access.demo || access.parts.products === false} onClick={() => setProductOpen(true)}>Cadastrar produto novo com os dados da nota</button>
+            )}
+            {access.parts.products === false && r.lines.some((l: any) => l.problems.includes("product_missing")) &&
+              <p className="notas-recebidas-hint">Para cadastrar produto pela nota, ligue Produtos em Gestão → Módulos.</p>}
           </div>
           {r.capability.orders && (
             <div className="notas-recebidas-card">
@@ -329,17 +365,20 @@ function NoteDetail({ port, id }: { port: RecebidasPort; id: string }) {
               )}
               {r.order_difference && (
                 <table className="notas-recebidas-table">
-                  <thead><tr><th>Item</th><th>No pedido (a receber)</th><th>Na nota</th><th>Preço no pedido</th><th>Preço na nota</th><th></th></tr></thead>
+                  <thead><tr><th>Item</th><th>No pedido (a receber)</th><th>Na nota</th><th>Baixa nesta nota</th><th>Fica pendente</th><th>Preço no pedido</th><th>Preço na nota</th><th></th></tr></thead>
                   <tbody>
                     {r.order_difference.lines.map((d: any) => (
-                      <tr key={d.position}><td>{r.lines.find((l: any) => l.position === d.position)?.description}</td><td>{d.remaining_quantity ?? "—"}</td><td>{d.note_quantity ?? "—"}</td>
-                        <td>{d.order_unit_price ?? "—"}</td><td>{d.note_unit_price ?? "—"}</td><td>{d.status === "same" ? "Confere" : d.status === "not_in_order" ? "Fora do pedido" : "Diferente"}</td></tr>
+                      <tr key={d.position}><td>{r.lines.find((l: any) => l.position === d.position)?.description}</td><td>{qty(d.remaining_quantity)}</td><td>{qty(d.note_quantity)}</td>
+                        <td>{qty(d.attend_quantity)}</td><td>{qty(d.pending_quantity)}</td>
+                        <td>{d.order_unit_price ?? "—"}</td><td>{d.note_unit_price ?? "—"}</td>
+                        <td>{d.status === "not_in_order" ? "Fora do pedido" : `${FULFILLMENT[d.fulfillment] ?? ""}${d.status === "same" ? " · confere" : " · diferente"}`}</td></tr>
                     ))}
-                    {r.order_difference.missing.map((m: any) => <tr key={m.order_item_id}><td>{m.description}</td><td>{m.quantity}</td><td>—</td><td>{m.unit_price}</td><td>—</td><td>Faltou na nota</td></tr>)}
+                    {r.order_difference.missing.map((m: any) => <tr key={m.order_item_id}><td>{m.description}</td><td>{qty(m.remaining_quantity ?? m.quantity)}</td><td>—</td><td>—</td><td>{qty(m.remaining_quantity ?? m.quantity)}</td><td>{m.unit_price}</td><td>—</td><td>Faltou na nota</td></tr>)}
                   </tbody>
                 </table>
               )}
-              {r.order_id && <p className="notas-recebidas-hint">Depois de dar entrada pela nota, não receba este pedido de novo no estoque.</p>}
+              {r.order_difference && <p>{ORDER_FULFILLMENT[r.order_difference.fulfillment] ?? ""}</p>}
+              {r.order_id && <p className="notas-recebidas-hint">Ao dar entrada com o estoque, o pedido é baixado pelo que veio na nota e o que faltar continua pendente nele. O pedido não recebe de novo pela tela dele o que a nota já trouxe.</p>}
             </div>
           )}
           <div className="notas-recebidas-card">
@@ -403,7 +442,16 @@ const BLOCKER_TEXT: Record<string, string> = {
   items_pending: "Resolva os itens marcados: produto, conversão de unidade ou lote. Depois clique em Conferir de novo.",
   installments_missing: "A nota não tem valor para gerar contas a pagar.",
   nothing_chosen: "Marque lançar no estoque, gerar contas a pagar, ou os dois.",
+  order_received_before: "O pedido de compra já recebeu estes itens pela tela do pedido e a nota traz mais do que falta. Desmarque o estoque (para não contar duas vezes) ou estorne o recebimento no pedido.",
 };
+const FULFILLMENT: Record<string, string> = { atendido: "Atendido", parcial: "Atendido em parte", pendente: "Nada a baixar" };
+const ORDER_FULFILLMENT: Record<string, string> = {
+  total: "Com esta nota, o pedido fica atendido por inteiro.",
+  parcial: "Com esta nota, o pedido fica atendido em parte: o que falta continua pendente no pedido.",
+  nenhuma: "Esta nota não baixa nada do pedido.",
+};
+/** Quantidade do servidor ("24.000000") como a pessoa lê ("24"). */
+const qty = (value: string | null | undefined) => (value === null || value === undefined ? "—" : Number(value).toLocaleString("pt-BR", { maximumFractionDigits: 6 }));
 
 function EntryCard({ entry }: { entry: NonNullable<ReceivedNote["entry"]> }) {
   return (
@@ -411,6 +459,10 @@ function EntryCard({ entry }: { entry: NonNullable<ReceivedNote["entry"]> }) {
       <h2>Entrada feita em {when(entry.created_at)}</h2>
       <p>Estoque: {STATUS[entry.stock_status] ?? entry.stock_status}{entry.movement_ids.length ? ` (${entry.movement_ids.length} lançamento(s))` : ""}.</p>
       <p>Contas a pagar: {STATUS[entry.finance_status] ?? entry.finance_status}{entry.title_ids.length ? ` (${entry.title_ids.length} parcela(s))` : ""}.</p>
+      {entry.result?.order && (
+        <p>Pedido de compra {entry.result.order.number ?? ""} baixado: {entry.result.order.fulfillment === "total" ? "atendido por inteiro" : "atendido em parte (o que falta continua pendente no pedido)"}
+          {Array.isArray(entry.result.order.items) && entry.result.order.items.length ? ` · ${entry.result.order.items.length} item(ns) desta nota` : ""}.</p>
+      )}
       <p><Link to="/estoque-empresa">Ver no estoque</Link> · <Link to="/financeiro-empresa?area=payable">Ver as contas a pagar</Link></p>
     </div>
   );
@@ -471,3 +523,257 @@ function ManifestPanel({ port, note, enabled, onDone }: { port: RecebidasPort; n
     </div>
   );
 }
+
+const PRODUCT_PROBLEMS: Record<string, string> = {
+  name_missing: "Escreva o nome do produto.", unit_missing: "Informe a unidade.", already_linked: "Este item já está ligado a um produto do cadastro.",
+  gtin_exists: "O GTIN já é de um produto do seu cadastro: escolha esse produto no item em vez de cadastrar outro.", code_exists: "O código já é de outro produto: use outro código ou deixe em branco.",
+};
+const PRODUCT_NOTICES: Record<string, string> = {
+  ncm_ignored: "O NCM da nota não é válido e fica em branco.", cest_ignored: "O CEST da nota não é válido e fica em branco.", gtin_ignored: "O GTIN da nota não é válido e fica em branco.",
+};
+
+/** Cadastro de produto a partir dos itens da nota: prévia com os dados do XML, a pessoa ajusta o nome e o código e confirma. */
+function ProductFromXml({ port, id, supplierReady, onClose, onCreated }: { port: RecebidasPort; id: string; supplierReady: boolean; onClose: () => void; onCreated: (positions: number[]) => void }) {
+  const [preview, setPreview] = useState<ProductPreview | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [chosen, setChosen] = useState<Record<number, boolean>>({});
+  const [edits, setEdits] = useState<Record<number, { name?: string; code?: string }>>({});
+  const command = useRef<{ key: string; id: string } | null>(null);
+  useEffect(() => {
+    if (!port.productPreview) { setError("Esta versão do painel ainda não cadastra produto pela nota. Atualize a página."); return; }
+    const signal = new AbortController();
+    port.productPreview(id, undefined, signal.signal).then((p) => {
+      setPreview(p);
+      setChosen(Object.fromEntries(p.items.filter((i) => !i.problems.length).map((i) => [i.position, true])));
+    }, (e) => { if (!aborted(e)) setError(errorText(e)); });
+    return () => signal.abort();
+  }, [port, id]);
+  const selected = preview?.items.filter((i) => chosen[i.position] && !i.problems.length) ?? [];
+  async function create() {
+    if (!port.createProducts || !selected.length) return;
+    const items: ProductInput[] = selected.map((i) => ({
+      position: i.position,
+      ...(edits[i.position]?.name !== undefined ? { name: edits[i.position].name } : {}),
+      ...(edits[i.position]?.code !== undefined ? { code: edits[i.position].code || null } : {}),
+    }));
+    const key = JSON.stringify(items);
+    if (!command.current || command.current.key !== key) command.current = { key, id: port.command() };
+    setBusy(true); setError("");
+    try { await port.createProducts(id, command.current.id, items); command.current = null; onCreated(items.map((i) => i.position)); }
+    catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  }
+  return (
+    <div className="notas-recebidas-card" role="group" aria-label="Cadastrar produto pela nota">
+      <h2>Cadastrar produto com os dados da nota</h2>
+      <p>Cada item marcado vira um produto novo com a descrição, o NCM, o CEST, a unidade, o GTIN e o custo que vieram no XML, já ligado ao código do fornecedor: na próxima nota ele casa sozinho.</p>
+      {!supplierReady && <p className="notas-recebidas-warning">Cadastre o fornecedor da nota primeiro (botão no quadro Fornecedor).</p>}
+      {error && <p className="real-alert" role="alert">{error}</p>}
+      {!preview && !error && <p role="status">Lendo os itens da nota…</p>}
+      {preview && preview.items.length === 0 && <p>Todos os itens da nota já têm produto no cadastro.</p>}
+      {preview && preview.items.length > 0 && (
+        <table className="notas-recebidas-table">
+          <thead><tr><th>Cadastrar</th><th>Item da nota</th><th>Nome do produto</th><th>Código (opcional)</th><th>Unidade</th><th>NCM · CEST · GTIN</th><th>Custo na nota</th></tr></thead>
+          <tbody>
+            {preview.items.map((i) => (
+              <tr key={i.position}>
+                <td><input type="checkbox" aria-label={`Cadastrar o item ${i.position}`} checked={!!chosen[i.position]} disabled={i.problems.length > 0}
+                  onChange={(e) => setChosen((c) => ({ ...c, [i.position]: e.target.checked }))} /></td>
+                <td>{i.description}<small>Item {i.position} · código do fornecedor {i.supplier_code}</small></td>
+                <td><input aria-label={`Nome do produto do item ${i.position}`} maxLength={120} value={edits[i.position]?.name ?? i.proposal.name}
+                  onChange={(e) => setEdits((all) => ({ ...all, [i.position]: { ...all[i.position], name: e.target.value } }))} /></td>
+                <td><input aria-label={`Código do produto do item ${i.position}`} maxLength={60} value={edits[i.position]?.code ?? i.proposal.code ?? ""}
+                  onChange={(e) => setEdits((all) => ({ ...all, [i.position]: { ...all[i.position], code: e.target.value } }))} /></td>
+                <td>{i.proposal.unit}</td>
+                <td>{i.proposal.ncm ?? "sem NCM"} · {i.proposal.cest ?? "sem CEST"} · {i.proposal.gtin ?? "sem GTIN"}</td>
+                <td>R$ {Number(i.proposal.cost_price).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 10 })}<small>Preço de compra R$ {Number(i.proposal.purchase_price).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 10 })} por {i.proposal.unit}</small>
+                  {[...i.problems.map((p) => PRODUCT_PROBLEMS[p] ?? p), ...i.notices.map((n) => PRODUCT_NOTICES[n] ?? n)].map((t) => <small key={t}>{t}</small>)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {preview && !preview.can_create && supplierReady && <p className="notas-recebidas-hint">Seu papel no ERP não cadastra produtos (administrador ou estoque cadastram).</p>}
+      <div className="notas-recebidas-actions">
+        <button type="button" disabled={busy || !selected.length || !preview?.can_create} onClick={create}>{busy ? "Cadastrando…" : `Cadastrar ${selected.length} produto(s)`}</button>
+        <button type="button" disabled={busy} onClick={onClose}>Fechar</button>
+      </div>
+    </div>
+  );
+}
+
+const PRICE_SOURCE: Record<string, string> = { supplier_purchase: "preço de compra do fornecedor", supplier_cost: "custo do fornecedor", last_purchase: "última compra" };
+
+/** Reposição pelo estoque mínimo e máximo: o que comprar e os pedidos de compra por fornecedor. */
+function Replenishment({ port }: { port: RecebidasPort }) {
+  const access = port.access();
+  const [warehouse, setWarehouse] = useState("");
+  const [all, setAll] = useState(false);
+  const [data, setData] = useState<ReplenishmentData | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [lines, setLines] = useState<Record<string, { on: boolean; quantity: string; supplier: string }>>({});
+  const [done, setDone] = useState<GeneratedOrders | null>(null);
+  const [reload, setReload] = useState(0);
+  const command = useRef<{ key: string; id: string } | null>(null);
+  useEffect(() => {
+    if (!access.parts.stock || !port.replenishment) return;
+    const signal = new AbortController();
+    setError("");
+    port.replenishment({ deposito: warehouse || null, todos: all }, signal.signal).then((d) => {
+      setData(d);
+      setLines(Object.fromEntries(d.items.map((i) => [i.product_id, { on: Number(i.suggestion) > 0 && !!i.supplier_id, quantity: Number(i.suggestion) > 0 ? trimQty(i.suggestion) : "", supplier: i.supplier_id ?? "" }])));
+    }, (e) => { if (!aborted(e)) setError(errorText(e)); });
+    return () => signal.abort();
+  }, [port, warehouse, all, reload, access.parts.stock]);
+  if (!access.parts.stock)
+    return <section className="notas-recebidas"><Tabs current="reposicao" /><div className="real-state-panel"><h1>Reposição pelo estoque mínimo</h1><p>A reposição usa o saldo do estoque, e o Estoque está desligado nesta área. Peça ao administrador para ligar Estoque em Gestão → Módulos.</p></div></section>;
+  const picked = data?.items.filter((i) => lines[i.product_id]?.on && Number(lines[i.product_id]?.quantity.replace(",", ".")) > 0) ?? [];
+  const suppliers = new Set(picked.map((i) => lines[i.product_id].supplier || "sem"));
+  async function generate() {
+    if (!port.generateOrders || !picked.length) return;
+    const itens = picked.map((i) => ({ product_id: i.product_id, quantity: lines[i.product_id].quantity.replace(",", "."), supplier_id: lines[i.product_id].supplier || null }));
+    const key = JSON.stringify([warehouse, itens]);
+    if (!command.current || command.current.key !== key) command.current = { key, id: port.command() };
+    setBusy(true); setError(""); setDone(null);
+    try { setDone(await port.generateOrders(command.current.id, { deposito: warehouse || null, itens })); command.current = null; setReload((n) => n + 1); }
+    catch (e) { setError(errorText(e)); } finally { setBusy(false); }
+  }
+  const set = (id: string, patch: Partial<{ on: boolean; quantity: string; supplier: string }>) => setLines((l) => ({ ...l, [id]: { ...l[id], ...patch } }));
+  return (
+    <section className="notas-recebidas">
+      <Tabs current="reposicao" />
+      <header>
+        <h1>Reposição pelo estoque mínimo</h1>
+        <p>Os produtos abaixo do estoque mínimo do cadastro. A quantidade sugerida completa até o estoque máximo (sem máximo, até o mínimo), descontando o saldo e o que já está pedido aos fornecedores. Ajuste o que quiser e gere os pedidos de compra, um por fornecedor.</p>
+      </header>
+      <div className="notas-recebidas-toolbar">
+        <label>Depósito
+          <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)}>
+            <option value="">Todos os considerados no saldo</option>
+            {data?.warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </label>
+        <label><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Mostrar também quem está acima do mínimo</label>
+      </div>
+      {error && <p className="real-alert" role="alert">{error}</p>}
+      {done && (
+        <div className="notas-recebidas-notice" role="status">
+          <p>{done.replayed ? "Estes pedidos já tinham sido gerados; nada foi criado de novo." : `${done.orders.length} pedido(s) de compra gerado(s).`}</p>
+          <ul>{done.orders.map((o) => <li key={o.document_id}>Pedido {o.number ?? ""} para {o.supplier_name ?? "o fornecedor"}, com {o.items} item(ns)</li>)}</ul>
+          <p><Link to="/documentos-empresa?tipo=purchase_orders">Ver os pedidos de compra</Link></p>
+        </div>
+      )}
+      {!data && !error && <p role="status">Calculando a reposição…</p>}
+      {data && data.items.length === 0 && <p className="notas-recebidas-empty">Nenhum produto abaixo do estoque mínimo. Para usar a reposição, preencha o estoque mínimo (e o máximo) no cadastro do produto.</p>}
+      {data && data.items.length > 0 && (
+        <>
+          <table className="notas-recebidas-table">
+            <thead><tr><th>Comprar</th><th>Produto</th><th>Saldo</th><th>Mínimo</th><th>Máximo</th><th>Já pedido</th><th>Quantidade a comprar</th><th>Fornecedor</th><th>Valor estimado</th></tr></thead>
+            <tbody>
+              {data.items.map((i) => {
+                const l = lines[i.product_id] ?? { on: false, quantity: "", supplier: "" };
+                return (
+                  <tr key={i.product_id}>
+                    <td><input type="checkbox" aria-label={`Comprar ${i.name}`} checked={l.on} onChange={(e) => set(i.product_id, { on: e.target.checked })} /></td>
+                    <td>{i.name}<small>{i.code ? `Código ${i.code} · ` : ""}{i.unit ?? ""}{i.covered_by_orders ? " · os pedidos em aberto já cobrem" : ""}</small></td>
+                    <td>{qty(i.balance)}</td><td>{qty(i.stock_min)}</td><td>{qty(i.stock_max)}</td>
+                    <td>{qty(i.ordered)}{i.orders.length > 0 && <small>{i.orders.map((o) => `pedido ${o.number ?? ""}: ${qty(o.quantity)}`).join(" · ")}</small>}</td>
+                    <td><input aria-label={`Quantidade de ${i.name}`} inputMode="decimal" value={l.quantity} onChange={(e) => set(i.product_id, { quantity: e.target.value })} /></td>
+                    <td>
+                      <select aria-label={`Fornecedor de ${i.name}`} value={l.supplier} onChange={(e) => set(i.product_id, { supplier: e.target.value })}>
+                        <option value="">Sem fornecedor</option>
+                        {i.suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                      {!i.suppliers.length && <small>Cadastre o fornecedor na aba Fornecedores do produto.</small>}
+                    </td>
+                    <td>{i.value === null ? "—" : moneyText(i.value)}{i.price_source && <small>Pelo {PRICE_SOURCE[i.price_source] ?? i.price_source}</small>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p>{data.totals.below_min} produto(s) abaixo do mínimo · {data.totals.to_buy} a comprar · valor estimado {moneyText(data.totals.value)}{data.totals.without_supplier ? ` · ${data.totals.without_supplier} sem fornecedor` : ""}.</p>
+          {picked.some((i) => !lines[i.product_id].supplier) && <p className="notas-recebidas-warning">Escolha o fornecedor dos produtos marcados que estão sem fornecedor.</p>}
+          {!data.can_order && <p className="notas-recebidas-hint">Seu papel no ERP só consulta: quem gera pedidos de compra é o administrador ou o estoque.</p>}
+          <div className="notas-recebidas-actions">
+            <button type="button" disabled={busy || access.demo || !data.can_order || !picked.length || picked.some((i) => !lines[i.product_id].supplier)} onClick={generate}>
+              {busy ? "Gerando…" : `Gerar ${suppliers.size} pedido(s) de compra`}</button>
+          </div>
+          <p className="notas-recebidas-hint">Gerar os pedidos duas vezes com as mesmas escolhas não cria pedidos repetidos.</p>
+        </>
+      )}
+    </section>
+  );
+}
+type ReplenishmentData = Awaited<ReturnType<NonNullable<RecebidasPort["replenishment"]>>>;
+const trimQty = (value: string) => value.replace(/\.?0+$/, "");
+const moneyText = (value: string | null) => (value === null ? "—" : Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }));
+const todayText = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+/** Inventário valorizado numa data: saldo e valor pelo custo médio da data, por produto e depósito, com a planilha. */
+function Inventory({ port }: { port: RecebidasPort }) {
+  const access = port.access();
+  const [date, setDate] = useState(todayText());
+  const [warehouse, setWarehouse] = useState("");
+  const [zero, setZero] = useState(false);
+  const [data, setData] = useState<InventoryData | null>(null);
+  const [error, setError] = useState("");
+  const query = { data: date, deposito: warehouse || null, zerados: zero };
+  useEffect(() => {
+    if (!access.parts.stock || !port.inventory || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const signal = new AbortController();
+    setError("");
+    port.inventory({ data: date, deposito: warehouse || null, zerados: zero }, signal.signal).then(setData, (e) => { if (!aborted(e)) setError(errorText(e)); });
+    return () => signal.abort();
+  }, [port, date, warehouse, zero, access.parts.stock]);
+  if (!access.parts.stock)
+    return <section className="notas-recebidas"><Tabs current="inventario" /><div className="real-state-panel"><h1>Inventário valorizado</h1><p>O inventário é do Estoque, que está desligado nesta área. Peça ao administrador para ligar Estoque em Gestão → Módulos.</p></div></section>;
+  return (
+    <section className="notas-recebidas">
+      <Tabs current="inventario" />
+      <header>
+        <h1>Inventário valorizado</h1>
+        <p>O saldo de cada produto por depósito no fim do dia escolhido e o valor pelo custo médio daquela data. Serve para o fechamento do mês e para o contador.</p>
+      </header>
+      <div className="notas-recebidas-toolbar">
+        <label>Data<input type="date" value={date} max="2100-12-31" onChange={(e) => setDate(e.target.value)} /></label>
+        <label>Depósito
+          <select value={warehouse} onChange={(e) => setWarehouse(e.target.value)}>
+            <option value="">Todos os depósitos</option>
+            {data?.warehouses_available.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </label>
+        <label><input type="checkbox" checked={zero} onChange={(e) => setZero(e.target.checked)} /> Mostrar saldo zerado</label>
+        {port.inventoryCsvUrl && /^\d{4}-\d{2}-\d{2}$/.test(date) && <a href={port.inventoryCsvUrl(query)}>Baixar planilha (CSV)</a>}
+      </div>
+      {error && <p className="real-alert" role="alert">{error}</p>}
+      {!data && !error && <p role="status">Calculando o inventário…</p>}
+      {data && !data.cost_visible && <p className="notas-recebidas-hint">Seu papel no ERP não vê custo: o inventário mostra só as quantidades.</p>}
+      {data && data.items.length === 0 && <p className="notas-recebidas-empty">Nenhum produto com saldo nesta data.</p>}
+      {data && data.items.length > 0 && (
+        <>
+          <table className="notas-recebidas-table">
+            <thead><tr><th>Produto</th><th>Depósito</th><th>Quantidade</th>{data.cost_visible && <><th>Custo médio na data</th><th>Valor</th></>}</tr></thead>
+            <tbody>
+              {data.items.map((i) => (
+                <tr key={`${i.product_id}:${i.warehouse_id}`}>
+                  <td>{i.name}<small>{i.code ? `Código ${i.code} · ` : ""}{i.unit ?? ""}</small></td>
+                  <td>{i.warehouse_name}{i.ignored && <small>Depósito fora do saldo</small>}</td>
+                  <td>{qty(i.quantity)}</td>
+                  {data.cost_visible && <><td>{i.average_cost === null ? "sem custo" : `R$ ${Number(i.average_cost).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 10 })}`}</td><td>{moneyText(i.value)}</td></>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {data.cost_visible && (
+            <p><strong>Total: {moneyText(data.totals.value)}</strong>{data.totals.uncosted ? ` · ${data.totals.uncosted} linha(s) sem custo (sem entrada com preço até a data)` : ""}
+              {data.warehouses.length > 1 ? ` · ${data.warehouses.map((w) => `${w.name}: ${moneyText(w.value)}`).join(" · ")}` : ""}</p>
+          )}
+          <p className="notas-recebidas-hint">Custo médio pela base escolhida nas preferências do Estoque ({data.cost_basis === "custo_lancamento" ? "custo de entrada" : "preço de compra"}).</p>
+        </>
+      )}
+    </section>
+  );
+}
+type InventoryData = Awaited<ReturnType<NonNullable<RecebidasPort["inventory"]>>>;

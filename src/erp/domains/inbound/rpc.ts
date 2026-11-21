@@ -22,9 +22,11 @@ import { invokeRpc, registerRpc, type RpcArgs, type RpcContext } from "../../eng
 import { requireErpParts } from "../../engine/parts-gate.ts";
 import { todaySaoPaulo } from "../../engine/time.ts";
 import { erpRequirement } from "../../parts.ts";
+import { allowed as catalogAllowed } from "../catalog/public.ts";
 import * as documents from "../documents/public.ts";
 import * as preferences from "../preferences/public.ts";
 import * as stock from "../stock/public.ts";
+import * as inbound from "./public.ts";
 import {
   PURPOSE_LABEL, classifyPurpose, documentKey, landedCosts, payableInstallments, scaled, similarity, stockQuantity, unitKey, unscaled,
   type InboundNote, type InboundPurpose, type LineCost,
@@ -535,6 +537,17 @@ interface ReviewLine {
   cost: LineCost | null; problems: string[];
 }
 
+/** Uma linha da nota diante do item do pedido de compra (quantidades na unidade do produto, 6 casas). */
+interface OrderLine {
+  position: number; product_id: string | null; order_item_id: string | null; ordered_quantity: string | null; remaining_quantity: string | null;
+  note_quantity: string | null; quantity_difference: string | null; order_unit_price: string | null; note_unit_price: string | null;
+  price_difference: number | null; status: "not_in_order" | "same" | "different";
+  /** Quanto esta nota baixa do item (o que veio, até o que falta) e o que fica pendente depois dela. */
+  attend_quantity: string | null; pending_quantity: string | null; fulfillment: "atendido" | "parcial" | "pendente" | null;
+}
+/** Texto decimal com sinal e até 6 casas → escala 6. */
+const signed6 = (v: string) => (v.startsWith("-") ? -(scaled(v.slice(1), 6) ?? 0n) : scaled(v, 6) ?? 0n);
+
 function review(ctx: RpcContext, user: string, row: Row, note: InboundNote, choices: Choices) {
   const db = ctx.db;
   const role = requireRole(db, user, READ_ROLES);
@@ -594,42 +607,67 @@ function review(ctx: RpcContext, user: string, row: Row, note: InboundNote, choi
   lines.forEach((l, n) => { l.cost = l.stock_quantity ? costs[n] : null; });
 
   // Pedido de compra em aberto do fornecedor (com Estoque ligado: é o critério do recebimento).
-  let orders: { id: string; number: string | null; date: string | null; total: string | null; referenced: boolean; received_before: boolean; has_payables: boolean }[] = [];
-  let orderDiff: unknown = null;
+  let orders: { id: string; number: string | null; date: string | null; total: string | null; referenced: boolean; received_before: boolean; attended_before: boolean; has_payables: boolean }[] = [];
+  let orderDiff: { order: Record<string, unknown>; lines: OrderLine[]; missing: unknown[]; fulfillment: "total" | "parcial" | "nenhuma" } | null = null;
   let orderId: string | null = null;
+  let orderExceeded = false;
   if (supplier && can.orders) {
-    const open = documents.openPurchaseOrders(db, supplier.id, ctx.parts);
+    // O que falta receber de cada item (recebido pela tela do pedido e baixado por outras notas).
+    const remainingOf = (id: string) => new Map((stock.purchaseReceiptCurrent(db, id) as { items: { item_id: string; remaining_quantity: string | null }[] }).items
+      .map((i) => [String(i.item_id), i.remaining_quantity]));
+    // O pedido que as notas já atenderam por inteiro sai da lista (nada mais a baixar).
+    const open = documents.openPurchaseOrders(db, supplier.id, ctx.parts).filter((o) => {
+      const left = remainingOf(o.id);
+      return o.items.length === 0 || o.items.some((i) => { const r = left.get(i.id); return r === null || r === undefined || signed6(String(r)) > 0n; });
+    });
     const refs = new Set(note.items.map((i) => (i.order_reference ?? "").replace(/^0+/, "")).filter(Boolean));
     orders = open.map((o) => ({
       id: o.id, number: o.number, date: o.date, total: o.total, referenced: o.number !== null && refs.has(o.number.replace(/^0+/, "")),
       received_before: !!one(db, `SELECT 1 x FROM "erp_purchase_receipts__receipt" r WHERE r.document_id=? AND NOT EXISTS(SELECT 1 FROM "erp_purchase_receipts__reversal" x WHERE x.receipt_id=r.id)`, o.id),
+      attended_before: inbound.inboundPostedForDocument(db, o.id),
       has_payables: !!one(db, `SELECT 1 x FROM "erp_finance__document_posting" WHERE document_id=? AND state='active'`, o.id),
     }));
     orderId = choices.order_id !== undefined ? choices.order_id : orders.find((o) => o.referenced)?.id ?? (orders.length === 1 ? orders[0].id : null);
     if (orderId !== null && !orders.some((o) => o.id === orderId)) raise("22023", "inbound_order_unavailable");
     const order = open.find((o) => o.id === orderId);
     if (order) {
-      const current = stock.purchaseReceiptCurrent(db, order.id) as { items: { item_id: string; product_id: string | null; remaining_quantity: string | null }[] };
-      const remaining = new Map(current.items.map((i) => [String(i.item_id), i.remaining_quantity]));
+      const remaining = remainingOf(order.id);
       const used = new Set<string>();
-      const rows = lines.map((l) => {
+      const rows: OrderLine[] = lines.map((l) => {
         const item = order.items.find((i) => i.product_id !== null && i.product_id === l.product?.id && !used.has(i.id));
         if (item) used.add(item.id);
         const left = item ? remaining.get(item.id) ?? item.quantity : null;
-        const qtyDiff = item && l.stock_quantity && left !== null ? unscaled(scaled(l.stock_quantity, 6)! - scaled(String(left), 6)!, 6) : null;
+        const qtyDiff = item && l.stock_quantity && left !== null ? unscaled(scaled(l.stock_quantity, 6)! - signed6(String(left)), 6) : null;
         const price = l.cost?.unit_price ?? null;
+        // Baixa do item: o que a nota trouxe, até o que falta receber; o resto do pedido fica pendente.
+        const leftQ = left === null ? null : signed6(String(left));
+        const noteQ = l.stock_quantity ? scaled(l.stock_quantity, 6)! : null;
+        const attend = item && noteQ !== null && leftQ !== null ? (leftQ <= 0n ? 0n : noteQ < leftQ ? noteQ : leftQ) : item && noteQ !== null ? noteQ : null;
+        const pending = attend !== null && leftQ !== null ? leftQ - attend : null;
+        if (noteQ !== null && leftQ !== null && noteQ > leftQ) orderExceeded = true;
         return {
           position: l.position, product_id: l.product?.id ?? null, order_item_id: item?.id ?? null,
           ordered_quantity: item?.quantity ?? null, remaining_quantity: left, note_quantity: l.stock_quantity,
           quantity_difference: qtyDiff, order_unit_price: item?.unit_price ?? null, note_unit_price: price,
           price_difference: item && price !== null ? Number(price) - Number(item.unit_price) : null,
           status: !item ? "not_in_order" : qtyDiff !== null && /^0\.0+$/.test(qtyDiff.replace("-", "")) && price !== null && Math.abs(Number(price) - Number(item.unit_price)) < 0.005 ? "same" : "different",
+          attend_quantity: attend === null ? null : unscaled(attend, 6), pending_quantity: pending === null ? null : unscaled(pending < 0n ? 0n : pending, 6),
+          fulfillment: !item || attend === null ? null : pending !== null && pending > 0n ? (attend > 0n ? "parcial" : "pendente") : "atendido",
         };
       });
+      const missing = order.items.filter((i) => !used.has(i.id)).map((i) => ({
+        order_item_id: i.id, product_id: i.product_id, description: i.description, quantity: i.quantity, unit_price: i.unit_price,
+        remaining_quantity: remaining.get(i.id) ?? i.quantity,
+      }));
+      const stillOpen = rows.some((r) => r.pending_quantity !== null && scaled(r.pending_quantity, 6)! > 0n) ||
+        missing.some((m) => m.remaining_quantity === null || signed6(String(m.remaining_quantity)) > 0n);
+      const anyAttended = rows.some((r) => r.attend_quantity !== null && scaled(r.attend_quantity, 6)! > 0n);
       orderDiff = {
         order: { id: order.id, number: order.number, date: order.date, total: order.total },
         lines: rows,
-        missing: order.items.filter((i) => !used.has(i.id)).map((i) => ({ order_item_id: i.id, product_id: i.product_id, description: i.description, quantity: i.quantity, unit_price: i.unit_price })),
+        missing,
+        // Como o pedido fica depois desta nota: atendido por inteiro, em parte ou sem baixa.
+        fulfillment: !anyAttended ? "nenhuma" : stillOpen ? "parcial" : "total",
       };
     }
   }
@@ -667,6 +705,8 @@ function review(ctx: RpcContext, user: string, row: Row, note: InboundNote, choi
     if (lines.some((l) => l.problems.length)) blockers.push("items_pending");
   }
   if (wantFinance && can.finance.part && can.finance.role && !installments.length) blockers.push("installments_missing");
+  // O pedido já recebeu pela tela do pedido e a nota traz mais do que falta: lançar o estoque pela nota contaria a mesma mercadoria duas vezes.
+  if (wantStock && can.stock.part && can.stock.role && chosenOrder?.received_before && orderExceeded) blockers.push("order_received_before");
   if (!wantStock && !wantFinance) blockers.push("nothing_chosen");
   const entry = activeEntry(db, String(row.id));
   if (entry) blockers.push("already_entered");
@@ -731,6 +771,126 @@ registerRpc("erp_inbound_supplier_create", (ctx: RpcContext, a: RpcArgs) => {
     p_user_id: user, p_id: null, p_expected_version: 0, p_command_id: p.command_id, p_data: data, p_acknowledged: null,
   }) as { record: { id: string; name: string; code?: string | null } };
   return { supplier: { id: saved.record.id, name: saved.record.name, code: saved.record.code ?? null }, created: true };
+});
+
+// ---------------------------------------------------------------------------
+// Produto a partir do item da nota: prévia (só leitura) e cadastro pela rotina
+// de produtos (erp_catalog_product_save), ligado ao código do fornecedor. A
+// unidade é a da nota (fator 1): o item casa sozinho na próxima conferência.
+
+const NCM = /^[0-9]{8}$/, CEST = /^[0-9]{7}$/, GTIN = /^([0-9]{8}|[0-9]{12,14})$/;
+const PRODUCT_TEXT = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max) : "");
+
+interface ProductOverride { position: number; name?: string; code?: string | null; unit?: string; ncm?: string | null; cest?: string | null; gtin?: string | null }
+function productOverrides(value: unknown): Map<number, ProductOverride> {
+  const list = Array.isArray(value) ? value : [];
+  if (list.length < 1 || list.length > 990) raise("22023", "inbound_product_items_invalid");
+  const out = new Map<number, ProductOverride>();
+  for (const raw of list) {
+    const i = obj(raw);
+    if (!Number.isSafeInteger(i.position) || i.position < 1 || i.position > 990 || out.has(i.position) ||
+      Object.keys(i).some((k) => !["position", "name", "code", "unit", "ncm", "cest", "gtin"].includes(k)) ||
+      ["name", "code", "unit", "ncm", "cest", "gtin"].some((k) => i[k] !== undefined && i[k] !== null && typeof i[k] !== "string")) raise("22023", "inbound_product_items_invalid");
+    out.set(i.position, i as ProductOverride);
+  }
+  return out;
+}
+
+/** O produto que o item da nota vira, com o que impede o cadastro. */
+function productProposal(db: SqlDriver, note: InboundNote, catalog: Product[], position: number, override: ProductOverride | undefined, linked: Map<string, string>) {
+  const item = note.items.find((i) => i.position === position);
+  if (!item) raise("22023", "inbound_product_items_invalid");
+  const pick = <K extends keyof ProductOverride>(k: K, fallback: string | null) => (override && override[k] !== undefined ? (override[k] as string | null) : fallback);
+  const name = PRODUCT_TEXT(pick("name", item.description), 120);
+  const unit = PRODUCT_TEXT(pick("unit", item.unit), 6).toUpperCase();
+  const code = PRODUCT_TEXT(pick("code", null) ?? "", 60) || null;
+  const ncmRaw = (pick("ncm", item.ncm) ?? "").replace(/\D/g, "");
+  const cestRaw = (pick("cest", item.cest ?? null) ?? "").replace(/\D/g, "");
+  const gtinRaw = (pick("gtin", item.gtin) ?? "").replace(/\D/g, "");
+  const problems: string[] = [], notices: string[] = [];
+  if ([...name].length < 2) problems.push("name_missing");
+  if (!unit) problems.push("unit_missing");
+  const ncm = NCM.test(ncmRaw) && ncmRaw !== "00000000" ? ncmRaw : null;
+  if (ncmRaw && !ncm) notices.push("ncm_ignored");
+  const cest = CEST.test(cestRaw) ? cestRaw : null;
+  if (cestRaw && !cest) notices.push("cest_ignored");
+  const gtin = GTIN.test(gtinRaw) ? gtinRaw : null;
+  if (gtinRaw && !gtin) notices.push("gtin_ignored");
+  // Produto que já existe: o item casa com ele, não vira outro.
+  const linkedId = linked.get(item.code);
+  const existing = (linkedId ? catalog.find((p) => p.id === linkedId && p.active) : undefined) ??
+    (gtin ? catalog.find((p) => p.active && p.gtin === gtin) : undefined) ?? (code ? catalog.find((p) => p.active && p.code === code) : undefined);
+  if (existing) problems.push(existing.id === linkedId ? "already_linked" : gtin && existing.gtin === gtin ? "gtin_exists" : "code_exists");
+  // Custo da nota por unidade da nota: preço de compra (vUnCom) e custo com o rateio de frete, despesas e impostos.
+  const decimalsPref = preferences.get(db, "empresa.decimais_preco_entrada");
+  const decimals = typeof decimalsPref === "number" && Number.isInteger(decimalsPref) && decimalsPref >= 0 && decimalsPref <= 10 ? decimalsPref : 10;
+  const cost = landedCosts(note, new Map(note.items.map((i) => [i.position, i.quantity])), { icms_in_cost: false, decimals }).find((c) => c.position === position)!;
+  return {
+    position, supplier_code: item.code, description: item.description, note_unit: item.unit, quantity: item.quantity,
+    proposal: { name, code, unit, ncm, cest, gtin, purchase_price: cost.unit_price, cost_price: cost.unit_cost },
+    existing: existing ? { id: existing.id, name: existing.name, code: existing.code } : null,
+    problems, notices,
+  };
+}
+
+function productContext(ctx: RpcContext, user: string, p: Record<string, any>) {
+  const db = ctx.db;
+  const role = requireRole(db, user, READ_ROLES);
+  const row = noteRow(db, p.id);
+  const note = checkedNote(db, row, p.xml_sha256, p.note);
+  const supplier = supplierByDocument(db, note.emitter.document);
+  const catalog = products(db);
+  const linked = supplier
+    ? new Map(db.exec(`SELECT record_id, code FROM "erp_catalog__product_supplier" WHERE supplier_id=? AND code IS NOT NULL`, supplier.id).rows.map((r) => [String(r.code), String(r.record_id)]))
+    : new Map<string, string>();
+  return { db, role, row, note, supplier, catalog, linked };
+}
+
+registerRpc("erp_inbound_product_preview", (ctx: RpcContext, a: RpcArgs) => {
+  const p = input(a);
+  const { db, role, note, supplier, catalog, linked } = productContext(ctx, a.p_user_id as string, p);
+  // Sem lista: todos os itens que ainda não casam com produto pelo código do fornecedor nem pelo GTIN.
+  const overrides = p.items === undefined ? null : productOverrides(p.items);
+  const positions = overrides ? [...overrides.keys()]
+    : note.items.filter((i) => !(linked.has(i.code) && catalog.some((x) => x.id === linked.get(i.code) && x.active)) && !(i.gtin && catalog.some((x) => x.active && x.gtin === i.gtin))).map((i) => i.position);
+  return {
+    supplier,
+    can_create: catalogAllowed(role, "products", true) && !!supplier,
+    blockers: supplier ? [] : ["supplier_missing"],
+    items: positions.map((n) => productProposal(db, note, catalog, n, overrides?.get(n), linked)),
+  };
+});
+
+registerRpc("erp_inbound_product_create", (ctx: RpcContext, a: RpcArgs) => {
+  const user = a.p_user_id as string;
+  const p = input(a);
+  if (typeof p.command_id !== "string" || !UUID.test(p.command_id)) raise("22023", "inbound_command_invalid");
+  requireRole(ctx.db, user, WRITE_ROLES);
+  const { db, note, supplier, catalog, linked } = productContext(ctx, user, p);
+  if (!supplier) raise("22023", "inbound_product_supplier_missing");
+  const overrides = productOverrides(p.items);
+  const created: { position: number; product: { id: string; name: string; code: string | null }; replayed: boolean }[] = [];
+  for (const [position, override] of overrides) {
+    const command = subCommand(p.command_id, `product:${position}`);
+    // Repetir o mesmo pedido: o produto que este comando já criou.
+    const done = one(db, 'SELECT result FROM "erp_catalog__command" WHERE command_id=?', command);
+    const proposal = productProposal(db, note, catalog, position, override, linked);
+    if (!done && proposal.problems.length) raise("22023", `inbound_product_blocked:${position}:${proposal.problems.join(",")}`);
+    const item = note.items.find((i) => i.position === position)!;
+    const v = proposal.proposal;
+    const data: Record<string, unknown> = {
+      name: v.name, unit: v.unit, kind: "P", format: "S",
+      ...(v.code ? { code: v.code } : {}), ...(v.ncm ? { ncm: v.ncm } : {}), ...(v.cest ? { cest: v.cest } : {}), ...(v.gtin ? { gtin: v.gtin } : {}),
+      suppliers: [{ supplier_id: supplier.id, description: item.description.slice(0, 120), code: item.code.slice(0, 60), purchase_price: v.purchase_price, cost_price: v.cost_price, is_default: true }],
+    };
+    const saved = invokeRpc(ctx, "erp_catalog_product_save", { p_user_id: user, p_id: null, p_expected_version: 0, p_command_id: command, p_data: data, p_acknowledged: null }) as {
+      record: { id: string; name: string; code?: string | null }; replayed?: boolean;
+    };
+    // O vínculo "código do fornecedor → produto" vale mesmo com a parte de fornecedores do produto desligada.
+    rememberSupplierCode(db, saved.record.id, supplier.id, item.code, item.description);
+    created.push({ position, product: { id: saved.record.id, name: saved.record.name, code: saved.record.code ?? null }, replayed: saved.replayed === true || !!done });
+  }
+  return { supplier, created, replayed: created.every((c) => c.replayed) };
 });
 
 // ---------------------------------------------------------------------------
@@ -829,6 +989,20 @@ registerRpc("erp_inbound_enter", (ctx: RpcContext, a: RpcArgs) => {
       stockStatus = items.length ? "done" : "nothing";
       result.stock = { warehouse_id: r.warehouse_id, items };
     }
+  }
+
+  // Baixa do pedido de compra ligado: o que esta nota trouxe de cada item, até o que faltava.
+  // Só quando a nota lançou o estoque (a baixa é a mercadoria que chegou); o
+  // recebimento pela tela do pedido passa a contar com ela (purchase-receipts.ts, received).
+  if (stockStatus === "done" && r.order_difference) {
+    const diff = r.order_difference;
+    result.order = {
+      id: diff.order.id, number: diff.order.number ?? null, fulfillment: diff.fulfillment,
+      items: diff.lines.filter((l) => l.order_item_id && l.attend_quantity && scaled(l.attend_quantity, 6)! > 0n).map((l) => ({
+        order_item_id: l.order_item_id, position: l.position, product_id: l.product_id, quantity: l.attend_quantity, pending: l.pending_quantity,
+      })),
+      pending: diff.missing,
+    };
   }
 
   // Contas a pagar: as duplicatas da nota, com forma de pagamento e categoria escolhidas (a rotina da tela de Contas a pagar).
@@ -1021,5 +1195,5 @@ registerRpc("erp_inbound_manifest_record", (ctx: RpcContext, a: RpcArgs) => {
 export const INBOUND_RPCS = [
   "erp_inbound_list", "erp_inbound_get", "erp_inbound_register", "erp_inbound_fetch_claim", "erp_inbound_fetch_record", "erp_inbound_review",
   "erp_inbound_supplier_create", "erp_inbound_enter", "erp_inbound_reverse", "erp_inbound_settings_get", "erp_inbound_settings_save",
-  "erp_inbound_manifest_claim", "erp_inbound_manifest_record",
+  "erp_inbound_manifest_claim", "erp_inbound_manifest_record", "erp_inbound_product_preview", "erp_inbound_product_create",
 ] as const;

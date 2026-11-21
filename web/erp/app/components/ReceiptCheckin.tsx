@@ -14,6 +14,8 @@ import { Modal } from './Modal';
 import { Icon } from './Icon';
 // 259: Finalizar with "Lançar estoque ao finalizar Check-in".
 import { CheckinFinishModal } from './InvoiceStock';
+// Compra pela nota: as notas recebidas para dar entrada (tela local do Wabotia).
+import CheckinRecebidas from '../../CheckinRecebidas';
 import './stock.css';
 import './receipt-checkin.css';
 
@@ -151,6 +153,7 @@ export default function ReceiptCheckin({ controller }: { controller: AccessContr
           {!notes.items.length && <p className="empty-state">Nenhuma nota de entrada para conferir.</p>}
           {notes.total > offset + notes.items.length && <button type="button" className="text-button" disabled={frozen} onClick={() => setOffset(offset + notes.items.length)}>Próximas notas</button>}
           {offset > 0 && <button type="button" className="text-button" disabled={frozen} onClick={() => setOffset(Math.max(0, offset - 50))}>Notas anteriores</button>}</>}
+        <CheckinRecebidas />
       </aside>
       <section className="checkin-main" aria-label="Itens da nota">
         {!noteId ? <div className="origin-empty"><span className="status-badge status-neutral">{WAITING_NOTE}</span><h2>{NO_NOTE}</h2><p>{NO_NOTE_HELP}</p></div>

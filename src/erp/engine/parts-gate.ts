@@ -55,6 +55,12 @@ const RPC_GROUPS = {
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
     erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
     erp_inbound_manifest_claim erp_inbound_manifest_record`,
+  // Produto a partir do item da nota: Compras e Produtos.
+  inbound_products: `erp_inbound_product_preview erp_inbound_product_create`,
+  // Reposição pelo mínimo e máximo e os pedidos gerados: Compras e Estoque.
+  inbound_replenishment: `erp_inbound_replenishment erp_inbound_replenishment_generate`,
+  // Inventário valorizado numa data: Estoque.
+  inbound_inventory: `erp_inbound_inventory`,
   base: `erp_access_storage erp_access_gate_v2 erp_access_me erp_access_permissions_me erp_access_profile_me erp_access_security_policy_get
     erp_access_security_policy_save erp_access_user_controls_get erp_access_user_controls_save erp_activity_detail erp_activity_list
     erp_attachment_contact_claim erp_attachment_contact_delete erp_attachment_contact_finish erp_attachment_contact_list erp_attachment_contact_object
@@ -221,6 +227,9 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_prepare: ["erp-fiscal", "erp-vendas"], com1_read: ["erp-fiscal"],
   com1_effect: ["erp-fiscal"],
   inbound: ["erp-compras"],
+  inbound_products: ["erp-compras", "erp-produtos"],
+  inbound_replenishment: ["erp-compras", "erp-estoque"],
+  inbound_inventory: ["erp-estoque"],
   shipping: ["erp-expedicao"],
   contracts: ["erp-contratos"],
   stores: ["erp"],

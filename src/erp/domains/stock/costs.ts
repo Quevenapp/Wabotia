@@ -52,15 +52,18 @@ export function invoiceUnitPrice(unitPrice: bigint, snapshot: unknown, position:
  * erp_stock.average_costs(p_products): custo médio (escala 10) por produto,
  * na ordem do produto; null quando nenhuma entrada trouxe custo.
  */
-export function averageCosts(db: SqlDriver, products: string[] | null): Map<string, bigint | null> {
+export function averageCosts(db: SqlDriver, products: string[] | null, until: string | null = null): Map<string, bigint | null> {
   const base = settingsDto(db).average_cost_base;
+  // until (só do motor, inventário valorizado numa data): só os lançamentos com data até ela.
   const rows = db.exec(
     `SELECT e.product_id p, CAST(e.quantity AS TEXT) q, m.kind, m.id movement, m.created_at, e.ordinal
      FROM "erp_stock__entry" e JOIN "erp_stock__movement" m ON m.id=e.movement_id
-     WHERE ? IS NULL OR e.product_id IN (SELECT value FROM json_each(?))
+     WHERE (? IS NULL OR e.product_id IN (SELECT value FROM json_each(?))) AND (? IS NULL OR m.occurred_on<=?)
      ORDER BY e.product_id, m.created_at, m.id, e.ordinal`,
     products === null ? null : 1,
     JSON.stringify(products ?? []),
+    until,
+    until,
   ).rows;
   const costCache = new Map<string, (bigint | null)[]>();
   /** Custos de uma entrada (normalmente um; dois se pedido e nota apontam o mesmo lançamento). */
