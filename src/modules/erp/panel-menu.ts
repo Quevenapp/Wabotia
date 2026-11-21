@@ -549,6 +549,8 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.consumer-invoices"],
       legacyItems["erp.bling-invoices"],
       legacyItems["erp.accountant"],
+      // SPED Fiscal, EFD-Contribuições e SINTEGRA em arquivo, ao lado do pacote do contador.
+      legacyItems["erp.sped"],
       // Reforma tributária: IBS, CBS e IS (configuração, classificações e relatório).
       legacyItems["erp.tax-reform"],
       legacyItems["erp.pos"],
