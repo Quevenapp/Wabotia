@@ -1301,6 +1301,10 @@ app.get("/api/v1/profiles/:profile/erp-cnpj/:cnpj", async (c: any) => {
   const { erpCnpjRoute } = await import("./erp/cnpj/routes");
   return erpCnpjRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+app.get("/api/v1/profiles/:profile/erp-cep/:cep", async (c: any) => {
+  const { erpCepRoute } = await import("./erp/cnpj/routes");
+  return erpCepRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Boleto registrado pela API do banco (Cobrança bancária: Banco Inter, Sicoob,
 // Banco do Brasil e Itaú): src/erp/boleto-api/routes.ts.
 const erpBoleto = async (c: any) => {

@@ -10,6 +10,7 @@ export interface CnpjData {
   cep: string | null;
   uf: string | null;
   cidade: string | null;
+  ibge: string | null;
   bairro: string | null;
   endereco: string | null;
   numero: string | null;
@@ -63,6 +64,7 @@ export function fromBrasilApi(cnpj: string, b: any): CnpjData {
     cep: cep(b?.cep),
     uf: text(b?.uf)?.toUpperCase() ?? null,
     cidade: text(b?.municipio),
+    ibge: digits(b?.codigo_municipio_ibge).length === 7 ? digits(b?.codigo_municipio_ibge) : null,
     bairro: text(b?.bairro),
     endereco: street(b?.descricao_tipo_de_logradouro, b?.logradouro),
     numero: text(b?.numero),
@@ -94,6 +96,7 @@ export function fromCnpjWs(cnpj: string, b: any): CnpjData {
     cep: cep(e?.cep),
     uf,
     cidade: text(e?.cidade?.nome),
+    ibge: digits(e?.cidade?.ibge_id).length === 7 ? digits(e?.cidade?.ibge_id) : null,
     bairro: text(e?.bairro),
     endereco: street(e?.tipo_logradouro, e?.logradouro),
     numero: text(e?.numero),
@@ -136,3 +139,33 @@ export async function lookupCnpj(cnpj: string, fetcher: (url: string) => Promise
   return { failed: second?.status === 429 || first?.status === 429 ? "busy" : "unavailable" };
 }
 
+
+// ---- CEP: ViaCEP primeiro (traz o código IBGE do município, usado na nota) e BrasilAPI se ela não responder ----
+export interface CepData { scope: "cep_lookup"; cep: string; street: string | null; complement: string | null; district: string | null; city: string; state: string; ibge_code: string | null; source: "ViaCEP" | "BrasilAPI" }
+
+export function fromViaCep(cep: string, b: any): CepData | null {
+  if (!b || b.erro === true || b.erro === "true") return null;
+  const city = text(b.localidade), state = text(b.uf)?.toUpperCase() ?? null;
+  if (!city || !state || !/^[A-Z]{2}$/.test(state)) return null;
+  const ibge = digits(b.ibge);
+  return { scope: "cep_lookup", cep, street: text(b.logradouro), complement: text(b.complemento), district: text(b.bairro), city, state, ibge_code: ibge.length === 7 ? ibge : null, source: "ViaCEP" };
+}
+
+export function fromBrasilApiCep(cep: string, b: any): CepData | null {
+  const city = text(b?.city), state = text(b?.state)?.toUpperCase() ?? null;
+  if (!city || !state || !/^[A-Z]{2}$/.test(state)) return null;
+  return { scope: "cep_lookup", cep, street: text(b?.street), complement: null, district: text(b?.neighborhood), city, state, ibge_code: null, source: "BrasilAPI" };
+}
+
+export async function lookupCep(cep: string, fetcher: (url: string) => Promise<{ status: number; body: any } | null> = ask): Promise<{ data: CepData } | { notFound: true } | { failed: true }> {
+  const first = await fetcher(`https://viacep.com.br/ws/${cep}/json/`);
+  if (first && first.status === 200) {
+    const data = fromViaCep(cep, first.body);
+    if (data) return { data };
+    if (first.body?.erro) return { notFound: true };
+  }
+  const second = await fetcher(`https://brasilapi.com.br/api/cep/v2/${cep}`);
+  if (second && second.status === 200) { const data = fromBrasilApiCep(cep, second.body); if (data) return { data }; }
+  if (second?.status === 404 || (first?.status === 400 && second?.status === 400)) return { notFound: true };
+  return { failed: true };
+}

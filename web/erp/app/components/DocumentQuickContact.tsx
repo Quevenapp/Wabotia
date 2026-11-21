@@ -13,6 +13,9 @@ import { COUNTRY_SUGGESTIONS } from '../lib/contact-form-model';
 import { contactRefusalText, refusalField } from './contact-errors';
 import { Modal } from './Modal';
 import './document-pickers.css';
+import CnpjLookupButton from './CnpjLookupButton';
+import CepLookupButton from './CepLookupButton';
+import { cnpjFormValues } from '../lib/cnpj-lookup';
 
 type Controller = Pick<AccessController, 'catalog' | 'getSnapshot'>;
 export interface QuickContactState { busy: boolean; dirty: boolean; uncertain: boolean }
@@ -111,6 +114,11 @@ export default function DocumentQuickContact({ controller, kind, initial, onCrea
         <div className="form-field quick-contact-wide"><label htmlFor="quick-contact-trade-name">Fantasia{star('trade_name')}</label><input id="quick-contact-trade-name" maxLength={200} autoComplete="off" value={text('trade_name')} {...described('trade_name')} onChange={event => change('trade_name', event.target.value)} /></div>
         <div className="form-field"><label htmlFor="quick-contact-person-type">Tipo da Pessoa</label><select id="quick-contact-person-type" value={values.person_type} {...described('person_type')} onChange={event => change('person_type', event.target.value as QuickContactPersonType)}>{QUICK_CONTACT_PERSON_TYPES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
         <div className="form-field"><label htmlFor="quick-contact-document">{quickContactDocumentLabel(values.person_type)}{star('document')}</label><input id="quick-contact-document" maxLength={30} autoComplete="off" value={values.document} {...described('document')} onChange={event => change('document', event.target.value)} /></div>
+        {values.person_type !== 'F' && values.person_type !== 'E' && <div className="form-field"><CnpjLookupButton id="quick-contact-document-busca" cnpj={values.document} disabled={busy || uncertain} onFound={data => setValues(previous => {
+          const filled = cnpjFormValues(data, previous as unknown as Record<string, string>, true);
+          const pick = (key: keyof QuickContactValues) => filled[key as string] ? { [key]: filled[key as string] } : {};
+          return { ...previous, ...pick('name'), ...pick('trade_name'), ...pick('ie'), ...pick('postal_code'), ...pick('state'), ...pick('city'), ...pick('district'), ...pick('street'), ...pick('number'), ...pick('complement'), ...pick('phone'), ...pick('email'), ...(filled.taxpayer && !previous.taxpayer ? { taxpayer: filled.taxpayer } : {}) };
+        })} /></div>}
         <div className="form-field"><label htmlFor="quick-contact-ie">Inscrição Estadual{star('ie')}</label><input id="quick-contact-ie" maxLength={30} autoComplete="off" value={text('ie')} {...described('ie')} onChange={event => change('ie', event.target.value)} /></div>
         <div className="form-field quick-contact-wide"><label htmlFor="quick-contact-taxpayer">Contribuinte</label><select id="quick-contact-taxpayer" value={values.taxpayer ?? '9'} {...described('taxpayer')} onChange={event => change('taxpayer', event.target.value)}>{QUICK_TAXPAYERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
         {values.person_type === 'E' && <div className="form-field"><label htmlFor="quick-contact-country">País{star('country')}</label><input id="quick-contact-country" maxLength={60} autoComplete="off" list="quick-contact-countries" value={text('country')} {...described('country')} onChange={event => change('country', event.target.value)} />
@@ -122,6 +130,8 @@ export default function DocumentQuickContact({ controller, kind, initial, onCrea
         <h3>Endereço</h3>
         <div className="form-field"><label htmlFor="quick-contact-state">UF</label><select id="quick-contact-state" value={text('state')} {...described('state')} onChange={event => change('state', event.target.value)}><option value="">UF</option>{DOCUMENT_LIST_UFS.map(uf => <option key={uf} value={uf}>{uf}</option>)}</select></div>
         {ADDRESS.map(([key, label, max]) => <div className={`form-field${key === 'street' ? ' quick-contact-wide' : ''}`} key={key}><label htmlFor={`quick-contact-${key}`}>{label}{star(key)}</label><input id={`quick-contact-${key}`} maxLength={max} autoComplete="off" value={text(key)} {...described(key)} onChange={event => change(key, event.target.value)} /></div>)}
+        {values.person_type !== 'E' && <div className="form-field"><CepLookupButton id="quick-contact-postal_code-busca" cep={values.postal_code} disabled={busy || uncertain} onFound={address => setValues(previous => ({ ...previous, postal_code: address.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2'), state: address.state, city: address.city,
+          ...(address.district ? { district: address.district } : {}), ...(address.street ? { street: address.street } : {}), ...(address.complement && !(previous.complement ?? '').trim() ? { complement: address.complement } : {}) }))} /></div>}
         <h3>Contato</h3>
         <div className="form-field quick-contact-wide"><label htmlFor="quick-contact-email">E-mail{star('email')}</label><input id="quick-contact-email" type="email" maxLength={254} autoComplete="off" value={values.email} {...described('email')} onChange={event => change('email', event.target.value)} /></div>
         <div className="form-field quick-contact-wide"><label htmlFor="quick-contact-nfe-email">E-Mail para envio da NFe{star('nfe_email')}</label><input id="quick-contact-nfe-email" type="email" maxLength={60} autoComplete="off" value={text('nfe_email')} {...described('nfe_email')} onChange={event => change('nfe_email', event.target.value)} /></div>

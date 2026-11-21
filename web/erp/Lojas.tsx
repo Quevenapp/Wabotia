@@ -9,6 +9,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { erpPorts } from "./ports";
 import type { Compared, LojasPort, OperationKind, Operations, Overview, Report, Store, StoreInput } from "./lojas-api";
 import "./lojas.css";
+import CnpjLookupButton from "./app/components/CnpjLookupButton";
+import CepLookupButton from "./app/components/CepLookupButton";
 
 const ROUTE = "/lojas";
 const errorText = (error: unknown) => (error instanceof Error ? error.message : "Algo deu errado. Atualize a tela e tente de novo.");
@@ -134,8 +136,17 @@ function StoreForm({ port, overview, store, onDone }: { port: LojasPort; overvie
       <label>Nome da loja<input value={name} maxLength={80} required onChange={(e) => setName(e.target.value)} /></label>
       <label>Telefone<input value={phone} inputMode="tel" onChange={(e) => setPhone(e.target.value)} /></label>
       <label>CNPJ da filial (em branco: o da empresa)<input value={cnpj} onChange={(e) => setCnpj(e.target.value)} /></label>
+      {/* Pedido do dono (21/11): o CNPJ da filial busca o endereço e o telefone na Receita; o CEP busca o endereço. */}
+      <CnpjLookupButton id="loja-cnpj-busca" cnpj={cnpj} disabled={busy} onFound={(d) => {
+        setAddress((a) => ({ ...a, ...(d.cep ? { postal_code: d.cep } : {}), ...(d.endereco ? { street: d.endereco } : {}), ...(d.numero ? { number: d.numero } : {}),
+          ...(d.complemento ? { complement: d.complemento } : {}), ...(d.bairro ? { district: d.bairro } : {}), ...(d.cidade ? { city: d.cidade } : {}), ...(d.uf ? { state: d.uf } : {}) }));
+        if (d.telefone && !phone.trim()) setPhone(d.telefone);
+        if (!name.trim() && (d.nome_fantasia || d.razao_social)) setName((d.nome_fantasia || d.razao_social)!.slice(0, 80));
+      }} />
       <label>Série das notas da loja<input value={series} inputMode="numeric" onChange={(e) => setSeries(e.target.value.replace(/\D/g, "").slice(0, 3))} /></label>
-      {field("postal_code", "CEP", 9)}{field("street", "Rua", 30)}{field("number", "Número", 6)}{field("complement", "Complemento")}{field("district", "Bairro")}{field("city", "Cidade")}
+      {field("postal_code", "CEP", 9)}
+      <CepLookupButton id="loja-cep-busca" cep={address.postal_code} disabled={busy} onFound={(a) => setAddress((cur) => ({ ...cur, postal_code: a.cep.replace(/^(\d{5})(\d{3})$/, "$1-$2"), city: a.city, state: a.state,
+        ...(a.district ? { district: a.district } : {}), ...(a.street ? { street: a.street } : {}), ...(a.complement && !cur.complement ? { complement: a.complement } : {}) }))} />{field("street", "Rua", 30)}{field("number", "Número", 6)}{field("complement", "Complemento")}{field("district", "Bairro")}{field("city", "Cidade")}
       <label>UF<select value={address.state ?? ""} onChange={(e) => setAddress({ ...address, state: e.target.value })}><option value="">—</option>{UFS.map((u) => <option key={u}>{u}</option>)}</select></label>
     </div>
     <p className="lojas-help">As notas continuam saindo pelo mesmo emissor da empresa; a série da loja fica guardada aqui para a emissão da loja.</p>

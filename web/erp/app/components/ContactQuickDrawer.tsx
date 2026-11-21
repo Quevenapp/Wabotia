@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import CnpjLookupButton from './CnpjLookupButton';
+import CepLookupButton from './CepLookupButton';
+import { cnpjFormValues } from '../lib/cnpj-lookup';
 import type { AccessController } from '../lib/real-access';
 import { CatalogValidationError } from '../lib/catalog-base';
 import { COUNTRY_SUGGESTIONS, PERSON_TYPE_OPTIONS, TAXPAYER_OPTIONS, UF_SELECT, contactFormValues, contactPayload, documentLabel, type ContactRecord } from '../lib/contact-form-model';
@@ -54,6 +57,7 @@ export function ContactQuickDrawer({ controller, types, canCreateTypes, required
         {FIELDS.map(input)}
         <div className="form-field"><label htmlFor="quick-person_type">Tipo da Pessoa</label><select id="quick-person_type" value={person} onChange={event => change('person_type', event.target.value)}>{PERSON_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
         {input(['document', documentLabel(person ?? ''), 30])}
+            {person !== 'F' && person !== 'E' && <div className="form-field"><CnpjLookupButton id="quick-document-busca" cnpj={values.document} onFound={data => { setValues(previous => ({ ...previous, ...cnpjFormValues(data, previous, true) })); saver.setWarnings(null); }} /></div>}
         {input(['ie', 'Inscrição Estadual', 30])}
         <div className="form-field"><label htmlFor="quick-taxpayer">Contribuinte</label><select id="quick-taxpayer" value={values.taxpayer} onChange={event => change('taxpayer', event.target.value)}>{TAXPAYER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.value}</option>)}</select></div>
         {person === 'E' && <div className="form-field"><label htmlFor="quick-country">País{required.includes('country') ? ' *' : ''}</label><input id="quick-country" maxLength={60} list="quick-countries" value={values.country ?? ''} aria-invalid={shown === 'country' || undefined} onChange={event => change('country', event.target.value)} />
@@ -61,6 +65,8 @@ export function ContactQuickDrawer({ controller, types, canCreateTypes, required
         {person === 'F' && <><div className="form-field"><label htmlFor="quick-birth_date">Data Nascimento</label><input id="quick-birth_date" type="date" value={values.birth_date ?? ''} onChange={event => change('birth_date', event.target.value)} /></div>{input(['rg', 'RG', 20])}</>}
         <h3>Endereço</h3>
         {input(ADDRESS[0]!)}
+            {person !== 'E' && <div className="form-field"><CepLookupButton id="quick-postal_code-busca" cep={values.postal_code} onFound={address => setValues(previous => ({ ...previous, postal_code: address.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2'), state: address.state, city: address.city,
+              ...(address.district ? { district: address.district } : {}), ...(address.street ? { street: address.street } : {}), ...(address.complement && !(previous.complement ?? '').trim() ? { complement: address.complement } : {}) }))} /></div>}
         <div className="form-field"><label htmlFor="quick-state">UF</label><select id="quick-state" value={values.state ?? ''} onChange={event => change('state', event.target.value)}>{UF_SELECT.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
         {ADDRESS.slice(1).map(input)}
         <h3>Contato</h3>

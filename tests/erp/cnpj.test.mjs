@@ -53,3 +53,19 @@ test("o formulário recebe só os campos vazios, ou tudo quando a pessoa pede", 
   assert.equal(kept.name, undefined); assert.equal(kept.city, undefined); assert.equal(kept.ie, undefined);
   assert.equal(cnpjFormValues(data, { name: "Meu nome" }, true).name, "EMPRESA EXEMPLO LTDA");
 });
+
+test("CEP: ViaCEP com IBGE, BrasilAPI quando a primeira falha, CEP inexistente", async () => {
+  const { lookupCep } = await import("../../src/erp/cnpj/lookup.ts");
+  const via = { logradouro: "Avenida Paulista", complemento: "de 612 a 1510 - lado par", bairro: "Bela Vista", localidade: "São Paulo", uf: "SP", ibge: "3550308" };
+  const a = await lookupCep("01310100", async (url) => (url.includes("viacep") ? { status: 200, body: via } : null));
+  assert.deepEqual([a.data.city, a.data.state, a.data.ibge_code, a.data.source], ["São Paulo", "SP", "3550308", "ViaCEP"]);
+  const b = await lookupCep("01310100", async (url) => (url.includes("viacep") ? null : { status: 200, body: { cep: "01310100", state: "SP", city: "São Paulo", neighborhood: "Bela Vista", street: "Avenida Paulista" } }));
+  assert.equal(b.data.source, "BrasilAPI");
+  assert.deepEqual(await lookupCep("99999999", async (url) => (url.includes("viacep") ? { status: 200, body: { erro: true } } : null)), { notFound: true });
+  assert.deepEqual(await lookupCep("01310100", async () => null), { failed: true });
+});
+
+test("o CNPJ também traz o código IBGE do município", () => {
+  assert.equal(fromBrasilApi(CNPJ, { ...brasil, codigo_municipio_ibge: 3550308 }).ibge, "3550308");
+  assert.equal(fromCnpjWs(CNPJ, { ...ws, estabelecimento: { ...ws.estabelecimento, cidade: { nome: "São Paulo", ibge_id: 3550308 } } }).ibge, "3550308");
+});

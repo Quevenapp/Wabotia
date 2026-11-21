@@ -11,6 +11,7 @@ import { contactRefusalText } from './contact-errors';
 // 202610200272: the Foto of the funcionário (same private storage and proxy as the Foto of the contato).
 import { ContactPhoto } from './ContactFiles';
 import './contacts.css';
+import CepLookupButton from './CepLookupButton';
 
 // Cadastros > Funcionários (Origin FL-01, FF-01, FF-03 e FF-04). Somente administrador: dados pessoais e salário. As
 // colunas do Origin não foram capturadas (a conta não tinha funcionários): Nome, CPF, Cargo, Admissão e Situação.
@@ -135,6 +136,8 @@ function EmployeeForm({ controller, record, onClose, onSaved }: { controller: Ac
         <div className="form-field"><label htmlFor="employee-salary">Salário</label><input id="employee-salary" inputMode="decimal" maxLength={20} value={values.salary} onChange={event => change('salary', event.target.value)} /></div></div></section>
       <section className="contact-section"><h3 className="catalog-group-title">Contato</h3><div className="contact-grid">{CONTACT.map(field => input(field))}</div></section>
       <section className="contact-section"><h3 className="catalog-group-title">Endereço</h3><div className="contact-grid">{input(ADDRESS[0]!)}
+        <div className="form-field"><CepLookupButton id="employee-postal_code-busca" cep={values.postal_code} disabled={busy || uncertain} onFound={address => setValues(current => ({ ...current, postal_code: address.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2'), state: address.state, city: address.city,
+          ...(address.district ? { district: address.district } : {}), ...(address.street ? { street: address.street } : {}), ...(address.complement && !(current.complement ?? '').trim() ? { complement: address.complement } : {}) }))} /></div>
         <div className="form-field"><label htmlFor="employee-state">UF</label><select id="employee-state" value={values.state} onChange={event => change('state', event.target.value)}>{UF_SELECT.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>
         {ADDRESS.slice(1).map(field => input(field))}
         <div className="form-field real-field-wide"><label htmlFor="employee-notes">Observações</label><textarea id="employee-notes" rows={3} maxLength={4000} value={values.notes} onChange={event => change('notes', event.target.value)} /></div></div></section>

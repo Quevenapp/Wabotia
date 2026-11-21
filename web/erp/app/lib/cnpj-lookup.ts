@@ -4,7 +4,7 @@ import { erpPorts } from '../../ports.ts';
 
 export interface CnpjData {
   cnpj: string; razao_social: string | null; nome_fantasia: string | null; situacao: string | null; ativa: boolean | null; abertura: string | null;
-  cep: string | null; uf: string | null; cidade: string | null; bairro: string | null; endereco: string | null; numero: string | null; complemento: string | null;
+  cep: string | null; uf: string | null; cidade: string | null; ibge: string | null; bairro: string | null; endereco: string | null; numero: string | null; complemento: string | null;
   telefone: string | null; email: string | null; inscricao_estadual: string | null; simples: boolean | null; mei: boolean | null; atividade: string | null;
 }
 
@@ -42,6 +42,27 @@ export async function lookupCnpj(cnpj: string, signal?: AbortSignal): Promise<Cn
     throw new CnpjLookupError(typeof error.message === 'string' ? error.message : `A busca na Receita falhou (${response.status}).`);
   }
   return await response.json() as CnpjData;
+}
+
+/** Endereço pelo CEP: /api/v1/profiles/<área>/erp-cep/<cep> (ViaCEP e BrasilAPI pelo servidor). Mesmo formato de `CepAddress`. */
+export interface CepLookupAddress { cep: string; street: string | null; complement: string | null; district: string | null; city: string; state: string; ibge_code: string | null }
+export const cepLookupBase = () => cnpjLookupBase()?.replace(/\/erp-cnpj$/, '/erp-cep') ?? null;
+export async function lookupCepAddress(cep: string, signal?: AbortSignal): Promise<CepLookupAddress> {
+  const base = cepLookupBase();
+  if (!base) throw new CnpjLookupError('A busca de CEP só funciona no painel da área.');
+  let response: Response;
+  try { response = await globalThis.fetch(`${base}/${cep.replace(/\D/g, '')}`, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' }, signal }); }
+  catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') throw error;
+    throw new CnpjLookupError('Sem resposta do servidor. Confira a conexão e tente de novo.');
+  }
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as any;
+    const error = body?.error ?? body ?? {};
+    throw new CnpjLookupError(typeof error.message === 'string' ? error.message : `A busca do CEP falhou (${response.status}).`);
+  }
+  const r = await response.json() as CepLookupAddress;
+  return { cep: r.cep, street: r.street, complement: r.complement, district: r.district, city: r.city, state: r.state, ibge_code: r.ibge_code };
 }
 
 /** Valores do formulário a partir da Receita. `force`: sobrescreve; senão, só preenche o que está vazio. */

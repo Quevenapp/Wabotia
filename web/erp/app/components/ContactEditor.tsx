@@ -29,6 +29,7 @@ import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
 import { ContactCustomFields } from './ContactCustomFields';
 import { cnpjDigits, cnpjFormValues, cnpjLookupBase, lookupCnpj, searchableCnpj, type CnpjData } from '../lib/cnpj-lookup';
+import CepLookupButton from './CepLookupButton';
 import './contacts.css';
 import { blockEnabled, fieldEnabled, availablePayload } from '../../blocks';
 
@@ -238,7 +239,11 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
           </div></section>
         <section className="contact-section" id="contact-section-address" tabIndex={-1}><h3 className="catalog-group-title">Endereço</h3>
           <div className="contact-tabs" role="tablist"><button type="button" role="tab" aria-selected={addressTab === 'geral'} onClick={() => setAddressTab('geral')}>Geral</button><button type="button" role="tab" aria-selected={addressTab === 'cobranca'} onClick={() => setAddressTab('cobranca')}>Cobrança</button></div>
-          <div className="contact-grid" role="tabpanel">{(addressTab === 'geral' ? SECTION_FIELDS.endereco : SECTION_FIELDS.cobranca).map(spec => field(spec))}
+          <div className="contact-grid" role="tabpanel">{(addressTab === 'geral' ? SECTION_FIELDS.endereco : SECTION_FIELDS.cobranca).map(spec => spec.key === 'postal_code' || spec.key === 'billing_postal_code'
+            ? [field(spec), person !== 'E' && <div className="form-field contact-cep-lookup" key={`${spec.key}-busca`}><CepLookupButton id={`contact-${spec.key}-busca`} cep={values[spec.key]} disabled={locked}
+              onFound={address => { const p = spec.key === 'billing_postal_code' ? 'billing_' : ''; setValues(previous => ({ ...previous, [`${p}postal_code`]: address.cep.replace(/^(\d{5})(\d{3})$/, '$1-$2'), [`${p}state`]: address.state, [`${p}city`]: address.city,
+                ...(address.district ? { [`${p}district`]: address.district } : {}), ...(address.street ? { [`${p}street`]: address.street } : {}), ...(address.complement && !(previous[`${p}complement`] ?? '').trim() ? { [`${p}complement`]: address.complement } : {}) })); saver.setWarnings(null); }} /></div>]
+            : field(spec))}
             {/* Leva H (SQL 373): use the general address, e-mail de cobrança and the address the financeiro uses; saved on its own. */}
             {addressTab === 'cobranca' && record && <ContactBilling controller={controller} contactId={record.id} writable={Boolean(writable) && !locked} />}</div></section>
         <section className="contact-section" id="contact-section-people" tabIndex={-1}><h3 className="catalog-group-title">Contato</h3>
