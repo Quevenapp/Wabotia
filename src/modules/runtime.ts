@@ -80,6 +80,9 @@ import "../erp/frete/schedule.ts";
 // Obrigações em arquivo (SPED e SINTEGRA): o envio ao contador que espera o
 // pacote do período ficar pronto (src/erp/sped/command.ts).
 import "../erp/sped/command.ts";
+// Régua de cobrança: o envio das etapas do dia pela conversa, no alarme da
+// área com o Financeiro ligado (src/erp/regua/sender.ts).
+import "../erp/regua/sender.ts";
 
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.

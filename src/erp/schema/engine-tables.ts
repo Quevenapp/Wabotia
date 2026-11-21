@@ -2542,6 +2542,71 @@ const BLING_REAL_TABLES: readonly EngineTable[] = [
 ) STRICT`,
   ]),
 ];
+// Régua de cobrança e contas recorrentes automáticas (versão 34; 32 e 33 são
+// de outras frentes): src/erp/domains/finance/dunning.ts. Quem liga a régua,
+// os dias (em branco: as preferências de Contas a receber), o canal e o
+// horário ficam no D1 da área (migração 0290).
+const D_STEP = "erp_finance__dunning_step", D_AUTO = "erp_finance__recurrence_auto", D_RUN = "erp_finance__recurrence_run";
+const dunning = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 34, owner: "regua-cobranca", structural: "regua-cobranca" });
+const DUNNING_TABLES: readonly EngineTable[] = [
+  // Uma etapa da régua (antes, no dia, depois) ou o envio da conta gerada pela
+  // recorrência, por conta e canal: uma vez só (chave única), com a situação.
+  dunning(D_STEP, [
+    `CREATE TABLE "${D_STEP}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "title_id" TEXT NOT NULL,
+  "stage" TEXT NOT NULL,
+  "channel" TEXT NOT NULL,
+  "origin" TEXT NOT NULL DEFAULT 'regua',
+  "planned_on" TEXT NOT NULL,
+  "due_on" TEXT NOT NULL,
+  "amount_cents" INTEGER NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'pending',
+  "attempts" INTEGER NOT NULL DEFAULT 0,
+  "lease_until" INTEGER,
+  "reason" TEXT,
+  "send_ref" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "sent_at" INTEGER,
+  CONSTRAINT "${D_STEP}_stage_key" UNIQUE (title_id, stage, channel),
+  CONSTRAINT "${D_STEP}_stage_check" CHECK (stage IN ('before','due','after','issue') AND channel IN ('whatsapp','email') AND origin IN ('regua','recurrence')),
+  CONSTRAINT "${D_STEP}_status_check" CHECK (status IN ('pending','sending','sent','failed','skipped','cancelled') AND ((status = 'sending') = (lease_until IS NOT NULL)) AND ((status = 'sent') = (sent_at IS NOT NULL))),
+  CONSTRAINT "${D_STEP}_value_check" CHECK (${DATE10("planned_on")} AND ${DATE10("due_on")} AND amount_cents >= 0 AND attempts >= 0
+    AND (reason IS NULL OR length(reason) BETWEEN 1 AND 500) AND (send_ref IS NULL OR length(send_ref) BETWEEN 1 AND 100))
+) STRICT`,
+    `CREATE INDEX "${D_STEP}_status_idx" ON "${D_STEP}" (status, planned_on)`,
+    `CREATE INDEX "${D_STEP}_updated_idx" ON "${D_STEP}" (updated_at)`,
+  ]),
+  // A recorrência gerada sozinha pelo alarme (e, a receber, com a cobrança enviada ao gerar).
+  dunning(D_AUTO, [
+    `CREATE TABLE "${D_AUTO}" (
+  "recurrence_id" TEXT NOT NULL PRIMARY KEY,
+  "auto_generate" INTEGER NOT NULL DEFAULT 0,
+  "send_charge" INTEGER NOT NULL DEFAULT 0,
+  "updated_by" TEXT,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${D_AUTO}_flags_check" CHECK (auto_generate IN (0,1) AND send_charge IN (0,1) AND (send_charge = 0 OR auto_generate = 1))
+) STRICT`,
+  ]),
+  // O que o alarme fez em cada período de cada recorrência: uma vez por período.
+  dunning(D_RUN, [
+    `CREATE TABLE "${D_RUN}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "recurrence_id" TEXT NOT NULL,
+  "recurrence_on" TEXT NOT NULL,
+  "title_id" TEXT,
+  "outcome" TEXT NOT NULL,
+  "reason" TEXT,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${D_RUN}_period_key" UNIQUE (recurrence_id, recurrence_on),
+  CONSTRAINT "${D_RUN}_outcome_check" CHECK (outcome IN ('generated','failed') AND ((outcome = 'generated') = (title_id IS NOT NULL))
+    AND ${DATE10("recurrence_on")} AND (reason IS NULL OR length(reason) BETWEEN 1 AND 500))
+) STRICT`,
+    `CREATE INDEX "${D_RUN}_created_idx" ON "${D_RUN}" (created_at)`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2625,6 +2690,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...CONTRACT_TABLES,
   // Versão 32: Bling numa conta real (nota, situação e rastreio de volta; webhook).
   ...BLING_REAL_TABLES,
+  // Versão 34: régua de cobrança e recorrência automática (32 e 33 são de outras frentes).
+  ...DUNNING_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

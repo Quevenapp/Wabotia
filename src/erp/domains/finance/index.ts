@@ -29,3 +29,5 @@ import "./rpc/erp_document_finance.ts";
 import "./rpc/erp_finance_dre.ts";
 import "./rpc/erp_finance_charts.ts";
 import "./rpc/erp_finance_team.ts";
+// Régua de cobrança e recorrência automática (versão 34; ../dunning.ts).
+import "./rpc/erp_finance_dunning.ts";

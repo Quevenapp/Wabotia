@@ -13,6 +13,7 @@ import type { ContratosPort } from "./contratos-api";
 import type { ExpedicaoPort } from "./expedicao-api";
 import type { LojasPort } from "./lojas-api";
 import type { ConciliacaoPort } from "./conciliacao-api";
+import type { ReguaPort } from "./regua-api";
 
 export type ErpPorts = {
   /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
@@ -78,6 +79,8 @@ export type ErpPorts = {
   lojas?: LojasPort;
   /** Financeiro › Conciliação bancária e Conciliação de cartões (web/erp/conciliacao-api.ts). */
   conciliacao?: ConciliacaoPort;
+  /** Financeiro › Régua de cobrança e as contas recorrentes automáticas (web/erp/regua-api.ts). */
+  regua?: ReguaPort;
 };
 
 let current: ErpPorts | null = null;

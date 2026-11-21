@@ -13,6 +13,7 @@ import { ERP_BOLETO_MODULE_CONTRACT } from "../../erp/boleto-api/contract.ts";
 import { ERP_CONCILIACAO_MODULE_CONTRACT } from "../../erp/conciliacao/contract.ts";
 import { ERP_CONTRATOS_MODULE_CONTRACT } from "../../erp/contratos/contract.ts";
 import { ERP_TERMINAL_MODULE_CONTRACT } from "../../erp/terminal/contract.ts";
+import { ERP_REGUA_MODULE_CONTRACT } from "../../erp/regua/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -87,11 +88,15 @@ export const erpComprasModule: ModuleDefinition = {
 };
 export const erpEstoqueModule = definition("erp-estoque", "Depósitos, saldos, movimentos, reservas, lotes, composições físicas e inventário.");
 // Conciliação bancária e de cartões (src/erp/conciliacao/contract.ts): extrato OFX ou planilha, sugestões, cartão e taxas.
+// Régua de cobrança e recorrências automáticas (src/erp/regua/contract.ts): consultar é leitura; ligar, só o administrador pela tela.
 export const erpFinanceiroModule: ModuleDefinition = {
   ...definition("erp-financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões."),
-  routes: [...ERP_CONCILIACAO_MODULE_CONTRACT.routes],
-  operations: [...ERP_CONCILIACAO_MODULE_CONTRACT.operations],
-  bot: ERP_CONCILIACAO_MODULE_CONTRACT.definition.bot,
+  routes: [...ERP_CONCILIACAO_MODULE_CONTRACT.routes, ...ERP_REGUA_MODULE_CONTRACT.routes],
+  operations: [...ERP_CONCILIACAO_MODULE_CONTRACT.operations, ...ERP_REGUA_MODULE_CONTRACT.operations],
+  bot: {
+    sensitive: [...ERP_CONCILIACAO_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_REGUA_MODULE_CONTRACT.definition.bot.sensitive],
+    hints: { ...ERP_CONCILIACAO_MODULE_CONTRACT.definition.bot.hints, ...ERP_REGUA_MODULE_CONTRACT.definition.bot.hints },
+  },
 };
 export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),

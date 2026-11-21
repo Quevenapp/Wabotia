@@ -80,8 +80,9 @@ describe("catálogo da casa de gestão", () => {
     // - 2 da cobrança num só caminho: Cobrança operacional e Retornos operacionais saem (entram por Remessas e retornos).
     // + 1 do rodapé de Cadastros com destino: Ver relatórios de cadastros.
     // + 5 do Financeiro que só abriam por dentro: transferências, recorrentes, borderôs, vencimentos e importação.
-    expect(linked).toHaveLength(66);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(67);
+    // + 1 da régua de cobrança: Régua de cobrança (Financeiro); Contas recorrentes já estava.
+    expect(linked).toHaveLength(67);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(68);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,

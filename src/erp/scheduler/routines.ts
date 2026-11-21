@@ -8,6 +8,7 @@ import { saoPauloLocal, saoPauloParts } from "../engine/time.ts";
 import { callRpc, inTransaction } from "../engine/registry.ts";
 import type { ErpParts } from "../parts.ts";
 import { contractsDailyStep } from "../domains/contracts/rpc.ts";
+import { recurringAutoStep } from "../domains/finance/dunning.ts";
 import { todaySaoPaulo } from "../engine/time.ts";
 
 export const HOUR_MS = 3_600_000;
@@ -119,5 +120,15 @@ export const ROUTINES: readonly Routine[] = [
     block: "erp-contratos",
     next: (after) => nextLocalTime(after, "06:20"),
     step: (ctx) => inTransaction(ctx.db, (c) => contractsDailyStep(c, todaySaoPaulo(ctx.now)), ctx.clock, { parts: ctx.parts }) ? "more" : "done",
+  },
+  {
+    // Contas recorrentes automáticas (src/erp/domains/finance/dunning.ts): a
+    // conta do período na data de emissão, uma vez por período (o registro do
+    // período e o índice único da conta), e a cobrança na régua quando pedida.
+    // O envio sai pelo alarme da área (src/erp/regua/sender.ts).
+    id: "finance.recurring",
+    block: "erp-financeiro",
+    next: (after) => nextLocalTime(after, "06:40"),
+    step: (ctx) => inTransaction(ctx.db, (c) => recurringAutoStep(c, todaySaoPaulo(ctx.now)), ctx.clock, { parts: ctx.parts }) ? "more" : "done",
   },
 ];

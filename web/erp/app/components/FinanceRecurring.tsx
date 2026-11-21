@@ -12,6 +12,8 @@ import NativeListLayout from './NativeListLayout';
 import { AppliedChips, OriginPagination, RowMenu, ToolButton, type RowMenuItem } from './OriginList';
 import { BatchDialog } from './BatchDialog';
 import { Modal } from './Modal';
+import { erpPorts } from '../../ports';
+import type { RecurrenceAuto } from '../../regua-api';
 import './real-finance.css';
 import './finance-registry.css';
 
@@ -50,6 +52,9 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
   const [toggle, setToggle] = useState<{ record: Recurrence; active: boolean; minimized: boolean; tried?: boolean } | null>(null), [notice, setNotice] = useState(''), [error, setError] = useState('');
   const [generate, setGenerate] = useState<Generate | null>(null), [pending, setPending] = useState<{ key: string; items: GenerateItem[] } | null>(null);
   const sent = useRef(new Map<string, Sent>());
+  // Wabotia: a recorrência gerada sozinha pelo alarme e, a receber, com a cobrança pela régua (web/erp/regua-api.ts).
+  const regua = erpPorts()?.regua, [autos, setAutos] = useState<{ key: string; items: Map<string, RecurrenceAuto> }>({ key: '', items: new Map() });
+  const [autoChange, setAutoChange] = useState<{ record: Recurrence; automatica: boolean; enviar: boolean; busy: boolean; error: string } | null>(null);
   const command = useFinanceCommand(next => controller.finance(next.path, { method: 'POST', body: { command_id: next.id, data: structuredClone(next.data) } } as never), mayWrite, message);
   useEffect(() => { setDraft({ q: route.q, situacao: route.situacao }); setMenu(null); setError(''); setToggle(previous => previous && command.uncertain ? { ...previous, minimized: true } : null); }, [location.search]);
   useEffect(() => {
@@ -64,6 +69,22 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
       .catch(failure => { if (!request.signal.aborted && !aborted(failure) && mayRead()) setList({ key: listKey, page: null, error: failure instanceof AccessError ? message(failure) : 'Não foi possível conferir as contas recorrentes. Tente novamente.' }); });
     return () => request.abort();
   }, [controller, access, listKey]);
+  useEffect(() => {
+    const ids = page?.items.map(item => item.id) ?? [];
+    if (!regua || !ids.length || !mayRead()) return; const request = new AbortController();
+    void regua.recurrences(ids, request.signal).then(value => { if (!request.signal.aborted) setAutos({ key: listKey, items: new Map(value.items.map(item => [item.recurrence_id, item])) }); })
+      .catch(() => { /* Sem a régua (Financeiro desligado ou fora do painel): a lista segue como no Origin. */ });
+    return () => request.abort();
+  }, [regua, page, listKey]);
+  const autoOf = (record: Recurrence) => autos.key === listKey ? autos.items.get(record.id) : undefined;
+  const startAuto = (record: Recurrence, automatica: boolean, enviar: boolean) => { setMenu(null); if (!mayWrite() || locked) return; setNotice(''); setAutoChange({ record, automatica, enviar, busy: false, error: '' }); };
+  const runAuto = () => {
+    if (!autoChange || !regua) return; const state = autoChange; setAutoChange({ ...state, busy: true, error: '' });
+    regua.setRecurrence(state.record.id, { automatica: state.automatica, enviar_cobranca: state.enviar }).then(() => {
+      setAutoChange(null); setReload(value => value + 1);
+      setNotice(!state.automatica ? `Recorrência volta a ser gerada à mão: ${label(state.record)}.` : state.enviar ? `Recorrência gerada sozinha e com a cobrança enviada pela régua: ${label(state.record)}.` : `Recorrência gerada sozinha: ${label(state.record)}.`);
+    }, failure => setAutoChange({ ...state, busy: false, error: failure instanceof Error ? failure.message : 'A mudança não foi gravada. Tente de novo.' }));
+  };
   const go = (next: Partial<RecurrenceRoute>) => navigate(`${location.pathname}?${recurrenceParams({ ...route, page: 1, ...next })}`);
   const apply = (event?: FormEvent) => { event?.preventDefault(); go({ q: draft.q.trim(), situacao: draft.situacao }); };
   const clear = () => go(EMPTY(route.kind));
@@ -108,7 +129,19 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
   };
   const toggleRow = (id: string) => setSelection(previous => { const ids = previous.key === listKey ? previous.ids : []; return { key: listKey, ids: ids.includes(id) ? ids.filter(item => item !== id) : [...ids, id] }; });
   const allSelected = rows.length > 0 && rows.every(row => selected.includes(row.id));
-  const items = (record: Recurrence): RowMenuItem[] => !writable ? [] : [record.active ? { label: 'Inativar', icon: 'ban', onClick: () => startToggle(record, false) } : { label: 'Ativar', icon: 'check', onClick: () => startToggle(record, true) }];
+  const autoItems = (record: Recurrence): RowMenuItem[] => {
+    const auto = autoOf(record);
+    if (!regua || !auto) return [];
+    return [auto.auto_generate ? { label: 'Gerar só à mão', icon: 'ban', onClick: () => startAuto(record, false, false) } : { label: 'Gerar sozinha', icon: 'check', onClick: () => startAuto(record, true, false) },
+      ...(record.kind === 'receivable' ? [auto.send_charge ? { label: 'Não enviar a cobrança ao gerar', icon: 'ban', onClick: () => startAuto(record, true, false) } : { label: 'Gerar sozinha e enviar a cobrança', icon: 'check', onClick: () => startAuto(record, true, true) }] : [])];
+  };
+  const items = (record: Recurrence): RowMenuItem[] => !writable ? [] : [record.active ? { label: 'Inativar', icon: 'ban', onClick: () => startToggle(record, false) } : { label: 'Ativar', icon: 'check', onClick: () => startToggle(record, true) }, ...autoItems(record)];
+  const autoText = (record: Recurrence) => {
+    const auto = autoOf(record);
+    if (!auto?.auto_generate) return '';
+    const failed = auto.last_run?.outcome === 'failed' ? ` · a conta de ${financeDate(auto.last_run.recurrence_on)} não foi gerada: ${auto.last_run.reason ?? 'confira a recorrência'}` : '';
+    return ` · gerada sozinha${auto.send_charge ? ', com a cobrança pela régua' : ''}${failed}`;
+  };
   const chips = [...(route.q ? [{ label: `Pesquisa: ${route.q}`, onRemove: () => go({ q: '' }) }] : []),
     ...(route.situacao !== 'todas' ? [{ label: `Situação: ${route.situacao === 'ativas' ? 'Ativas' : 'Inativas'}`, onRemove: () => go({ situacao: 'todas' }) }] : [])];
   const pendingVisible = pending && pending.key === scope ? pending : null, toggleVisible = toggle && !toggle.minimized ? toggle : null, generateVisible = generate;
@@ -117,7 +150,7 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
     <header className="real-heading"><h1>Contas recorrentes</h1>{access && !access.write && <span className="real-mode">Somente consulta</span>}</header>
     <nav className="finance-tabs" aria-label="Contas recorrentes">{(['receivable', 'payable'] as const).map(kind => <button key={kind} type="button" aria-current={route.kind === kind ? 'page' : undefined} disabled={locked} onClick={() => go({ ...EMPTY(kind), situacao: 'ativas' })}>{kind === 'receivable' ? 'Contas a receber' : 'Contas a pagar'}</button>)}</nav>
     {notice && <p className="real-success" role="status">{notice}</p>}{error && <p className="real-alert" role="alert">{error}</p>}
-    <p className="real-notice">As contas recorrentes nascem das contas com ocorrência diferente de Única. Mensal, trimestral, semestral e anual (e as demais) geram a próxima conta em “Gerar contas” enquanto ativas, até a data limite; a Parcelada gera até atingir o nº de parcelas.</p>
+    <p className="real-notice">As contas recorrentes nascem das contas com ocorrência diferente de Única. Mensal, trimestral, semestral e anual (e as demais) geram a próxima conta em “Gerar contas” enquanto ativas, até a data limite; a Parcelada gera até atingir o nº de parcelas.{regua && ' Marcada como “Gerar sozinha” (no menu ⋮ da linha), a conta de cada período é gerada pelo sistema na data de emissão, uma vez só; nas contas a receber, a cobrança pode sair junto pela régua de cobrança, quando ela está ligada.'}</p>
     {toggle?.minimized && command.uncertain && <p className="real-alert" role="alert">“{toggle.active ? 'Ativar' : 'Inativar'}” de {label(toggle.record)} sem resultado confirmado. <button type="button" className="text-button" onClick={() => setToggle({ ...toggle, minimized: false })}>Conferir resultado</button></p>}
     {pendingVisible && <p className="real-alert" role="alert">{pendingVisible.items.length === 1 ? '1 recorrência' : `${pendingVisible.items.length} recorrências`} de “Gerar contas” sem resultado confirmado. <button type="button" className="text-button" disabled={Boolean(generateVisible)} onClick={recover}>Conferir resultado</button></p>}
     {parsed.error ? <section className="real-state-panel"><p role="alert">{parsed.error}</p><button type="button" className="secondary-button" onClick={clear}>Limpar filtros da URL</button></section> :
@@ -139,7 +172,7 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
           return <tr key={record.id}>
             {writable && <td className="checkbox-cell"><input type="checkbox" aria-label={`Selecionar ${label(record)}`} checked={selected.includes(record.id)} disabled={locked} onChange={() => toggleRow(record.id)} /></td>}
             <td>{record.contact_name}</td>
-            <td>{record.description}<small className="real-help finance-recurrence-detail">{financeMoney(record.amount_cents)}{record.next_on ? ` · próxima conta em ${financeDate(record.next_on)}` : record.active ? ' · data limite atingida' : ''}</small></td>
+            <td>{record.description}<small className="real-help finance-recurrence-detail">{financeMoney(record.amount_cents)}{record.next_on ? ` · próxima conta em ${financeDate(record.next_on)}` : record.active ? ' · data limite atingida' : ''}{autoText(record)}</small></td>
             <td>{record.category_name ?? 'Sem categoria'}</td>
             <td title={recurrenceSchedule(record, financeDate)}>{FREQUENCY_LABEL[record.frequency]}<small className="real-help finance-recurrence-detail">{recurrenceSchedule(record, financeDate)}</small></td>
             <td><span className={`finance-recurrence-dot${record.active ? ' is-active' : ''}`} role="img" title={record.active ? 'Ativa' : 'Inativa'} aria-label={record.active ? 'Ativa' : 'Inativa'} /></td>
@@ -150,6 +183,11 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
     {toggleVisible && <Modal title={command.uncertain ? 'Conferir resultado' : toggleVisible.active ? 'Ativar recorrência' : 'Inativar recorrência'} onClose={() => { if (!command.busy) setToggle(command.uncertain ? { ...toggleVisible, minimized: true } : null); }} actions={<><button type="button" className="secondary-button" disabled={command.busy} onClick={() => setToggle(command.uncertain ? { ...toggleVisible, minimized: true } : null)}>{command.uncertain ? 'Conferir depois' : 'Cancelar'}</button><button type="button" className="primary-button" disabled={command.busy} onClick={runToggle}>{command.busy ? 'Confirmando…' : command.uncertain ? 'Conferir resultado' : 'Confirmar'}</button></>}>
       <p>{toggleVisible.active ? `Ativar a recorrência de ${label(toggleVisible.record)}? “Gerar contas” volta a gerar as próximas contas.` : `Inativar a recorrência de ${label(toggleVisible.record)}? Nenhuma nova conta é gerada; as contas já incluídas continuam como estão.`}</p>
       {toggleVisible.tried && command.error && <p className="real-alert" role="alert">{command.error}</p>}
+    </Modal>}
+    {autoChange && <Modal title={autoChange.automatica ? 'Gerar sozinha' : 'Gerar só à mão'} onClose={() => { if (!autoChange.busy) setAutoChange(null); }} actions={<><button type="button" className="secondary-button" disabled={autoChange.busy} onClick={() => setAutoChange(null)}>Cancelar</button><button type="button" className="primary-button" disabled={autoChange.busy} onClick={runAuto}>{autoChange.busy ? 'Confirmando…' : 'Confirmar'}</button></>}>
+      <p>{!autoChange.automatica ? `A recorrência de ${label(autoChange.record)} deixa de ser gerada sozinha. As próximas contas saem em “Gerar contas”, como antes.`
+        : `O sistema gera sozinho a conta de cada período de ${label(autoChange.record)} na data de emissão, uma vez só, enquanto a recorrência estiver ativa.${autoChange.enviar ? ' Ao gerar, a conta vai ao cliente pelo WhatsApp pela régua de cobrança (só com a régua ligada pelo administrador, no horário comercial e a quem pode receber).' : ''}`}</p>
+      {autoChange.error && <p className="real-alert" role="alert">{autoChange.error}</p>}
     </Modal>}
     {generateVisible && <BatchDialog title={generateVisible.recovery ? 'Conferir resultado' : 'Gerar contas'} description={<p className="real-help">Cada recorrência gera a sua próxima conta, com o vencimento mostrado. Uma data nunca é gerada duas vezes.</p>} plan={generateVisible.plan}
       confirmLabel={generateVisible.recovery ? 'Conferir resultado' : 'Gerar contas'} canConfirm={writable} run={sendGenerate} onClose={results => finishGenerate(generateVisible, results)} progressLabel={(at, count) => `Gerando contas, ${at} de ${count}…`} />}

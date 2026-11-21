@@ -70,11 +70,15 @@
 // 32: Bling numa conta real (wb_bling_return_setting, wb_bling_return_outbox e
 //     wb_bling_webhook_hint: nota, situação e rastreio de volta ao Bling e o
 //     aviso do webhook; 31→32, somente adição).
+// 32 e 33: de outras frentes (nesta base, passos sem tabela).
+// 34: três tabelas da régua de cobrança e da recorrência automática
+//     (erp_finance: etapa da régua por conta e canal, recorrência gerada
+//     sozinha e o que o alarme fez em cada período; 33→34, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 32;
+export const ERP_DDL_VERSION = 34;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

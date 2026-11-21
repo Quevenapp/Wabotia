@@ -40,9 +40,10 @@ afterEach(() => {
 test("primeira rodada: gera a hora e o dia, roda as notificações; a limpeza espera o armazenamento", async () => {
   const r = await round();
   // contracts.daily: a parte Contratos nasce desligada (também na forma antiga), então pula.
+  // finance.recurring: o Financeiro nasce ligado na forma antiga; sem recorrência automática, não gera nada.
   assert.deepEqual(
     r.routines.map((x) => [x.id, x.status]),
-    [["platform.schedule", "ok"], ["retention", "ok"], ["contracts.daily", "skipped"]],
+    [["platform.schedule", "ok"], ["retention", "ok"], ["contracts.daily", "skipped"], ["finance.recurring", "ok"]],
   );
   assert.deepEqual(tasks(), [
     { purpose: "notifications_generate", operation_id: "notificacoes:2026-11-16T12", status: "done", attempts: 1 },
@@ -75,7 +76,7 @@ test("três dias parado: cada rotina roda uma vez (sem enxurrada de horas) e vol
   await round();
   at("2026-11-19T17:42:00Z");
   const r = await round();
-  assert.deepEqual(r.routines.map((x) => [x.id, x.status]), [["platform.schedule", "ok"], ["retention", "ok"], ["contracts.daily", "skipped"]]);
+  assert.deepEqual(r.routines.map((x) => [x.id, x.status]), [["platform.schedule", "ok"], ["retention", "ok"], ["contracts.daily", "skipped"], ["finance.recurring", "ok"]]);
   const ops = tasks().map((t) => t.operation_id);
   assert.equal(ops.filter((o) => o.startsWith("notificacoes:")).length, 2, "a hora perdida não é recuperada");
   assert.ok(ops.includes("notificacoes:2026-11-19T14"));

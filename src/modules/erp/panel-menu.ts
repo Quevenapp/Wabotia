@@ -483,6 +483,15 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/financeiro-empresa?area=faturamento-agrupado" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
+  // Contas recorrentes (geradas à mão ou sozinhas pelo alarme) e a régua de cobrança (src/erp/regua): o que vai sair
+  // hoje, o que saiu e o que falhou; ligar a régua é do administrador. (Contas recorrentes já é o item erp.recurring acima.)
+  {
+    id: "erp.dunning", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 422,
+    label: "Régua de cobrança",
+    target: { kind: "ported", to: "/regua-cobranca" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
   // Contratos de serviço (parte erp-contratos, com o Financeiro): contratos, faturas, reajuste, renovação e aditivos.
   {
     id: "erp.contracts", module: "erp-contratos", part: "contratos", primary: true,
@@ -643,6 +652,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],
+      { ...legacyItems["erp.dunning"], homeShortcut: false },
       { ...legacyItems["erp.contracts"], homeShortcut: false },
     ] },
     { title: 'Relatórios e equipe', items: [
