@@ -71,8 +71,9 @@ describe("catálogo da casa de gestão", () => {
     // + 1 do contador: Para o contador (Fiscal).
     // + 1 da Produção: Ordens de produção (Estoque).
     // + 1 da Expedição (Comercial › Logística).
-    expect(linked).toHaveLength(55);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(56);
+    // + 1 da compra pela nota recebida: Notas recebidas (Estoque › Compras).
+    expect(linked).toHaveLength(56);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(57);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,

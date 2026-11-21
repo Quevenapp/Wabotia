@@ -92,7 +92,7 @@ describe("fase 2: aceitação da árvore reunida", () => {
       expect(count.sql[0]).toMatch(/^batch\(4\)/);
       expect(response.headers.get("Server-Timing")).toContain('hops=1');
       const saved = await runInDurableObject(erpStub(env, f.profile), (_instance: any, state: DurableObjectState) => state.storage.get<any>("erp_parts"));
-      expect(saved.parts.finance).toBe(enabled); expect(Object.keys(saved.parts)).toHaveLength(10);
+      expect(saved.parts.finance).toBe(enabled); expect(Object.keys(saved.parts)).toHaveLength(11);
       expect(saved.revision).toBe((await readErpPartsState(env, f.profile)).snapshot.revision);
     }
   });
