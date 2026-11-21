@@ -167,6 +167,8 @@ internal object DemoServer {
                 "capabilities_version" to 1,
                 "server" to j("service" to "wabotia", "version" to "demonstração", "commit" to ""),
                 "features" to listOf("modules", "establishment"),
+                // Como o servidor: o papel atual da pessoa (a demonstração entra como administradora).
+                "actor" to j("id" to Ids.ME, "kind" to "user", "role" to "admin"),
                 "profiles" to listOf(
                     j("id" to Ids.PROFILE, "name" to DemoMode.PROFILE_NAME, "enabled" to true, "modules" to modules, "grants" to listOf("erp:admin")),
                     j("id" to Ids.CHANNEL_PROFILE, "name" to "Canais · Empresa Exemplo", "enabled" to true, "modules" to emptyList<String>()),

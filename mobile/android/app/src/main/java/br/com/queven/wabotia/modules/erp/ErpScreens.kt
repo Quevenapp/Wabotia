@@ -72,6 +72,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import br.com.queven.wabotia.core.AdminRole
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.modules.BrasiliaTime
 import br.com.queven.wabotia.modules.Money
@@ -113,8 +114,18 @@ object ErpRoutes {
 fun rememberErpAccess(container: AppContainer): ErpAccess? {
     val enabled by container.modules.enabled.collectAsState()
     val grants by container.modules.grants.collectAsState()
+    val roles by container.modules.roles.collectAsState()
     val profile = container.session.profileId
-    return ErpAccess.of(enabled[profile].orEmpty(), grants[profile].orEmpty(), container.session.user?.isAdmin == true)
+    // Administrador pelo papel atual do servidor (capacidades), não só pelo gravado no login.
+    val admin = AdminRole.isAdmin(roles[profile], container.session.user?.role)
+    return ErpAccess.of(enabled[profile].orEmpty(), grants[profile].orEmpty(), admin)
+}
+
+/** Administrador agora (papel atual do servidor; sem ele, o do login), atualizado com as capacidades. */
+@Composable
+fun rememberIsAdmin(container: AppContainer): Boolean {
+    val roles by container.modules.roles.collectAsState()
+    return AdminRole.isAdmin(roles[container.session.profileId], container.session.user?.role)
 }
 
 /** As telas da Gestão no grafo do app logado. */

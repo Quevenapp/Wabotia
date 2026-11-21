@@ -118,7 +118,8 @@ extension DemoMode {
     }
 
     /// `WABOTIA_OPEN=<tela>` (com a sessão de verdade, nada de demonstração): abre uma tela depois de entrar —
-    /// `counter`, `agenda`, `os`, `reserva`, `mensalidade`, `settings`, `os:<id>` ou `appointment:<id>`.
+    /// `counter`, `agenda`, `os`, `reserva`, `mensalidade`, `service` (aba Atendimento), `settings` (Ajustes), `os:<id>` ou
+    /// `appointment:<id>`.
     static let openScreen: String? = env("WABOTIA_OPEN")
     /// `WABOTIA_COUNTER=<guichê>:<passos>` (sessão de verdade): escolhe o guichê pelo número do nome ou pelo id e faz os
     /// passos, um a cada 6 s — `open`, `paused`, `closed`, `call`, `recall`, `start`, `finish`, `no-show`.
@@ -176,7 +177,7 @@ extension DemoMode {
         // Sessão de verdade: telas por id (`os:<id>`, `appointment:<id>`).
         if let colon = screen.firstIndex(of: ":") {
             let kind = screen[..<colon], id = String(screen[screen.index(after: colon)...])
-            launch.tab = "settings"
+            launch.tab = "service"
             if kind == "os" { launch.route = .serviceOrder(id: id) }
             if kind == "appointment" { launch.route = .appointment(id: id) }
             if kind == "pedido" { launch.route = .pedidoOrder(id: id) }
@@ -229,36 +230,38 @@ extension DemoMode {
         case "internal": launch.tab = "team"; launch.route = .internalChat(peer: TeamContact(id: "u_ana", kind: "user", name: "Ana Souza", online: true), chatId: "ic_ana")
         case "bot": launch.tab = "team"; launch.route = .bot(id: "b_vendas", conversationId: nil)
         case "calls": launch.tab = "calls"
-        case "settings": launch.tab = "settings"
-        case "lines": launch.tab = "settings"; launch.route = .lines
-        case "counter": launch.tab = "settings"; launch.route = .counter
+        // Ajustes abrem pela engrenagem do topo (rota própria); a aba Atendimento tem os módulos, a Gestão e as linhas.
+        case "settings": launch.route = .settings
+        case "service", "atendimento": launch.tab = "service"
+        case "lines": launch.tab = "service"; launch.route = .lines
+        case "counter": launch.tab = "service"; launch.route = .counter
         // Agenda e Ordem de Serviço (WABOTIA_DEMO_ACTION=week abre a agenda na semana).
-        case "agenda": launch.tab = "settings"; launch.route = .agenda
-        case "appointment": launch.tab = "settings"; launch.route = .appointment(id: "ag_3")
+        case "agenda": launch.tab = "service"; launch.route = .agenda
+        case "appointment": launch.tab = "service"; launch.route = .appointment(id: "ag_3")
         case "booking": launch.route = .newAppointment(conversationId: "c_rich", customer: "Mariana Costa")
-        case "os": launch.tab = "settings"; launch.route = .serviceOrders
-        case "os-detail": launch.tab = "settings"; launch.route = .serviceOrder(id: "os_6")
+        case "os": launch.tab = "service"; launch.route = .serviceOrders
+        case "os-detail": launch.tab = "service"; launch.route = .serviceOrder(id: "os_6")
         case "os-new": launch.route = .newServiceOrder(conversationId: "c_rich", customer: "Mariana Costa")
         // Reserva e Mensalidade (WABOTIA_DEMO_ACTION=list abre a lista de reservas; subscriptions e delinquents, as abas).
-        case "reserva": launch.tab = "settings"; launch.route = .reserva
-        case "reserva-booking": launch.tab = "settings"; launch.route = .booking(id: "rs_1")
+        case "reserva": launch.tab = "service"; launch.route = .reserva
+        case "reserva-booking": launch.tab = "service"; launch.route = .booking(id: "rs_1")
         case "booking-new": launch.route = .bookingForm(conversationId: "c_rich", customer: "Mariana Costa", unitId: nil, date: nil)
-        case "mensalidade": launch.tab = "settings"; launch.route = .mensalidade
-        case "installment": launch.tab = "settings"; launch.route = .installment(id: "mi_6")
-        case "subscription": launch.tab = "settings"; launch.route = .subscription(id: "ms_3")
-        case "menus": launch.tab = "settings"; launch.route = .menus
+        case "mensalidade": launch.tab = "service"; launch.route = .mensalidade
+        case "installment": launch.tab = "service"; launch.route = .installment(id: "mi_6")
+        case "subscription": launch.tab = "service"; launch.route = .subscription(id: "ms_3")
+        case "menus": launch.tab = "service"; launch.route = .menus
         // Pedido (lanchonete): WABOTIA_DEMO_ACTION=list ou menu abre a lista ou o cardápio. pedido-order: o X-Burger em duas
         // montagens; pedido-delivery: entrega paga, ligada à conversa; pedido-choosing: cliente escolhendo como pagar.
-        case "pedido": launch.tab = "settings"; launch.route = .pedido
-        case "pedido-order": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_44")
-        case "pedido-delivery": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_42")
-        case "pedido-choosing": launch.tab = "settings"; launch.route = .pedidoOrder(id: "pd_46")
+        case "pedido": launch.tab = "service"; launch.route = .pedido
+        case "pedido-order": launch.tab = "service"; launch.route = .pedidoOrder(id: "pd_44")
+        case "pedido-delivery": launch.tab = "service"; launch.route = .pedidoOrder(id: "pd_42")
+        case "pedido-choosing": launch.tab = "service"; launch.route = .pedidoOrder(id: "pd_46")
         // Gestão (ERP) da demonstração: a entrada, os clientes, os produtos, o pedido rápido e as contas.
-        case "erp": launch.tab = "settings"; launch.route = .erp
-        case "erp-customers": launch.tab = "settings"; launch.route = .erpCustomers
-        case "erp-products": launch.tab = "settings"; launch.route = .erpProducts
-        case "erp-order": launch.tab = "settings"; launch.route = .erpOrder
-        case "erp-bills": launch.tab = "settings"; launch.route = .erpBills
+        case "erp": launch.tab = "service"; launch.route = .erp
+        case "erp-customers": launch.tab = "service"; launch.route = .erpCustomers
+        case "erp-products": launch.tab = "service"; launch.route = .erpProducts
+        case "erp-order": launch.tab = "service"; launch.route = .erpOrder
+        case "erp-bills": launch.tab = "service"; launch.route = .erpBills
         // Passagem para humano pelo Suporte pago: a conversa com a faixa e os dados da conversa com as ações.
         // Formulário e Cobrança na conversa da Mariana: as folhas e o cartão dos dados (WABOTIA_DEMO_ANCHOR=items).
         case "charge", "forms": launch.route = .conversation(id: "c_rich"); launch.sheet = screen

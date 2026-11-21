@@ -10,7 +10,9 @@ object Routes {
     const val START = "start"
     const val LOGIN = "login"
     const val PROFILE_PICKER = "profile-picker"
-    const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), ajustes
+    const val HOME = "home" // abas: conversas, protocolos, equipe, ligações (histórico), atendimento
+    /** Ajustes (conta, notificações, aparência, servidor, aparelho, sair): pela engrenagem no topo das abas. */
+    const val SETTINGS = "settings"
     const val LINES = "lines"
     const val MENUS = "menus"
     const val BOT_LINES = "bot-lines"

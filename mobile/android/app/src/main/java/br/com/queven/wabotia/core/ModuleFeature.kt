@@ -38,6 +38,13 @@ class ModuleFeature(private val container: AppContainer) {
     private val _grants = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
     val grants: StateFlow<Map<String, Set<String>>> = _grants.asStateFlow()
 
+    /**
+     * Papel atual da pessoa segundo o servidor (`actor.role` das capacidades), por área. Mais novo que o papel gravado no
+     * login: quem virou administrador depois de entrar já vê a Gestão e as opções de administrador.
+     */
+    private val _roles = MutableStateFlow<Map<String, String>>(emptyMap())
+    val roles: StateFlow<Map<String, String>> = _roles.asStateFlow()
+
     fun has(module: String, profileId: String? = container.session.profileId): Boolean =
         profileId != null && _enabled.value[profileId]?.contains(module) == true
 
@@ -54,6 +61,7 @@ class ModuleFeature(private val container: AppContainer) {
         } else {
             _enabled.update { it + (profile to found.modules) }
             _grants.update { it + (profile to found.grants) }
+            found.role?.let { role -> _roles.update { it + (profile to role) } }
         }
     }
 
@@ -72,5 +80,11 @@ class ModuleFeature(private val container: AppContainer) {
         checkedAt.clear()
         _enabled.value = emptyMap()
         _grants.value = emptyMap()
+        _roles.value = emptyMap()
     }
+}
+
+/** Quem é administrador: o papel atual que o servidor mandou ([serverRole]) vale mais que o gravado no login. */
+object AdminRole {
+    fun isAdmin(serverRole: String?, sessionRole: String?): Boolean = (serverRole?.takeIf { it.isNotBlank() } ?: sessionRole) == "admin"
 }

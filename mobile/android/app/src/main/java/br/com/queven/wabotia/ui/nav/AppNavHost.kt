@@ -37,6 +37,7 @@ import br.com.queven.wabotia.ui.queue.CounterScreen
 import br.com.queven.wabotia.ui.service.BotLinesScreen
 import br.com.queven.wabotia.ui.service.LinesScreen
 import br.com.queven.wabotia.ui.service.MenusScreen
+import br.com.queven.wabotia.ui.settings.SettingsScreen
 import br.com.queven.wabotia.ui.team.InternalChatScreen
 import br.com.queven.wabotia.ui.tickets.NewTicketScreen
 import br.com.queven.wabotia.ui.tickets.TicketScreen
@@ -157,14 +158,11 @@ fun AppNavHost(container: AppContainer, nav: NavHostController, deepLink: DeepLi
                 openBot = { nav.navigate(Routes.botChat(it)) },
                 openBotRuns = { nav.navigate(Routes.BOT_RUNS) },
                 openInternalChat = { nav.navigate(Routes.internalChat(it)) },
-                openLines = { nav.navigate(Routes.LINES) },
-                openMenus = { nav.navigate(Routes.MENUS) },
-                openBotLines = { nav.navigate(Routes.BOT_LINES) },
-                openPrinter = { nav.navigate(Routes.PRINTER) },
-                openCounter = { nav.navigate(Routes.COUNTER) },
+                openSettings = { nav.navigate(Routes.SETTINGS) { launchSingleTop = true } },
                 openRoute = { nav.navigate(it) },
             )
         }
+        composable(Routes.SETTINGS) { SettingsScreen(container, onBack = { nav.popBackStack() }, openPrinter = { nav.navigate(Routes.PRINTER) }) }
         moduleScreens(container, nav, openConversation = { nav.navigate(Routes.conversation(it)) }, openPrinter = { nav.navigate(Routes.PRINTER) })
         composable(Routes.PRINTER) { PrinterScreen(container, onBack = { nav.popBackStack() }) }
         composable(Routes.COUNTER) {

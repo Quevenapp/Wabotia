@@ -705,6 +705,8 @@ struct ScreenHeader<Trailing: View>: View {
     var brandTitle = false
     var onSubtitleTap: (() -> Void)? = nil
     @ViewBuilder var trailing: () -> Trailing
+    /// Nas abas da tela inicial: a engrenagem que abre os Ajustes (`HomeView`).
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack(alignment: .center, spacing: 8) {
@@ -731,6 +733,18 @@ struct ScreenHeader<Trailing: View>: View {
             }
             Spacer(minLength: 8)
             trailing()
+            if let openSettings {
+                Button { openSettings() } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: 19, weight: .regular))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: 40, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Ajustes")
+                .accessibilityIdentifier("tab.settings")
+            }
         }
         .padding(.leading, 16)
         .padding(.trailing, 8)

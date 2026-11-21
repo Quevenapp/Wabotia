@@ -165,7 +165,9 @@ object DemoMode {
             )
             "team" -> DemoDestination(tab = "team", arg = option)
             "calls" -> DemoDestination(tab = "calls")
-            "settings" -> DemoDestination(tab = "settings")
+            // Ajustes abrem pela engrenagem (tela própria); a aba Atendimento tem os módulos, a Gestão e as linhas.
+            "settings" -> DemoDestination(route = "settings")
+            "service", "atendimento" -> DemoDestination(tab = "service")
             "presence" -> DemoDestination(tab = "conversations", sheet = "presence")
             "lines" -> DemoDestination(route = "lines")
             "menus" -> DemoDestination(route = "menus")

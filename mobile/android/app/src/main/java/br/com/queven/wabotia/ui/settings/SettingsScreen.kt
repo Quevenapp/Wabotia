@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,27 +25,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AccountTree
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CalendarMonth
-import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.RestaurantMenu
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
@@ -69,8 +61,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -86,15 +76,13 @@ import br.com.queven.wabotia.BuildConfig
 import br.com.queven.wabotia.core.AppContainer
 import br.com.queven.wabotia.core.Links
 import br.com.queven.wabotia.core.ModuleIds
-import br.com.queven.wabotia.modules.ModuleRoutes
-import br.com.queven.wabotia.modules.erp.ErpRoutes
-import br.com.queven.wabotia.modules.erp.rememberErpAccess
 import br.com.queven.wabotia.core.SessionRefresher
 import br.com.queven.wabotia.core.model.Profile
 import br.com.queven.wabotia.core.push.PushRegistrar
 import br.com.queven.wabotia.demo.DemoMode
 import br.com.queven.wabotia.ui.components.Avatar
 import br.com.queven.wabotia.ui.components.ConnectionStrip
+import br.com.queven.wabotia.ui.components.DetailTopBar
 import br.com.queven.wabotia.ui.components.InlineNotice
 import br.com.queven.wabotia.ui.components.Pill
 import br.com.queven.wabotia.ui.components.PresenceViewModel
@@ -102,7 +90,6 @@ import br.com.queven.wabotia.ui.components.RowDivider
 import br.com.queven.wabotia.ui.components.SectionLabel
 import br.com.queven.wabotia.ui.components.SegmentedTabs
 import br.com.queven.wabotia.ui.components.SettingsRow
-import br.com.queven.wabotia.ui.components.TabTopBar
 import br.com.queven.wabotia.ui.components.WbBottomSheet
 import br.com.queven.wabotia.ui.components.WbCard
 import br.com.queven.wabotia.ui.components.rememberPresence
@@ -113,21 +100,16 @@ import java.text.DateFormat
 import java.util.Date
 
 /**
- * Aba Ajustes (DESIGN.md, seção 10): cartão do usuário com presença e grupos em cartões — Atendimento, Notificações,
- * Aparência, Servidor, Dispositivo, Sobre e Sair. Tudo o que existia na antiga aba "Mais" continua aqui; a lista da equipe
- * passou para a aba Equipe.
+ * Ajustes (DESIGN.md, seção 10), abertos pela engrenagem no topo das abas: cartão do usuário com presença e grupos em
+ * cartões — Notificações, Aparência, Privacidade, Servidor, Dispositivo, Sobre e Sair. Os módulos da área, a Gestão e as
+ * linhas e menus ficam na aba Atendimento ([br.com.queven.wabotia.ui.service.ServiceScreen]).
  */
 @Composable
 fun SettingsScreen(
     container: AppContainer,
+    onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    openLines: () -> Unit,
-    openMenus: () -> Unit,
-    openBotLines: () -> Unit,
     openPrinter: () -> Unit = {},
-    openCounter: () -> Unit = {},
-    /** Telas dos módulos (Agenda, Ordens de serviço, Reservas, Mensalidades), por [br.com.queven.wabotia.modules.ModuleRoutes]. */
-    openRoute: (String) -> Unit = {},
 ) {
     val vm: SettingsViewModel = viewModel { SettingsViewModel(container) }
     val state by vm.state.collectAsState()
@@ -141,11 +123,10 @@ fun SettingsScreen(
     // Na demonstração não há push nem servidor de verdade: essas partes dão lugar a explicações e à saída.
     val demo = container.isDemo
     val c = Wb.colors
-    // Guichê, impressora e as telas das verticais só aparecem quando o servidor liga o módulo neste perfil.
+    // A impressora térmica só aparece quando o servidor liga a fila de senhas neste perfil.
     val enabledModules by container.modules.enabled.collectAsState()
     val modules = enabledModules[container.session.profileId].orEmpty()
     val queueAvailable = ModuleIds.QUEUE in modules
-    val erpAccess = rememberErpAccess(container)
     LaunchedEffect(container.session.profileId) { container.modules.refresh() }
 
     // Cada vez que a aba volta a ficar visível: permissão do sistema pode ter mudado; dados são recarregados.
@@ -173,61 +154,15 @@ fun SettingsScreen(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             Column {
-                TabTopBar("Ajustes")
+                DetailTopBar("Ajustes", onBack)
                 ConnectionStrip(container)
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
+        LazyColumn(Modifier.padding(padding).fillMaxSize().navigationBarsPadding(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item("user") { UserCard(state, container.session.user?.id ?: "me", presence, Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp)) }
-
-            // --- Atendimento ---
-            item("service-label") { SectionLabel("Atendimento") }
-            item("service") {
-                WbCard(Modifier.padding(horizontal = 16.dp)) {
-                    if (queueAvailable) {
-                        SettingsRow(
-                            Icons.Filled.ConfirmationNumber,
-                            "Guichê da fila de senhas",
-                            subtitle = "Chamar a próxima senha, rechamar, concluir e transferir",
-                            tint = c.warn,
-                            onClick = openCounter,
-                        )
-                        RowDivider()
-                    }
-                    if (ModuleIds.AGENDA in modules) {
-                        SettingsRow(Icons.Filled.CalendarMonth, "Agenda", subtitle = "Agendamentos do dia e da semana por profissional", tint = c.ok, onClick = { openRoute(ModuleRoutes.AGENDA) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.SERVICE_ORDERS in modules) {
-                        SettingsRow(Icons.Filled.Build, "Ordens de serviço", subtitle = "Recebidas, orçamentos, execução e entrega", tint = c.warn, onClick = { openRoute(ModuleRoutes.SERVICE_ORDERS) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.RESERVA in modules) {
-                        SettingsRow(Icons.Filled.Hotel, "Reservas", subtitle = "Ocupação das unidades, sinal e check-in", tint = c.brand, onClick = { openRoute(ModuleRoutes.RESERVA) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.MENSALIDADE in modules) {
-                        SettingsRow(Icons.Filled.Payments, "Mensalidades", subtitle = "Parcelas do mês, assinaturas e inadimplentes", tint = c.ok, onClick = { openRoute(ModuleRoutes.MENSALIDADE) })
-                        RowDivider()
-                    }
-                    if (ModuleIds.PEDIDO in modules) {
-                        SettingsRow(Icons.Filled.RestaurantMenu, "Pedidos", subtitle = "Quadro da cozinha, comanda, pausa da loja e esgotados", tint = c.ticket, onClick = { openRoute(ModuleRoutes.PEDIDO) })
-                        RowDivider()
-                    }
-                    // Gestão (ERP): só com o ERP ligado na área e um papel erp:* da pessoa; cada item respeita a parte dele.
-                    if (erpAccess != null) {
-                        SettingsRow(Icons.Filled.Storefront, "Gestão", subtitle = "Clientes, produtos e estoque, pedido rápido e contas", tint = c.brand, onClick = { openRoute(ErpRoutes.HOME) }, modifier = Modifier.testTag("settings.erp"))
-                        RowDivider()
-                    }
-                    SettingsRow(Icons.Filled.SupportAgent, "Linhas de atendimento", subtitle = "Quem atende cada número e quando os menus aparecem", onClick = openLines)
-                    if (state.isAdmin) {
-                        RowDivider()
-                        SettingsRow(Icons.Filled.AccountTree, "Menus e submenus", subtitle = "Opções, destinos e linhas permitidas", tint = c.ticket, onClick = openMenus)
-                        RowDivider()
-                        SettingsRow(Icons.Filled.SmartToy, "Linhas dos bots", subtitle = "Em quais linhas cada bot pode atender", tint = c.bot, onClick = openBotLines)
-                    }
-                }
+            item("service-moved") {
+                Hint("Guichê, agenda, ordens de serviço, pedidos, Gestão e as linhas de atendimento ficam na aba Atendimento, na barra de baixo.")
             }
 
             // --- Notificações ---

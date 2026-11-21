@@ -2,6 +2,8 @@ import SwiftUI
 
 /// Destinos empilháveis. Mantenha sincronizado com `RouteDestination`.
 enum Route: Hashable {
+    /// Ajustes (conta, notificações, aparência, servidor, aparelho, sair): pela engrenagem no topo das abas.
+    case settings
     case conversation(id: String)
     case conversationInfo(id: String)
     case ticket(id: String)
@@ -101,6 +103,24 @@ extension EnvironmentValues {
     }
 }
 
+/// Abre os Ajustes. A tela inicial com as abas fornece; com ele, todo `ScreenHeader` mostra a engrenagem depois das
+/// próprias ações. Fora das abas (Ajustes empilhado) fica `nil`.
+struct OpenSettingsAction {
+    let handler: () -> Void
+    func callAsFunction() { handler() }
+}
+
+private struct OpenSettingsKey: EnvironmentKey {
+    static let defaultValue: OpenSettingsAction? = nil
+}
+
+extension EnvironmentValues {
+    var openSettings: OpenSettingsAction? {
+        get { self[OpenSettingsKey.self] }
+        set { self[OpenSettingsKey.self] = newValue }
+    }
+}
+
 /// Raiz da pilha de navegação.
 struct RootNavigation<Content: View>: View {
     @ObservedObject var router: Router
@@ -155,6 +175,7 @@ struct RouteDestination: View {
     var body: some View {
         Group {
             switch route {
+            case .settings: SettingsView(active: true)
             case .conversation(let id): ConversationView(conversationId: id)
             case .conversationInfo(let id): ConversationInfoView(conversationId: id)
             case .ticket(let id): TicketView(ticketId: id)

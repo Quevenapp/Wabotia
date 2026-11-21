@@ -78,6 +78,17 @@ object ModuleCapabilities {
         return list.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.contentOrNull }.toSet()
     }
 
+    /**
+     * O papel atual da pessoa no servidor (`actor.role` das capacidades: `admin`, `operator`…). Vale mais que o papel
+     * gravado no login, que só se renova com a sessão. `null` quando a resposta não traz (servidor antigo, aplicação).
+     */
+    fun actorRole(json: JsonElement): String? {
+        val actor = (json as? JsonObject)?.get("actor") as? JsonObject ?: return null
+        val kind = (actor["kind"] as? JsonPrimitive)?.contentOrNull
+        if (kind != null && kind != "user") return null
+        return (actor["role"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
+    }
+
     private fun JsonObject.enabledFlag(): Boolean {
         val flag = (this["enabled"] ?: this["active"]) as? JsonPrimitive ?: return true
         return flag.booleanOrNull ?: (flag.contentOrNull?.toLongOrNull()?.let { it != 0L } ?: true)
@@ -110,14 +121,17 @@ class QueueAvailabilityProbe(
      */
     suspend fun modules(): Set<String>? = snapshot()?.modules
 
-    /** Módulos ligados e papéis da pessoa na área ([ModuleCapabilities.grants]); `null` sem resposta. */
-    data class Snapshot(val modules: Set<String>, val grants: Set<String>)
+    /**
+     * Módulos ligados e papéis da pessoa na área ([ModuleCapabilities.grants]); [role] é o papel atual da pessoa
+     * ([ModuleCapabilities.actorRole]). `null` sem resposta.
+     */
+    data class Snapshot(val modules: Set<String>, val grants: Set<String>, val role: String? = null)
 
     suspend fun snapshot(): Snapshot? = withContext(Dispatchers.IO) {
         for (path in listOf("/api/v1/profiles/$profileId/capabilities", "/api/v1/capabilities?profile_id=$profileId")) {
             when (val answer = get(path)) {
                 is Answer.Ok -> ModuleCapabilities.enabledModules(answer.json, profileId)?.let {
-                    return@withContext Snapshot(it, ModuleCapabilities.grants(answer.json, profileId))
+                    return@withContext Snapshot(it, ModuleCapabilities.grants(answer.json, profileId), ModuleCapabilities.actorRole(answer.json))
                 }
                 is Answer.Failed -> if (answer.status == 0) return@withContext null
                 // 401 da pessoa: a sessão caiu; a tela que chamou cuida disso na próxima chamada da API.

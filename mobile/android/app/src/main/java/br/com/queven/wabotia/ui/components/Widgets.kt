@@ -44,6 +44,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -62,6 +63,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -74,6 +76,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
@@ -116,7 +119,13 @@ fun BrandMark(modifier: Modifier = Modifier, size: Dp = 88.dp) {
 // Barras superiores
 // ---------------------------------------------------------------------------------------------------------------
 
-/** Barra das abas principais: título em `brand`, subtítulo opcional (tocável) e ações à direita. */
+/**
+ * Abre os Ajustes (conta, servidor, notificações, aparência, sair). A tela inicial com as abas fornece; com ele, toda
+ * [TabTopBar] mostra a engrenagem depois das próprias ações. Fora das abas (Ajustes aberto como tela) fica `null`.
+ */
+val LocalOpenSettings = staticCompositionLocalOf<(() -> Unit)?> { null }
+
+/** Barra das abas principais: título em `brand`, subtítulo opcional (tocável), ações à direita e a engrenagem dos Ajustes. */
 @Composable
 fun TabTopBar(
     title: String,
@@ -152,6 +161,11 @@ fun TabTopBar(
             }
         }
         actions()
+        LocalOpenSettings.current?.let { openSettings ->
+            IconButton(onClick = openSettings, modifier = Modifier.testTag("tab.settings")) {
+                Icon(Icons.Filled.Settings, contentDescription = "Ajustes", tint = Wb.colors.textSecondary)
+            }
+        }
     }
 }
 
