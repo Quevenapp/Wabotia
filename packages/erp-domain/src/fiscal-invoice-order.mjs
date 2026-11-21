@@ -25,7 +25,7 @@ export const ORDER_REASONS = Object.freeze({
   no_items: 'O pedido não tem itens.',
   no_products: 'A ordem de serviço não tem produtos (peças): os serviços ficam fora da NF-e.',
   has_invoice: 'O pedido já tem nota fiscal.',
-  international: 'Pedido internacional: o contato é estrangeiro e a nota de exportação ainda não está disponível no Brufap.',
+  international: 'Pedido internacional: o contato é estrangeiro e a nota de exportação ainda não é emitida pelo ERP.',
   quantity_precision: 'A nota fiscal aceita quantidades com até 4 casas decimais.',
   stock_negative: 'O estoque ficaria negativo no depósito do pedido (Preferências › Suprimentos › Estoque: "Permite geração de NF a partir da venda e ordem de serviço com estoque negativo" está desligada).',
 });

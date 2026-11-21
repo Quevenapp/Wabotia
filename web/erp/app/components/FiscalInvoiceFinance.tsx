@@ -9,7 +9,7 @@ import { Modal } from './Modal';
 import { invoiceOrderTitles, type InvoiceOrderTitles } from '../lib/invoice-order-titles';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A nota, o pedido de origem ou as contas mudaram. Feche e abra novamente para conferir.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'A nota, o pedido de origem ou as contas mudaram. Feche e abra novamente para conferir.'
   : error.status === 400 ? 'A operação não foi aceita. Confira as parcelas da nota (a soma precisa ser o total), a categoria e a conta financeira.'
   : error.status === 403 ? 'Seu perfil ou suas permissões não lançam contas pela nota (administrador e financeiro; Sistema › Usuários › Permissões).' : error.status === 404 ? 'A nota não foi encontrada.' : 'Não foi possível concluir a operação. Tente novamente.'
   : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';

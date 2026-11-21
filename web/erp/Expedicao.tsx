@@ -19,6 +19,9 @@ import {
 import "./expedicao.css";
 
 const ROUTE = "/expedicao";
+/** Quem mexe na expedição no servidor (src/erp/domains/shipping/rpc.ts, WRITE_ROLES); os outros papéis só consultam. */
+const SHIPPING_WRITERS: readonly string[] = ["admin", "vendas", "estoque"];
+const shipper = (role: string | null | undefined) => !!role && SHIPPING_WRITERS.includes(role);
 const STATUS_LABEL: Record<ShippingStatus, string> = { to_pick: "A separar", picking: "Em separação", picked: "Separado", packed: "Embalado", shipped: "Expedido" };
 const errorText = (error: unknown) => (error instanceof Error ? error.message : "Algo deu errado. Atualize a tela e tente de novo.");
 const aborted = (error: unknown) => error instanceof Error && error.name === "AbortError";
@@ -320,7 +323,7 @@ function OrderScreen({ port, id }: { port: ExpedicaoPort; id: string }) {
       <table className="expedicao-table"><tbody>{detail.pending.map((p) => <tr key={p.id}>
         <td>{p.description}<small>Lista {p.list_number}: separou {qty(p.picked)} de {qty(p.quantity)}</small></td>
         <td>{p.status === "open" ? "Faltou " + qty(p.missing) : `Resolvida${p.note ? `: ${p.note}` : ""}`}</td>
-        <td>{p.status === "open" && access.role !== "consulta" && <button type="button" disabled={busy} onClick={() => void run(async () => {
+        <td>{p.status === "open" && shipper(access.role) && <button type="button" disabled={busy} onClick={() => void run(async () => {
           const note = window.prompt("Como foi resolvida? (opcional)") ?? ""; await port.resolvePending(p.id, note, port.command()); await load(); })}>Dar por resolvida</button>}</td>
       </tr>)}</tbody></table></section>}
 
@@ -330,7 +333,7 @@ function OrderScreen({ port, id }: { port: ExpedicaoPort; id: string }) {
         <tbody>{detail.volumes.map((v) => <tr key={v.id}><td>{v.number} de {detail.volumes.length}</td><td>{v.package?.name ?? "—"}</td>
           <td>{[v.length_mm, v.width_mm, v.height_mm].some((x) => x) ? [v.length_mm, v.width_mm, v.height_mm].map(cm).join(" × ") : "—"}</td>
           <td>{kg(v.gross_weight_g)}<small>líquido {kg(v.net_weight_g)}</small></td><td>{v.items.map((i) => `${qty(i.quantity)} ${i.description}`).join("; ")}</td></tr>)}</tbody></table>}
-      {canPack && access.role !== "consulta" && <>
+      {canPack && shipper(access.role) && <>
         {drafts.map((d, index) => <div className="expedicao-volume" key={index}>
           <strong>Volume {index + 1}</strong>
           <div className="expedicao-toolbar">
@@ -358,21 +361,21 @@ function OrderScreen({ port, id }: { port: ExpedicaoPort; id: string }) {
 
     {port.frete && <FreteDoPedido port={port.frete} order={o.id} role={access.role} onChanged={() => void load()} />}
 
-    {o.status === "packed" && access.role !== "consulta" && <section className="expedicao-card"><h2>Expedir</h2>
+    {o.status === "packed" && shipper(access.role) && <section className="expedicao-card"><h2>Expedir</h2>
       <div className="expedicao-toolbar"><label>Código de rastreio (opcional)<input value={tracking} onChange={(e) => setTracking(e.target.value)} /></label>
         <button type="button" className="expedicao-primary" disabled={busy} onClick={() => void ship()}>Marcar como expedido</button></div></section>}
 
     {o.status === "shipped" && o.own_delivery && <section className="expedicao-card"><h2>Entrega local</h2>
       {o.delivery_id ? <p>Este pedido já tem entrega local. Acompanhe em Entregas.</p>
         : !access.parts.delivery ? <p className="expedicao-hint">Para mandar este pedido pelo seu entregador, ligue o módulo Entrega em Gestão → Módulos.</p>
-        : access.role === "consulta" ? <p className="expedicao-hint">Seu papel só consulta a expedição.</p>
+        : !shipper(access.role) ? <p className="expedicao-hint">Seu papel só consulta a expedição.</p>
         : <button type="button" disabled={busy} onClick={() => void delivery()}>Criar entrega local</button>}</section>}
 
     <section className="expedicao-card"><h2>Devolução física</h2>
       <p className="expedicao-hint">Registre a mercadoria que voltou. O que volta ao estoque entra no depósito do pedido; avariado e descarte ficam só registrados. Nenhuma nota é emitida aqui.</p>
       {shortcut && <p className="expedicao-warning">Este pedido tem NF-e autorizada. Para a devolução fiscal, <Link to={shortcut}>abra a nota e emita a NF-e de devolução</Link>.</p>}
       {detail.returns.map((r) => <p key={r.id}>Devolução {r.number} ({day(r.created_at)}): {r.reason} — {r.items.map((i) => `${qty(i.quantity)} ${i.description} (${i.condition_label})`).join("; ")}</p>)}
-      {access.role !== "consulta" && !["draft", "cancelled"].includes(o.order_status) && <>
+      {shipper(access.role) && !["draft", "cancelled"].includes(o.order_status) && <>
         <table className="expedicao-table"><thead><tr><th>Item</th><th>Voltou</th><th>Estado</th></tr></thead>
           <tbody>{detail.lines.map((l) => <tr key={l.key}><td>{l.description}<small>Pedido {qty(l.quantity)}{toNumber(l.returned) > 0 ? ` · já voltou ${qty(l.returned)}` : ""}</small></td>
             <td><input aria-label={`Quantidade de ${l.description} que voltou`} inputMode="decimal" value={returning[l.key]?.quantidade ?? ""} onChange={(e) => setReturning({ ...returning, [l.key]: { estado: returning[l.key]?.estado ?? "volta_ao_estoque", quantidade: e.target.value } })} /></td>
@@ -410,9 +413,9 @@ function Packages({ port }: { port: ExpedicaoPort }) {
     {!items ? <p role="status">Carregando…</p> : !items.length ? <p>Nenhuma embalagem cadastrada ainda.</p> :
       <table className="expedicao-table"><thead><tr><th>Nome</th><th>Medidas (cm)</th><th>Peso vazio</th><th>Situação</th><th></th></tr></thead>
         <tbody>{items.map((p) => <tr key={p.id}><td>{p.name}</td><td>{[p.length_mm, p.width_mm, p.height_mm].map(cm).join(" × ")}</td><td>{kg(p.empty_weight_g)}</td><td>{p.active ? "Ativa" : "Inativa"}</td>
-          <td>{access.role !== "consulta" && <button type="button" onClick={() => setForm({ id: p.id, versao: p.version, nome: p.name, comprimento: cm(p.length_mm), largura: cm(p.width_mm), altura: cm(p.height_mm),
+          <td>{shipper(access.role) && <button type="button" onClick={() => setForm({ id: p.id, versao: p.version, nome: p.name, comprimento: cm(p.length_mm), largura: cm(p.width_mm), altura: cm(p.height_mm),
             peso_vazio: p.empty_weight_g === null ? "" : String(p.empty_weight_g / 1000).replace(".", ","), ativa: p.active })}>Alterar</button>}</td></tr>)}</tbody></table>}
-    {access.role !== "consulta" && <section className="expedicao-card"><h2>{form.id ? "Alterar embalagem" : "Nova embalagem"}</h2>
+    {shipper(access.role) && <section className="expedicao-card"><h2>{form.id ? "Alterar embalagem" : "Nova embalagem"}</h2>
       <div className="expedicao-toolbar">
         <label>Nome<input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex.: Caixa média" /></label>
         {(["comprimento", "largura", "altura"] as const).map((k) => <label key={k}>{k[0].toUpperCase() + k.slice(1)} (cm)<input inputMode="decimal" value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} /></label>)}

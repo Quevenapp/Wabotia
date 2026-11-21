@@ -1,7 +1,8 @@
 // Hospedagem autorizada do conteúdo portado. Somente o roteador principal escreve no histórico.
 import React, { Activity, Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
+import { createMemoryRouter, Navigate, RouterProvider, useLocation } from "react-router-dom";
+import { movedTarget } from "./moved-routes.ts";
 import App from "./app/App";
 import { UnsavedChangesProvider, useUnsavedChangesGuard } from "./app/hooks/useUnsavedChanges";
 import { protectBeforeUnload } from "./app/lib/unsaved-changes-store";
@@ -135,8 +136,11 @@ function TargetGate({ runtime }: { runtime: ErpHostRuntime }) {
   const location = useLocation();
   const context = runtime.context();
   const target = location.pathname + location.search + location.hash;
+  // Endereço antigo com tela nova: vai para ela antes de conferir o destino (a antiga pode estar sem motor).
+  const moved = movedTarget(location.pathname);
   const state = portedTargetState(target, context.management, erpSimulated(context.demo));
   const opened = useRef<string | null>(null);
+  if (moved) return <Navigate to={moved} replace />;
   if (state === "allowed") opened.current = target;
   if (state !== "allowed" && !((state === "disabled" || state === "loading") && opened.current === target)) return <TargetNotice state={state} />;
   return location.pathname === "/manutencao-efeitos" ? <Suspense fallback={<TargetNotice state="loading" />}><RealAccess /></Suspense> : <App />;

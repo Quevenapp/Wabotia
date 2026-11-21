@@ -113,7 +113,7 @@ export default function CustomFields({ controller }: { controller: AccessControl
     <div className="product-tabs" role="tablist" aria-label="Módulos dos campos customizados">
       <button type="button" role="tab" id="custom-fields-tab-products" aria-selected={tab === 'products'} aria-controls="custom-fields-panel" onClick={() => setTab('products')}>Produtos</button>
       <button type="button" role="tab" id="custom-fields-tab-os" aria-selected={tab === 'service_orders'} aria-controls="custom-fields-panel-os" onClick={() => setTab('service_orders')}>Ordem de Serviço</button>
-      <button type="button" role="tab" aria-selected="false" disabled title="Os clientes e fornecedores ainda não usam campos customizados no ERP.">Clientes e Fornecedores</button></div>
+      <Link role="tab" aria-selected="false" to="/preferencias/cadastros/clientes-fornecedores" title="Os campos customizados de clientes e fornecedores ficam em Preferências › Cadastros › Clientes e fornecedores.">Clientes e Fornecedores</Link></div>
     {tab === 'service_orders' && <div id="custom-fields-panel-os" role="tabpanel" aria-labelledby="custom-fields-tab-os"><DocumentCustomFieldsAdmin controller={controller} /></div>}
     {tab === 'products' && <>
     {notice && <p className="real-success" role="status">{notice}</p>}

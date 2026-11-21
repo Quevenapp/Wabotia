@@ -60,15 +60,15 @@ export default function CompanyPreferences({controller,state}:{controller:Prefer
   // Wabotia (maquininha): a maquininha integrada ao caixa, na página Frente de caixa.
   if(route.page.id==='vendas-frente-caixa')return <>{settings}<Suspense fallback={null}><TerminalPreference/></Suspense></>;
   return route.page.id==='financas-receber'?<>{settings}<ChargeAutoSettlePreference/><Suspense fallback={null}><BoletoBankSwitches/></Suspense></>:settings;}
- if(route.kind==='screen')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/sistema">Sistema</Link> › <span aria-current="page">{SYSTEM_SCREENS[route.screen]}</span></nav>
+ if(route.kind==='screen')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Início</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/sistema">Sistema</Link> › <span aria-current="page">{SYSTEM_SCREENS[route.screen]}</span></nav>
   {route.screen==='usuarios'?<ErpPermissions key={state.membership!.user_id} controller={controller}/>:route.screen==='gerenciador-arquivos'?<RealFiles key={state.membership!.user_id} controller={controller}/>
    :route.screen==='gerenciador-transicoes'?<RealSituations key={state.membership!.user_id} controller={controller}/>
    :route.screen==='relatorios-customizados'?<RealReports key={state.membership!.user_id} controller={controller}/>:route.screen==='etiquetas-customizadas'?<RealLabels key={state.membership!.user_id} controller={controller}/>
    :<RealActivity key={`${state.membership!.user_id}:${route.screen}`} controller={controller} mode={route.screen==='consulta-exclusoes'?'deletions':'activity'}/>}</>;
  // 228: Importações de Dados and Consultar gestão de ações (menu do usuário).
- if(route.kind==='import')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/importacoes">Importações de Dados</Link> › <span aria-current="page">{SCREEN_TEMPLATES[route.importKind].title}</span></nav>
+ if(route.kind==='import')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Início</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/importacoes">Importações de Dados</Link> › <span aria-current="page">{SCREEN_TEMPLATES[route.importKind].title}</span></nav>
   <SpreadsheetImport key={`${state.membership!.user_id}:${route.importKind}`} controller={controller} kind={route.importKind}/></>;
- if(route.kind==='actions')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Home</Link> › <span aria-current="page">Gestão de ações</span></nav>
+ if(route.kind==='actions')return <><nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Início</Link> › <span aria-current="page">Gestão de ações</span></nav>
   <RealImportJobs key={state.membership!.user_id} controller={controller}/>
   {/* Leva H (PRF-280): the server tasks (notifications, exports, cleanups) below the browser imports. */}
   <PlatformTasks key={`tasks:${state.membership!.user_id}`} controller={controller as unknown as Partial<PlatformPort>}/></>;

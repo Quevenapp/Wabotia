@@ -73,7 +73,7 @@ test('default listing: Últimos incluídos, the Origin default columns, the type
     assert.equal(menu[1].disabled, false, 'Ficha financeira opens for the administrador (onda C)'); assert.equal(menu[2].disabled, false);
     assert.match(view.text(), /Quantidade de contatos2/);
     assert.equal(view.button('Imprimir etiquetas').disabled, true, 'Imprimir etiquetas needs a selection');
-    assert.equal(view.button('Contatos agrupados').disabled, true);
+    assert.throws(() => view.button('Contatos agrupados'));
     assert.equal(view.nodes().some(node => node.type === 'span' && node.props.title === 'Cadastro excluído'), false, 'Últimos incluídos never shows excluded rows');
   } finally { view.unmount(); }
 });
@@ -86,7 +86,7 @@ test('Situação, Vendedor, Prox. Visita / Sem compras no período and Limpar ma
     assert.deepEqual(component(view, 'AppliedChips').props.chips.map(chip => chip.label), ['Cadastros: Excluídos']);
     assert.ok(tool(view, 'Restaurar selecionados'), 'Restaurar takes the place of the trash');
     assert.ok(view.nodes().some(node => node.type === 'span' && node.props.title === 'Cadastro excluído'), 'excluded rows carry the red ✕');
-    assert.equal(view.button('Excluir definitivamente').disabled, true);
+    assert.throws(() => view.button('Excluir definitivamente'));
     await view.change('contact-situation-filter', 'latest');
     component(view, 'SellerPicker').props.onChange({ id: ids.seller, name: 'Vendedora', code: null }); await view.flush();
     view.find(node => node.type?.name === 'ContactPeriodPicker').props.onApply({ field: 'no_purchases', from: '2026-10-01', to: '2026-10-31' }); await view.flush();

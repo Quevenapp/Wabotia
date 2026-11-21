@@ -247,7 +247,7 @@ test('product export: ranges of 1000 from the list filters, read in batches of 4
     assert.match(view.text(), /1203 produtos com os filtros da listagem/);
     assert.match(view.text(), /1 a 1000/); assert.match(view.text(), /1001 a 1203/);
     assert.deepEqual(Object.fromEntries(new URLSearchParams(reads[0].split('?')[1])), { situation: 'active', q: 'parafuso', category: 'none', limit: '1', include_deleted: 'false' });
-    const buttons = view.nodes().filter(node => node.type === 'button' && node.props.children === 'Download');
+    const buttons = view.nodes().filter(node => node.type === 'button' && node.props.children === 'Baixar');
     buttons[1].props.onClick(); await view.flush();
     const pages = reads.filter(path => path.startsWith('/v1/cadastros/products/exportacao?')).slice(1);
     assert.deepEqual(pages.map(path => new URLSearchParams(path.split('?')[1]).get('offset')), ['1000', '1040', '1080', '1120', '1160', '1200'], 'the last file reads only the rows it has');

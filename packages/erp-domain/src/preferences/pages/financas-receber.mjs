@@ -7,7 +7,7 @@ export default definePage({id:'financas-receber',category:'financas',path:'conta
  sections:[{id:G,title:'Geral'},{id:B,title:'Envio automático de boletos'},{id:C,title:'E-mails de cobranças'},{id:K,title:'Carta de Cobrança'},{id:R,title:'Leitura de retornos'}],
  fields:[
   toggle('financas.receber_data_baixa',G,'Utilizar data do vencimento do título como data da baixa',false,{note:'Aplicado: a baixa de contas a receber (individual e em lote) começa com “Utilizar data de vencimento” ligado.'}),
-  toggle('financas.receber_cabecalho_recibo',G,'Exibir cabeçalho com logo e informações da empresa ao imprimir recibo',false,{note:'Aplicado: o recibo mostra o logo (Empresa › Dados da empresa › Sua marca, a partir da migração 262) e a identificação dos Dados da empresa.'}),
+  toggle('financas.receber_cabecalho_recibo',G,'Exibir cabeçalho com logo e informações da empresa ao imprimir recibo',false,{note:'Aplicado: o recibo mostra o logo (Empresa › Dados da empresa › Sua marca) e a identificação dos Dados da empresa.'}),
   choice('financas.receber_titulo_credito',G,'Habilitar tipo de título de crédito para impressão',[['duplicata','Duplicata'],['nota_promissoria','Nota Promissória'],['ambos','Ambos']],'duplicata',{note:'Aplicado: define os modelos impressos pelo ⋮ Imprimir duplicata das contas a receber.'}),
   choice('financas.boletos_vinculo',B,'Enviar boletos automaticamente para contas a receber vinculadas com',[['formas_pagamento','Formas de pagamento'],['contas_financeiras','Contas financeiras']],'formas_pagamento',{note:mail}),
   info('financas.boletos_formas',B,'Formas de pagamento','As formas de pagamento com boleto vêm de Cadastros > Formas de pagamento. O envio automático de boletos depende de e-mail, que o ERP ainda não envia.'),

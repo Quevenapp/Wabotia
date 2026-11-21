@@ -70,7 +70,7 @@ test('Sua marca: Remover logo repeats the same command; Gerar nova logo stays di
   const view = await mountComponent('CompanyLogo.tsx', { controller: s.controller });
   try {
     await settle(view);
-    assert.equal(view.button('Gerar nova logo').disabled, true);
+    assert.throws(() => view.button('Gerar nova logo'));
     await view.click('Remover logo'); await settle(view);
     assert.match(view.text(), /A remoção do logo precisa ser confirmada/);
     await view.click('Conferir resultado'); await settle(view);

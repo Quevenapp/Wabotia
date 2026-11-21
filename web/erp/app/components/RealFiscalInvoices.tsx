@@ -65,7 +65,7 @@ const known = (error: unknown) => error instanceof AccessError && [400, 403, 404
 const actorOf = (controller: AccessController) => controller.getSnapshot?.()?.membership?.user_id ?? null;
 const roleOf = (controller: AccessController) => controller.getSnapshot?.()?.membership?.role ?? '';
 
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A nota mudou ou a situação atual não permite esta ação. Recarregue a listagem e confira.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'A nota mudou ou a situação atual não permite esta ação. Recarregue a listagem e confira.'
   : error.status === 403 ? 'Seu perfil não permite esta operação.' : error.status === 404 ? 'Nota não encontrada. Recarregue a listagem.' : error.status === 400 ? 'O servidor recusou os dados informados.'
     : 'Não foi possível concluir a operação. Tente novamente.' : 'Não foi possível concluir a operação. Tente novamente.';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -92,7 +92,7 @@ function CommercialFiscalInvoices({ controller, screen, backup }: { controller: 
       <Link to={`/historico-fiscal?${new URLSearchParams({ modelo: screen === 'nfce' ? '65' : '55', acervo: 'legado' })}`} aria-current={archive ? 'page' : undefined}>Acervo legado · somente consulta</Link>
     </nav>
     {screen === 'nfe' && !archive && !unsupported ? <CommercialNfe controller={controller} /> : <>
-      {(screen === 'nfce' || unsupported) && <p className="real-notice" role="status">Emissão parcial, agrupamento, NFC-e e notas de OS ainda não são atendidos. Prepare a NF-e integral de um pedido de venda.</p>}
+      {(screen === 'nfce' || unsupported) && <p className="real-notice" role="status">{screen === 'nfce' ? 'A NFC-e sai pela frente de caixa (Vendas › Frente de caixa), com o cupom do emissor de notas. Aqui ficam as notas do acervo legado.' : 'Emissão parcial e agrupada não são feitas aqui: prepare a NF-e integral de um pedido de venda. A NFC-e sai pela frente de caixa e a nota da ordem de serviço, pela própria ordem.'}</p>}
       <LegacyFiscalArchive key={screen} controller={controller} screen={screen} />
     </>}
   </>;

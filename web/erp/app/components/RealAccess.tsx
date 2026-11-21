@@ -47,8 +47,10 @@ function Login({ state }: { controller: AccessController; state: AccessState }) 
   </section>;
 }
 
-/** Cofre: certificado, assinatura, transmissão e numeração não são feitos no ERP. */
-const FISCAL_GATEWAY_PATHS = ['/certificado-a1', '/conexao-sefaz', '/emissor-fiscal', '/numeracao-fiscal', '/preferencias/certificado/configuracoes', '/preferencias/notas-fiscais/nfe/numeracao', '/preferencias/notas-fiscais/nfce/numeracao'];
+/** Emissor de notas: certificado, assinatura, transmissão e numeração não são feitos no ERP. Só as telas antigas que
+ * dependiam do certificado no ERP; /certificado-a1 abre o emissor (antes desta lista) e /conexao-sefaz vai para ele
+ * (App.tsx). */
+const FISCAL_GATEWAY_PATHS = ['/emissor-fiscal', '/numeracao-fiscal', '/preferencias/certificado/configuracoes', '/preferencias/notas-fiscais/nfe/numeracao', '/preferencias/notas-fiscais/nfce/numeracao'];
 /** Wabotia: rota de um bloco do ERP desligado nesta área (Fiscal, Cobrança, PDV, Origin; web/erp/blocks.ts). */
 function BlockOff({ target }: { target: string }) {
   // Wabotia: tela sem motor ainda (web/erp/motor.ts): em implantação, com os atalhos do que já funciona.
@@ -62,7 +64,7 @@ function BlockOff({ target }: { target: string }) {
 }
 
 function FiscalGatewayCut() {
-  return <section className="real-state-panel"><h1>Emissão e numeração no cofre</h1><p>A NF-e integral de um pedido de venda é preparada e acompanhada no ERP. O cofre NFapi guarda o certificado, numera, assina, transmite e fornece DANFE e XML.</p><p>Cadastre certificado e senha diretamente no cofre. Numeração local, emissão avulsa, parcial, agrupada, NFC-e e notas de OS estão fechadas nesta etapa.</p><p><Link to="/historico-fiscal?modelo=55">Preparação e acompanhamento de NF-e</Link></p><p><Link to="/certificado-a1">Configurar emissor, ambiente e políticas</Link></p><Link to="/acesso">Voltar ao início</Link></section>;
+  return <section className="real-state-panel"><h1>Feito pelo emissor de notas</h1><p>O certificado A1, a série e a numeração, a assinatura e a transmissão das notas ficam no emissor de notas da empresa. A NF-e de um pedido de venda é preparada e acompanhada em Notas fiscais de saída; a NFC-e sai pela frente de caixa e a nota da ordem de serviço, pela própria ordem.</p><p>Cadastre o certificado e a senha diretamente no emissor de notas.</p><p><Link to="/historico-fiscal?modelo=55">Notas fiscais de saída</Link></p><p><Link to="/certificado-a1">Emissor de notas: certificado, ambiente, séries e teste de conexão</Link></p><Link to="/acesso">Voltar ao início</Link></section>;
 }
 
 /** Preserve a same-actor pending command through a temporary role reduction.

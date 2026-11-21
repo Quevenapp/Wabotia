@@ -78,7 +78,7 @@ export default function RealFiles({controller}:{controller:SystemLogController})
  const download=(list:FileEntry[])=>{
   if(list.length>ZIP_MAX_FILES||list.reduce((sum,f)=>sum+f.size_bytes,0)>ZIP_MAX_BYTES){setNotice('');setError(`Selecione até ${ZIP_MAX_FILES} arquivos e até 100 MB para baixar de uma vez.`);return;}
   void act(list.length===1?`Baixando ${list[0]!.filename}…`:`Baixando ${list.length} arquivos…`,async signal=>{
-   if(list.length===1){const blob=await verified(list[0]!,signal);if(signal.aborted||!may())return;save(list[0]!.filename,blob);setNotice('Download preparado.');return;}
+   if(list.length===1){const blob=await verified(list[0]!,signal);if(signal.aborted||!may())return;save(list[0]!.filename,blob);setNotice('Arquivo pronto para baixar.');return;}
    const entries=[];for(const f of list){const blob=await verified(f,signal);if(signal.aborted||!may())return;entries.push({name:f.filename,data:new Uint8Array(await blob.arrayBuffer()),modified:new Date(f.created_at)});}
    if(signal.aborted||!may())return;const zip=storedZip(entries);save(`arquivos-${todaySP()}.zip`,new Blob([zip as Uint8Array<ArrayBuffer>],{type:'application/zip'}));setNotice(`${list.length} arquivos baixados em um ZIP.`);});};
  // Excluir anexo: the audited logical deletion of the module that owns the file, one command per file kept until confirmed.

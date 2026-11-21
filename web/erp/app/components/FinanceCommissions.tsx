@@ -21,7 +21,7 @@ import './finance-commissions.css';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const noSubscription = () => () => {}, noSnapshot = () => null;
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'O registro mudou ou não pode ser alterado aqui. Atualize o extrato.' : error.status === 400 ? 'A operação não foi aceita. Confira os campos.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'O registro mudou ou não pode ser alterado aqui. Atualize o extrato.' : error.status === 400 ? 'A operação não foi aceita. Confira os campos.'
   : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'O vendedor ou o lançamento não foi encontrado. Atualize a tela.' : 'Não foi possível concluir a operação. Tente novamente.' : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 function BusyGuard() { useUnsavedChanges(false, true); return null; }
 function Field({ label, info, children }: { label: string; info?: string; children: (id: string) => ReactNode }) { const id = useId(); return <div className="form-field"><label htmlFor={id} title={info}>{label}{info && <span className="real-help"> ({info})</span>}</label>{children(id)}</div>; }

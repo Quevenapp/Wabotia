@@ -127,14 +127,14 @@ function EmissorSettingsArea() {
         className="preferences-breadcrumb preferences-screen-trail"
         aria-label="Localização"
       >
-        <Link to="/acesso">Home</Link> › <span aria-current="page">Emissor de notas</span>
+        <Link to="/acesso">Início</Link> › <span aria-current="page">Emissor de notas</span>
       </nav>
       <header className="real-heading">
         <div>
           <h1>Emissor de notas</h1>
           <p>
             No Wabotia, o certificado digital A1 e a emissão de NF-e
-            ficam no cofre de emissão da empresa (NFapi). Aqui você informa o
+            ficam no emissor de notas da empresa (um cofre à parte). Aqui você informa o
             endereço do cofre e a chave de API; o certificado nunca passa pelo
             Wabotia. Configure certificado e senha diretamente no cofre.
           </p>
@@ -436,7 +436,7 @@ function CommercialNfeSettings({ port, connection, confirmIdentity }: {
 
   return <section className="real-records" aria-label="Configuração da NF-e comercial">
     <h2>NF-e de pedidos de venda</h2>
-    <p>Emissão integral, modelo 55, de um pedido salvo. NFC-e, emissão parcial, agrupamento, serviços e outras finalidades ainda não estão disponíveis neste percurso.</p>
+    <p>Emissão integral, modelo 55, de um pedido salvo. A NFC-e (abaixo) sai pela frente de caixa e a nota de serviço, pela ordem de serviço; emissão parcial e agrupada não são feitas aqui.</p>
     <p className="real-alert">Homologação: NF-e e DANFE sem valor fiscal de produção. O ensaio pode movimentar estoque, títulos e recebimentos comerciais reais nesta área, conforme as políticas. Use área dedicada e dados de teste.</p>
     <CommercialNfeChecklist />
     <NfceSettingsPanel />

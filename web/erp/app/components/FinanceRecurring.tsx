@@ -17,7 +17,7 @@ import './finance-registry.css';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const noSubscription = () => () => {}, noSnapshot = () => null;
-const message = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A recorrência mudou, está inativa ou chegou à data limite. Atualize a listagem.' : error.status === 400 ? 'A operação não foi aceita para esta recorrência.'
+const message = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'A recorrência mudou, está inativa ou chegou à data limite. Atualize a listagem.' : error.status === 400 ? 'A operação não foi aceita para esta recorrência.'
   : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'A recorrência não foi encontrada. Atualize a listagem.' : 'Não foi possível concluir a consulta. Tente novamente.' : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 function BusyGuard() { useUnsavedChanges(false, true); return null; }
 const EMPTY = (kind: RecurrenceRoute['kind']): RecurrenceRoute => ({ kind, situacao: 'todas', q: '', page: 1 });

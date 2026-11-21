@@ -102,7 +102,8 @@ export function erpRouteRequirement(method: string, url: URL, body?: unknown): E
   if (/\/(documentos|duplicacao-documentos)\//.test(path)) {
     if (/\/(financeiro|categorias|comissao|comissoes)(\/|$)/.test(path)) ids.push(F);
     if (/\/(estoque|lotes|componentes)(\/|$)/.test(path)) ids.push(E);
-    if (/xml/.test(path)) ids.push(N, P);
+    // O XML do pedido de compra só é lido (nada é salvo): precisa de Produtos, não do Fiscal.
+    if (/xml/.test(path)) ids.push(...(family?.[1] === "purchase_orders" ? [P] : [N, P]) as ErpModuleId[]);
   }
   if (/recebimentos-compras|estoque\/(compras|(?:painel\/)?sugestao)|sugestao-compra/.test(path)) ids.push(C, E);
   if (/reservas-estoque/.test(path) && !/disponibilidade/.test(path)) ids.push(S, E);
@@ -266,7 +267,7 @@ export function erpGroupedBillingRequirement(origins: readonly string[]): ErpReq
 }
 export const erpInvoiceRequirement = (destination: "stock" | "finance", purchaseOrder = false) => erpRequirement(N, destination === "stock" ? E : F, ...(purchaseOrder ? [C] : []) as ErpModuleId[]);
 export function erpXmlRequirement(origin: string): ErpRequirement | null {
-  const owner = erpEntityRequirement(origin); return owner ? erpRequirement(N, P, ...owner.all) : null;
+  const owner = erpEntityRequirement(origin); return owner ? erpRequirement(...(origin === "purchase_orders" ? [] : [N]) as ErpModuleId[], P, ...owner.all) : null;
 }
 export const ERP_LIST_PARTS = groups([
   [B, "cadastros.contatos"], [P, "cadastros.produtos"],

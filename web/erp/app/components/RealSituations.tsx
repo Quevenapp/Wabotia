@@ -1,5 +1,6 @@
 import { withoutUnavailableParts } from '../../blocks';
-import { entityEnabled, fieldEnabled } from '../../blocks';
+import { entityEnabled, fieldEnabled, targetEnabled } from '../../blocks';
+import { Link } from 'react-router-dom';
 import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
 import type {AccessState} from '../lib/real-access';
 import {useUnsavedChanges} from '../hooks/useUnsavedChanges';
@@ -94,7 +95,7 @@ export default function RealSituations({controller}:{controller:FrameworksContro
  return <div className="real-situations">
   <OriginListHeader title="Gerenciador de transições"/>
   <div className="frameworks-tabs" role="tablist" aria-label="Tipo de documento">{SITUATION_KINDS.filter(entityEnabled).map(k=><button type="button" role="tab" key={k} aria-selected={kind===k} className={kind===k?'active':''} disabled={locked&&kind!==k} onClick={()=>switchKind(k)}>{SITUATION_KIND_LABELS[k]}</button>)}
-   <button type="button" role="tab" aria-selected={false} disabled title="Ordens de produção estão fora do escopo do ERP.">Ordens de Produção</button></div>
+   {targetEnabled('/producao') && <Link role="tab" aria-selected={false} to="/producao" title="As situações das ordens de produção ficam em Estoque › Ordens de produção.">Ordens de Produção</Link>}</div>
   {page&&!page.adopted&&<p className="real-notice situations-adoption" role="note">As situações e transições ficam guardadas aqui, mas os {SITUATION_KIND_LABELS[kind].toLowerCase()} ainda seguem as situações padrão: criar situações ou desativar transições ainda não muda os documentos, e as ações de estoque e contas ficam indisponíveis até o módulo adotar o gerenciador.</p>}
   <div className="situations-toolbar"><button type="button" className="primary-button" disabled={locked||!page||custom>=SITUATION_LIMIT} title={custom>=SITUATION_LIMIT?`Limite de ${SITUATION_LIMIT} situações personalizadas por aba.`:undefined} onClick={()=>openSituation(null)}><Icon name="circle-plus" size={12}/>Criar nova situação</button></div>
   {loadError&&<p className="real-alert" role="alert">{loadError}</p>}{error&&<p className="real-alert" role="alert">{error}</p>}{notice&&<p className="real-success" role="status">{notice}</p>}{loading&&<p role="status" className="real-help">Carregando situações…</p>}

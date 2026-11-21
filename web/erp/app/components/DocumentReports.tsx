@@ -19,7 +19,7 @@ import { FREIGHT_MODES } from '../lib/document-commercial-model';
 import { Link } from 'react-router-dom';
 import { CatalogPicker } from './DocumentCatalogPicker';
 import './document-reports.css';
-import { blockEnabled, operationEnabled } from '../../blocks';
+import { blockEnabled, operationEnabled, targetEnabled } from '../../blocks';
 
 // 202610200238 (wave E): CRIAR RELATÓRIO and Configurar open the gerenciador de relatórios customizados of Preferências › Sistema
 // (bases Ordens de Serviço, Pedidos de Venda, Propostas, Compras and the notas), like the Origin gerenciador.relatorio.php.
@@ -67,6 +67,7 @@ function Catalog({ kind, onOpen }: { kind: 'sales_orders' | 'service_orders'; on
     {kind === 'service_orders' && <div className="document-reports-tabs" role="tablist">{groups.map(group => <button key={group.title} type="button" role="tab" aria-selected={tab === group.title} className={tab === group.title ? 'is-active' : undefined} onClick={() => setTab(group.title)}>{group.title}</button>)}</div>}
     {shown.map(group => <section key={group.title} className="document-reports-group"><h2>{group.title}</h2><div className="document-reports-cards">{group.cards.map(card => card.id
       ? <button key={card.title} type="button" className="document-report-card" onClick={() => onOpen(card.id!)}><strong>{card.title}</strong><span>{card.description}</span></button>
+      : card.to && targetEnabled(card.to) ? <Link key={card.title} className="document-report-card" to={card.to}><strong>{card.title}</strong><span>{card.description}</span><small>{card.reason}</small></Link>
       : <div key={card.title} className="document-report-card is-unavailable" aria-disabled="true" title={card.reason}><strong>{card.title}</strong><span>{card.description}</span><small>{card.reason}</small></div>)}</div></section>)}
     {kind === 'service_orders' && <aside className="document-reports-tips"><h3>Dicas</h3><p><strong>Relatórios Customizados</strong></p><p>Monte relatórios com as colunas que precisar.</p><Link className="secondary-button" to={CUSTOM_REPORTS_PATH} title="Abre o gerenciador de relatórios customizados (base Ordens de Serviço).">CRIAR RELATÓRIO</Link></aside>}
   </div>;

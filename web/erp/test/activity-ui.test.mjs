@@ -34,7 +34,7 @@ test('118/263 Gerenciador de arquivos lists every origin with Miniatura, verifie
  const thumb=v.nodes().find(n=>n.type==='img'&&n.props.className==='real-files-thumb');assert.match(thumb.props.src,/^data:image\/png;base64,/);assert.equal(thumb.props.alt,'Miniatura de anexo-caneta.png');
  assert.equal(v.nodes().filter(n=>n.type==='img').length,1,'the PDF has no miniatura');
  const before=f.downloads.length;inRow(v,'contrato.pdf','Baixar arquivo').props.onClick();await settle(v);
- assert.deepEqual(f.downloads.slice(before),['/v1/documentos/sales_orders/40000000-0000-4000-8000-000000000118/anexos/50000000-0000-4000-8000-000000000118/download']);assert.match(v.text(),/Download preparado/);assert.equal(clicked,1);
+ assert.deepEqual(f.downloads.slice(before),['/v1/documentos/sales_orders/40000000-0000-4000-8000-000000000118/anexos/50000000-0000-4000-8000-000000000118/download']);assert.match(v.text(),/Arquivo pronto para baixar/);assert.equal(clicked,1);
  // 301 (mixed lane, wave G): Inserir Arquivo sends a company file; public and private stay unavailable (every file is private).
  assert.equal(v.button('Inserir Arquivo').disabled,false);
  for(const label of['Tornar público selecionados','Tornar privado selecionados'])assert.equal(v.button(label).disabled,true,label);

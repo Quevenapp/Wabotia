@@ -93,7 +93,7 @@ test('Campos Customizados screen: tabs, filters, Situação toggle with "Conferi
   try {
     const tabs = view.nodes().filter(node => node.props?.role === 'tab');
     // 202610200288 (onda G): the Ordem de Serviço tab opens the campos customizados of the OS.
-    assert.deepEqual(tabs.map(tab => [textOf(tab.props.children), Boolean(tab.props.disabled)]), [['Produtos', false], ['Ordem de Serviço', false], ['Clientes e Fornecedores', true]]);
+    assert.deepEqual(tabs.map(tab => [textOf(tab.props.children), Boolean(tab.props.disabled)]), [['Produtos', false], ['Ordem de Serviço', false], ['Clientes e Fornecedores', false]]);
     const headers = view.nodes().filter(node => node.type === 'th').map(node => textOf(node.props.children));
     assert.deepEqual(headers, ['Seleção', 'Nome', 'Tipo', 'Situação', 'Ações']);
     assert.match(view.text(), /Quantidade de campos4/);

@@ -138,7 +138,7 @@ export function emissorBadge(
       tone: "warning",
       text: "Emissão não configurada",
       title:
-        "Nenhum cofre de emissão (NFapi) está ligado a esta área: a NFC-e não é emitida. O certificado A1 fica no cofre, não no Wabotia.",
+        "Nenhum emissor de notas está ligado a esta área: a NFC-e não é emitida. O certificado A1 fica no emissor, não no Wabotia.",
       action: configure,
     };
   const state = view.checked?.state;
