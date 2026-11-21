@@ -166,7 +166,7 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   let owner: ErpModuleId | undefined; const extra: ErpModuleId[] = [];
   const preference = Object.keys(ERP_PREFERENCE_DESTINATIONS).find(prefix => path === prefix || path.startsWith(prefix + "/"));
   if (preference) owner = ERP_PREFERENCE_PARTS[ERP_PREFERENCE_DESTINATIONS[preference]];
-  else if (["/preferencias/sistema/registro-atividades", "/preferencias/sistema/consulta-exclusoes"].includes(path)) owner = B;
+  else if (["/preferencias/sistema/registro-atividades", "/preferencias/sistema/consulta-exclusoes", "/preferencias/sistema/relatorios-customizados"].includes(path)) owner = B;
   else if (path.startsWith("/ajuda/")) owner = B;
   else if (["/acesso", "/visao-geral", "/cadastros-empresa", "/preferencias", "/empresa-configuracoes", "/ajuda", "/importacoes", "/relatorios-customizados", "/relatorios-graficos", "/etiquetas", "/transicoes", "/arquivos", "/manutencao-efeitos", "/receber-bling"].includes(path)) owner = B;
   else if (path === "/cadastros-reais") owner = ERP_ENTITY_PARTS[q.get("cadastro") ?? ""];
