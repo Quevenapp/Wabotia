@@ -126,7 +126,7 @@ const errorText=(error:unknown)=>error instanceof AccessError&&error.code==='MOD
   // 016: the Origin already has contas or a nota for this document.
   :error instanceof AccessError&&error.code==='ERP_DOCUMENT_ORIGIN_EFFECTS'?'Este documento já tem contas lançadas ou nota fiscal gerada no sistema de origem. Somente Observações e Observações internas podem ser alteradas.'
   :error instanceof AccessError&&error.code==='ERP_DOCUMENT_VERSION_LOCKED'?'Esta proposta tem uma versão mais nova e fica só para consulta. Abra a versão mais nova para alterá-la ou salvar outra versão.'
-  :error instanceof AccessError ? error.status===409?'O documento mudou ou a ação não é permitida nesta situação. Suas alterações continuam no formulário; reabra o documento para conferir a versão atual.'
+  :error instanceof AccessError ? error.detail ? error.detail : error.status===409?'O documento mudou ou a ação não é permitida nesta situação. Suas alterações continuam no formulário; reabra o documento para conferir a versão atual.'
   // 202610200239: Sistema › Usuários › Permissões and the approval of the discount.
   :error.code==='ERP_DOCUMENT_PERMISSION_DENIED'?'Seu usuário não tem a permissão desta operação nas ordens de serviço (Sistema › Usuários › Permissões).'
   :error.code==='ERP_DOCUMENT_APPROVAL_REQUIRED'?'O pedido aguarda a aprovação do desconto: só quem pode desconsiderar o limite de desconto do vendedor muda a situação.'

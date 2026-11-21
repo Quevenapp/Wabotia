@@ -54,7 +54,7 @@ test('211 Anexos lists, uploads by reserve + upload + read back, downloads check
     assert.ok(source.calls.some(call => call.method === 'PUT' && call.path.endsWith(`${id(20)}/upload`)));
     assert.match(view.text(), /Anexo anexo-recibo\.txt disponível/);
     await view.click('Baixar'); await new Promise(resolve => setTimeout(resolve, 20)); await view.flush();
-    assert.deepEqual(clicks, ['anexo-arquivo-10.txt']); assert.match(view.text(), /Download preparado/);
+    assert.deepEqual(clicks, ['anexo-arquivo-10.txt']); assert.match(view.text(), /Arquivo pronto para baixar/);
     view.find(node => node.type === 'input' && node.props['aria-label'] === 'Selecionar anexo-arquivo-10.txt').props.onChange({ target: { checked: true } }); await view.flush();
     await view.click('Excluir selecionados');
     const removal = source.calls.find(call => call.path.endsWith(`${id(10)}/exclusao`));

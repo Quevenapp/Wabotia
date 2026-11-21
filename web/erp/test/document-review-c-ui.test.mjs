@@ -39,7 +39,7 @@ test('Exportar para a planilha reads every page of the month and downloads the X
   try {
     await view.click('Exportar para a planilha');
     await view.change('documents-export-month', '09'); await view.change('documents-export-year', '2026');
-    await view.click('Download');
+    await view.click('Baixar');
     assert.deepEqual(calls.filter(path => path.includes('/exportacao?')), ['/v1/documentos/purchase_orders/exportacao?from=2026-09-01&to=2026-09-30&page=1', '/v1/documentos/purchase_orders/exportacao?from=2026-09-01&to=2026-09-30&page=2']);
     const [name, sheet, type] = globalThis.__sheetDownloads.at(-1);
     assert.deepEqual([name, type, sheet.name, sheet.rows.length], ['pedidos-de-compra-2026-09.xlsx', 'xlsx', 'Pedidos de compra', 3]);

@@ -17,7 +17,7 @@ const posts=f=>f.calls.filter(c=>c.method==='POST');
 test('148 Gerenciador de transições: tabs, accordion by origin, Criar nova situação with Conferir resultado, transitions and Excluir selecionados',async()=>{
  const f=createFrameworksFixture({lostAck:true}),v=await situations(f);try{
   for(const label of['Gerenciador de transições','Pedidos de Venda','Pedidos de Compra','Ordem de Serviço','Ordens de Produção','Criar nova situação','Estado de origem: Em digitação','Estado de origem: Verificado'])assert.ok(v.text().includes(label),label);
-  assert.match(v.text(),/ainda seguem as situações padrão/);assert.equal(v.find(n=>n.props.role==='tab'&&textOf(n)==='Ordens de Produção').disabled,true);
+  assert.match(v.text(),/ainda seguem as situações padrão/);assert.equal(Boolean(v.find(n=>n.props.role==='tab'&&textOf(n)==='Ordens de Produção').props.disabled),false);
   // Criar nova situação: Baseada em, Nome, Cor; the lost answer keeps the same command for Conferir resultado.
   await v.click('Criar nova situação');assert.match(v.text(),/Criar nova situação.*Baseada em/s);
   await v.change('situation-base','open');await v.change('situation-name','Aguardando pagamento');await v.change('situation-color','#FF8800');await v.click('Salvar');

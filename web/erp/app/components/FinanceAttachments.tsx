@@ -123,7 +123,7 @@ export default function FinanceAttachments({ controller, owner, ownerId, writabl
       const url = URL.createObjectURL(blob); urls.current.add(url);
       const link = document.createElement('a'); link.href = url; link.download = row.filename; link.rel = 'noopener'; document.body.append(link); link.click(); link.remove();
       setTimeout(() => { URL.revokeObjectURL(url); urls.current.delete(url); }, 1000);
-      setNotice('Download preparado.');
+      setNotice('Arquivo pronto para baixar.');
     } catch (failure) { if (!cancelled(failure) && !request.signal.aborted) setError(message(failure)); }
     finally { if (!request.signal.aborted) { pending.current = null; setBusy(''); } }
   };

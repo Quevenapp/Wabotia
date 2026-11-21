@@ -246,9 +246,11 @@ export function finishNotice(effects: PdvEffectsState | Record<string, never>): 
 }
 export function pdvFailure(error: unknown): string {
   // AccessError of the access controller (status, code and the allow-listed reason in field).
-  const failure = error as { status?: unknown; field?: unknown } | null;
+  const failure = error as { status?: unknown; field?: unknown; detail?: unknown } | null;
   if (failure && typeof failure === 'object' && typeof failure.status === 'number') {
     if (typeof failure.field === 'string' && Object.hasOwn(REASONS, failure.field)) return REASONS[failure.field]!;
+    // Wabotia: a frase do servidor (limite, dado faltando, parte desligada) vem primeiro (real-access.ts).
+    if (typeof failure.detail === 'string' && failure.detail) return failure.detail;
     const status = failure.status;
     if (status === 409) return 'A venda ou o caixa mudou enquanto você trabalhava. Atualize e confira.';
     if (status === 403) return 'Seu acesso a esta operação foi alterado.';

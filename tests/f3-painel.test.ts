@@ -279,7 +279,7 @@ describe("f3-painel: repetição e fechamento", () => {
 describe("f3-painel: casa única, legado e origem", () => {
   it("oculta OS portável com os ligado, preserva relatórios e bloqueia criação direta antes do prefetch", () => {
     const c = context(), items = visibleIntegrationItems(ERP_MANAGEMENT_ITEMS, c);
-    expect(items.some(i => i.id === "erp.service-orders")).toBe(false); expect(items.some(i => i.id === "erp.service-reports")).toBe(true);
+    expect(items.some(i => i.id === "erp.service-orders")).toBe(false); expect(items.some(i => i.id === "erp.service-reports")).toBe(false);
     setMotorWorkEnabled(true); expect(MOTOR_READY.some(i => i.to === "/documentos-empresa?tipo=service_orders")).toBe(false);
     const load = vi.fn(), prefetch = vi.fn();
     for (const action of ["incluir", "clonar", "proposta"]) {

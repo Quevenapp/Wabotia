@@ -13,7 +13,7 @@ type Controller = Pick<AccessController, 'documents' | 'getSnapshot'> & { servic
 const JOURNAL_LIMIT = 100;
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const known = (error: unknown) => error instanceof AccessError && [400, 403, 404, 409].includes(error.status);
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'O documento mudou ou a situação atual não permite esta mudança. Feche e confira a versão atual.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'O documento mudou ou a situação atual não permite esta mudança. Feche e confira a versão atual.'
   : error.status === 403 ? 'Seu perfil não permite registrar ocorrências neste documento.' : error.status === 400 ? 'O servidor recusou a ocorrência. Confira a situação, a data e o texto (motivo).'
     : error.status === 404 ? 'Documento não encontrado.' : 'Não foi possível concluir a operação. Tente novamente.' : 'Não foi possível concluir a operação. Tente novamente.';
 const actorOf = (controller: Controller) => controller.getSnapshot()?.membership?.user_id ?? null;

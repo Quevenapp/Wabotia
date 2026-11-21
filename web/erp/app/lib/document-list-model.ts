@@ -330,7 +330,12 @@ export function documentRowActions(kind: DocumentKind, row: DocumentListRow, { r
   const modelAction = (action: 'create_model' | 'clone_model', label: string): RowAction => ({ key: action, action, label, icon: 'clone', enabled: writable, ...(writable ? { title: action === 'create_model' ? 'Abre um modelo novo com os dados desta proposta para conferir antes de salvar.' : 'Abre uma cópia deste modelo para conferir antes de salvar.' } : { title: readOnly }) });
   if (kind === 'sales_proposals') out.push(...(row.template ? [clone('Novo a partir deste', true), modelAction('clone_model', 'Clonar modelo')] : [clone('Clonar proposta', true), modelAction('create_model', 'Criar modelo')]));
   // None of the hidden actions opens a group, so the separators stay where they are.
-  const visible = role === 'vendas' ? out.filter(action => !HIDDEN_FOR_SELLER.includes(action.action)) : out;
+  // Wabotia: na OS, o servidor só deixa ler a ordem a administrador, consulta, financeiro e vendas
+  // (src/erp/domains/documents/public.ts) e só lança estoque com administrador ou estoque: o estoque e a nota da OS
+  // ficam com o administrador, e as contas com administrador e financeiro. Para os outros, o botão nem aparece.
+  const hiddenInService = (action: RowActionKind) => kind === 'service_orders' &&
+    (action === 'finance' ? !financeRole : (action === 'stock' || action === 'fiscal55' || action === 'fiscal65') && role !== 'admin');
+  const visible = out.filter(action => !(role === 'vendas' && HIDDEN_FOR_SELLER.includes(action.action)) && !hiddenInService(action.action));
   return visible;
 }
 export const brDay = (value: string | null) => value ? value.split('-').reverse().join('/') : '';

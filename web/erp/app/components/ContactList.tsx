@@ -33,6 +33,12 @@ import { LIST_TITLE, aborted, errorText, knownFailure } from './catalog-shared';
 import { ContactFieldFilterInputs, fieldCellText, useContactFieldColumnValues, useContactFieldDefinitions, type FieldFilterDraft } from './ContactFieldListTools';
 import { activeFieldFilters, contactFieldsCall, fieldFilterChip, listColumnFields, type ContactFieldFilter } from '../lib/contact-fields';
 import './contacts.css';
+import { portedPermissionAllowed } from '../../../management/ported-policy';
+import { ROLE_RESOURCES } from '../../../../src/erp/role-resources';
+import { targetEnabled } from '../../blocks';
+
+/** Atalhos de Ferramentas do ERP, mostrados só a quem o servidor atende (web/management/ported-policy.ts). */
+const CONTACT_TOOLS: Readonly<Record<string, string>> = { '/tipos-contatos-empresa': 'Tipos de contatos', '/vendedores-empresa': 'Vendedores', '/importar-contatos': 'Importar contatos' };
 
 // Listagem de Clientes e fornecedores no padrão do Origin (lane contatos). It owns its filters, page, selection and batch
 // actions; the shared catalog hook keeps permissions, the entity selector and the open record (?registro=).
@@ -265,13 +271,11 @@ export function ContactCatalog({ list, Editor }: { list: CatalogList; Editor: Co
         <button type="button" className="action-button" disabled={!selectedItems.length} title={selectedItems.length ? 'Etiquetas dos contatos selecionados, com os modelos de Etiquetas customizadas' : 'Selecione os cadastros na listagem'} onClick={() => setLabelsFor(selectedItems.map(item => item.id))}><Icon name="print" size={14} />Imprimir etiquetas</button>
         {writable && <button type="button" className="action-button" disabled={!selectedItems.length} title={selectedItems.length ? undefined : 'Selecione os cadastros na listagem'} onClick={() => startBatch({ kind: 'seller', seller: null, items: asBatch(selectedItems), locked: false })}><Icon name="link" size={14} />Vincular a vendedor</button>}
         {writable && <button type="button" className="action-button" disabled={!selectedItems.length || !tagOptions.loaded || tagOptions.failed} title={selectedItems.length ? tagOptions.failed ? 'Não foi possível carregar as tags.' : undefined : 'Selecione os cadastros na listagem'} onClick={() => changeList(() => setTagBatch(selectedItems.map(item => ({ id: item.id, label: item.name, excluded: item.situation === 'E' }))))}><Icon name="tags" size={14} />Incluir tags para selecionados</button>}
-        {writable && excluded && <button type="button" className="action-button" disabled title="O ERP preserva o histórico: um cadastro excluído pode ser restaurado, mas não é apagado."><Icon name="trash-alt" size={14} />Excluir definitivamente</button>}
         {writable && <button type="button" className="action-button" disabled={!selectedItems.length || excluded} title={selectedItems.length ? undefined : 'Selecione os cadastros na listagem'} onClick={() => startBatch({ kind: 'situation', target: selectedItems.every(item => item.situation === 'A') ? 'I' : 'A', choosable: true, items: asBatch(selectedItems), locked: false })}><Icon name="adjust" size={14} />Mudar situação de contatos selecionados</button>}
         <div className="contact-more"><h3>Mais ações</h3><h4>Imprimir</h4>
-          <button type="button" className="text-button" disabled title="A impressão de contatos agrupados ainda não foi definida no ERP.">Contatos agrupados</button>
           <button type="button" className="text-button" disabled={selectedItems.length > 0} title={selectedItems.length ? 'Disponível sem seleção.' : undefined} onClick={() => setPrinting({ kind: 'birthdays', state: listState, columns })}>Aniversariantes</button></div>
         <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Quantidade de contatos</dt><dd>{page ? page.total : '—'}</dd></dl>{selectedItems.length > 0 && <dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedItems.length}</dd></dl>}</div>
-        <div className="contact-tools"><h3>Ferramentas do ERP</h3><Link to="/tipos-contatos-empresa">Tipos de contatos</Link><Link to="/vendedores-empresa">Vendedores</Link>{writable && <Link to="/importar-contatos">Importar contatos</Link>}</div>
+        <div className="contact-tools"><h3>Ferramentas do ERP</h3>{['/tipos-contatos-empresa', '/vendedores-empresa', '/importar-contatos'].filter(to => (to !== '/importar-contatos' || writable) && portedPermissionAllowed(to, role, ROLE_RESOURCES[role ?? ''] ?? []) && targetEnabled(to)).map(to => <Link key={to} to={to}>{CONTACT_TOOLS[to]}</Link>)}</div>
         <p className="real-help">{originIntegrationEnabled(controller.getSnapshot().membership) ? 'Alterações feitas aqui são salvas no ERP e enviadas ao sistema de origem pela sincronização; o que mudar lá também chega aqui.' : 'Os cadastros e as alterações desta tela são salvos no ERP.'}</p>
       </>}>
         <div className="native-list-type"><label htmlFor="catalog-entity">Cadastro</label><select id="catalog-entity" value="contacts" disabled={!permissions?.read.length} onChange={event => list.changeEntity(event.target.value as 'contacts')}>{permissions?.read.map(value => <option key={value} value={value}>{LIST_TITLE[value]}</option>)}</select></div>

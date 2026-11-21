@@ -20,6 +20,7 @@ const purchases = ["admin", "consulta", "financeiro", "estoque", "fiscal"] as co
 const sales = ["admin", "consulta", "financeiro", "vendas"] as const;
 const fiscal = ["admin", "consulta", "fiscal"] as const;
 const fiscalWriters = ["admin", "fiscal"] as const;
+const contactWriters = ["admin", "vendas", "financeiro"] as const;
 const rule = (part: ErpPart, roles?: readonly PanelErpRole[], resource?: string): PortedTarget => ({ part, roles, resource });
 
 /** Não normalizar um endereço inválido para um endereço permitido. */
@@ -62,8 +63,9 @@ const extra: Readonly<Record<string, PortedTarget>> = {
   "/grupos-tags": { part: "cadastro", anyResource: ["products", "contacts"] },
   "/exportacao-produtos": rule("catalogo", products, "products"),
   "/campos-customizados": rule("catalogo", products, "products"),
-  "/tipos-contatos-empresa": rule("cadastro", admin, "contacts"),
-  "/importar-contatos": rule("cadastro", admin, "contacts"),
+  // Como o servidor (src/erp/domains/catalog/access.ts): quem lê contatos consulta os tipos; quem grava contatos importa.
+  "/tipos-contatos-empresa": rule("cadastro", undefined, "contacts"),
+  "/importar-contatos": rule("cadastro", contactWriters, "contacts"),
   "/numeracao-contatos": rule("cadastro", admin, "contacts"),
 };
 type Preference = [target: PortedTarget, sections?: readonly string[]];
@@ -104,8 +106,10 @@ const imports: Readonly<Record<string, ErpPart>> = {
   produtos: "catalogo", composicoes: "catalogo", "campos-customizados": "catalogo", lotes: "catalogo",
   contatos: "cadastro", "pedidos-compra": "compras", "movimentacoes-estoque": "estoque",
   "fornecedores-produtos": "catalogo", "notas-fiscais": "fiscal", "contas-receber": "financeiro", vendas: "vendas",
+  // As quatro que o servidor já atende (src/erp/parts-requirements.ts, ERP_IMPORT_KINDS): sem elas a aba dava "não encontrada".
+  "contas-pagar": "financeiro", "fiscal-produtos": "fiscal", "naturezas-operacao": "fiscal", "saldos-iniciais": "financeiro",
 };
-const financeAreas = ["receivable", "payable", "accounts", "categories", "borderos", "contas-financeiras", "ficha", "conciliacao", "recorrentes", "importacao", "comissoes", "controle-caixa", "faturamento-agrupado", "relatorios", "remessas", "retornos", "comissoes-relatorio", "dre", "equipe"];
+const financeAreas = ["receivable", "payable", "accounts", "categories", "borderos", "transferencias", "contas-financeiras", "ficha", "conciliacao", "recorrentes", "importacao", "comissoes", "controle-caixa", "faturamento-agrupado", "relatorios", "remessas", "retornos", "comissoes-relatorio", "dre", "equipe"];
 const businessPanels = ["mensal", "diario", "pedidos-venda", "vendas-vendedor", "venda-canal", "previsao-estoque", "margem-pedido", "novos-recorrentes", "atividade-carteira", "curva-abc", "metas"];
 
 export function portedTarget(to: string): PortedTarget | null {

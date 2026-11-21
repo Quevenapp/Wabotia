@@ -11,7 +11,7 @@ export const CONFLICT_TEXT = 'Este cadastro foi alterado por outra operação. R
 /** Wabotia: recusa por parte do ERP desligada (no painel ou 409 module_disabled do servidor); não é conflito nem falha. */
 export const partDisabled = (error: unknown) => error instanceof AccessError && error.status === 409 && error.code === 'module_disabled';
 export const PART_OFF_TEXT = 'Esta informação depende de um módulo desligado nesta área. Ligue em Gestão → Módulos.';
-export const errorText = (error: unknown) => partDisabled(error) ? PART_OFF_TEXT : error instanceof AccessError ? error.status === 409
+export const errorText = (error: unknown) => error instanceof AccessError && error.detail ? error.detail : partDisabled(error) ? PART_OFF_TEXT : error instanceof AccessError ? error.status === 409
   ? CONFLICT_TEXT
   : error.status === 403 ? 'Seu perfil não tem permissão para esta operação.'
   : error.status === 404 ? 'O cadastro não foi encontrado. Atualize a listagem.'

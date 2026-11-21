@@ -342,7 +342,12 @@ describe("R5 — novas abas nos chamadores", () => {
     expect(controller.finance).toHaveBeenCalledWith(`/v1/financeiro/titles/${id(10)}`, expect.objectContaining({ signal: expect.any(AbortSignal) }));
     expect(window.open).toHaveBeenCalledTimes(3);
   });
-  it.each([["sales_orders", "fiscal55", "55"], ["sales_orders", "fiscal65", "65"], ["purchase_orders", "fiscal55", null]])("DocumentList: ação fiscal %s/%s abre a URL pública", async (kind, action, model) => {
+  // Acabamento do painel: a nota de entrada da compra abre /notas-entrada, que não tem motor; o botão não aparece.
+  it("DocumentList: sem motor para /notas-entrada, a compra não oferece Gerar nota fiscal", async () => {
+    embedded(); const view = mount(DocumentList, documentListProps("purchase_orders")); await view.flush();
+    expect(component(view, "RowMenu").props.items.some((item: any) => item.label === "Gerar nota fiscal")).toBe(false);
+  });
+  it.each([["sales_orders", "fiscal55", "55"], ["sales_orders", "fiscal65", "65"]])("DocumentList: ação fiscal %s/%s abre a URL pública", async (kind, action, model) => {
     embedded(); const view = mount(DocumentList, documentListProps(kind)); await view.flush();
     const menu = component(view, "RowMenu"); const item = menu.props.items.find((item: any) => item.label === (action === "fiscal65" ? "Gerar NFC-e" : "Gerar nota fiscal"));
     expect(item).toBeDefined(); expect(item.disabled).not.toBe(true); item.onClick();

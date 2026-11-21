@@ -23,7 +23,7 @@ const aborted = (error: unknown) => error instanceof DOMException && error.name 
 const known = (error: unknown) => error instanceof AccessError && [400, 403, 404, 409].includes(error.status);
 const actorOf = (controller: AccessController) => controller.getSnapshot?.()?.membership?.user_id ?? null;
 const roleOf = (controller: AccessController) => controller.getSnapshot?.()?.membership?.role ?? '';
-const failure = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A natureza mudou em outra tela ou já está nesse estado. Recarregue e confira.'
+const failure = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'A natureza mudou em outra tela ou já está nesse estado. Recarregue e confira.'
   : error.status === 403 ? 'Seu perfil não altera naturezas de operação.' : error.status === 400 ? 'O servidor recusou os dados. Confira as regras e os campos.' : 'Não foi possível concluir a operação.' : 'Não foi possível concluir a operação.';
 type Command = { id: string; actor: string | null; body: Record<string, unknown>; uncertain: boolean; verify: (value: unknown) => NatureRecord; done: (n: NatureRecord) => void };
 

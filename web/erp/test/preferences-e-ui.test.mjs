@@ -19,7 +19,7 @@ test('265 Previsão de Estoque: Variações + Simples + Composições and Desmem
   const forecast=()=>f.calls.filter(c=>c.path.startsWith('/v1/meu-negocio/previsao-estoque')).map(c=>c.path);
   assert.doesNotMatch(forecast()[0],/modo=/,'the first view is the default');
   assert.match(v.text(),/Variações \+ Simples \+ ComposiçõesProdutosDesmembrados/);assert.match(v.text(),/Composição/);
-  const produtos=v.button('Produtos');assert.equal(produtos.disabled,true);assert.match(produtos.props.title,/não tem produtos com variações/);
+  const produtos=v.button('Produtos');assert.equal(produtos.disabled,true);assert.match(produtos.props.title,/visão por produto pai ainda não está neste painel/);
   await v.click('Desmembrados');assert.match(forecast().at(-1),/modo=desmembrados/);
   assert.match(v.text(),/Cada composição com estrutura vendida entra pelos seus componentes/);
   await v.click('Variações + Simples + Composições');assert.doesNotMatch(forecast().at(-1),/modo=/);

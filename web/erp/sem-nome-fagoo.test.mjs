@@ -24,6 +24,9 @@ const technical = [
   /^FAGOO_[A-Z0-9_]+$/,
   /^fagoo-origin-sync$/,
   /^fagoo\/wabotia\/v1\/$/,
+  // Classe e id de escopo do CSS do painel (web/erp/css-scope.ts, web/erp/mount.tsx), que nenhuma pessoa lê.
+  /^\.?fagoo-root$/,
+  /^wabotia-fagoo-scope$/,
 ];
 // Referências a id são técnicas tanto na definição quanto em seus consumidores.
 const identityAttributes = new Set(['className', 'class', 'id', 'htmlFor', 'for',
@@ -74,6 +77,22 @@ test('textos do painel, QA e Preferências não exibem o nome antigo', () => {
     ...walk('web/erp/qa'),
     ...walk(preferences),
     ...walk(mirror),
+  ];
+  assert.deepEqual(paths.flatMap(path => findings(path, read(path))), []);
+});
+
+// Também as telas do Wabotia em web/erp (fora da cópia em web/erp/app), o painel de gestão e o que o servidor do ERP
+// devolve para a tela (src/erp). Fora: testes e simulados, declarações de tipo, src/erp/schema (documentação técnica do
+// porte) e src/erp/fagoo, a cópia conferida do sistema de origem (seus nomes técnicos ficam como estão).
+const screenFile = path => /\.(?:tsx?|mts|mjs|html)$/.test(path) && !/\.d\.m?ts$/.test(path) &&
+  !/(?:^|\/)(?:test|tests|demo|upstream|qa)\//.test(path) && !/\.(?:test|check)\.m?[jt]sx?$/.test(path) &&
+  !path.startsWith('web/erp/app/') && !path.startsWith('src/erp/schema/') && !path.startsWith('src/erp/fagoo/');
+
+test('telas de web/erp, do painel de gestão e mensagens de src/erp não exibem o nome antigo', () => {
+  const paths = [
+    ...walk('web/erp').filter(screenFile),
+    ...walk('web/management').filter(screenFile),
+    ...walk('src/erp').filter(screenFile),
   ];
   assert.deepEqual(paths.flatMap(path => findings(path, read(path))), []);
 });

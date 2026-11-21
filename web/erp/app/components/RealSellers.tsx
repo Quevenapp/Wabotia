@@ -92,7 +92,7 @@ export default function RealSellers({ controller }: { controller: AccessControll
       <div className="form-field"><label htmlFor="seller-type-filter">Tipo de cadastro</label><select id="seller-type-filter" value={typeDraft} onChange={event => setTypeDraft(event.target.value)}>{TYPE_FILTER(types).map(o => <option key={o.value || 'all'} value={o.value}>{o.label}</option>)}</select></div>
       <button type="submit" className="primary-button">Filtrar</button></>} actions={<>
       <div className="native-list-summary"><h3>Informações</h3><dl className="native-list-stat"><dt>Quantidade de vendedores</dt><dd>{page ? page.total : '—'}</dd></dl>{selectedItems.length > 0 && <dl className="native-list-stat"><dt>Selecionados</dt><dd>{selectedItems.length}</dd></dl>}</div>
-      <p className="real-help">Os vendedores são contatos do tipo Vendedor. As configurações de comissão, descontos, módulos e horários ficam guardadas para quando pedidos, propostas e comissões as consultarem.</p></>}>
+      <p className="real-help">Os vendedores são contatos do tipo Vendedor. A comissão, os descontos e o limite de cada vendedor valem nos pedidos, nas propostas e no cálculo das comissões.</p></>}>
       <div className="native-list-toolbar"><div className="form-field"><label htmlFor="seller-search">Pesquisar</label><input id="seller-search" type="search" maxLength={120} placeholder="Pesquisar" value={queryDraft} onChange={event => setQueryDraft(event.target.value)} /></div>
         <button type="submit" className="secondary-button" title="Pesquisar" aria-label="Pesquisar"><Icon name="magnifying-glass" size={14} /></button>
         {writable && <span className={`contact-trash${selectedItems.length && !excluded ? ' is-armed' : ''}`}><ToolButton icon={excluded ? 'clock-rotate-left' : 'trash-can'} title={excluded ? 'Restaurar selecionados' : 'Excluir selecionados'} disabled={!selectedItems.length}
@@ -264,7 +264,7 @@ function SellerForm({ controller, envelope, users, types, onTypes, onClose, onSa
       <section className="contact-section"><h3 className="catalog-group-title">Descontos</h3><div className="contact-grid">
         <div className="form-field"><label htmlFor="seller-discount_limit">Limite de desconto (%)</label><input id="seller-discount_limit" inputMode="decimal" maxLength={9} value={s.discount_limit} title="Percentagem máxima que este vendedor pode ceder como desconto, 0 para sem limite." onChange={event => setting('discount_limit', event.target.value)} />
           <small>Percentagem máxima que este vendedor pode ceder como desconto, 0 para sem limite.</small></div>
-        <p className="contact-not-applied real-field-wide">Guardado. Pedidos, propostas e OS ainda não conferem este limite.</p></div></section>
+        <p className="contact-not-applied real-field-wide">Pedidos, propostas e OS conferem este limite ao salvar.</p></div></section>
       <section className="contact-section"><h3 className="catalog-group-title">Observações</h3><div className="form-field real-field-wide"><label htmlFor="seller-notes" className="real-sr-only">Observações</label><textarea id="seller-notes" rows={4} maxLength={4000} value={s.notes} onChange={event => setting('notes', event.target.value)} /></div></section>
     </fieldset></form>
     <p className="real-help">O contato do vendedor também aparece em <Link to="/cadastros-reais?cadastro=contacts&contato=vendedor">Clientes e fornecedores</Link>.</p>

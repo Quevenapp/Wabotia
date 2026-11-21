@@ -4,7 +4,13 @@ import type { ManagementItem, PanelErpRole } from "../panel-contract.ts";
 export type MenuGroupName = 'Meu Negócio' | 'Cadastros' | 'Vendas' | 'Estoque' | 'Financeiro' | 'Sistema';
 export type CompanyRole = PanelErpRole;
 
-export interface RealTarget { to: string; roles?: readonly CompanyRole[]; resource?: string }
+export interface RealTarget {
+  to: string; roles?: readonly CompanyRole[]; resource?: string;
+  /** Só aparece com pelo menos uma destas partes ligada (o mesmo shownWithAny do item de gestão). */
+  shownWithAny?: readonly string[];
+  /** Some com um destes módulos da área ligado (o mesmo hidden_when_modules_enabled do item de gestão). */
+  hiddenWith?: readonly string[];
+}
 export interface MenuItemDefinition { label: string; real?: RealTarget; /** Destino ainda fora do contrato persistido de favoritos. */ homeShortcut?: false }
 export interface MenuColumnDefinition { title: string; items: readonly MenuItemDefinition[] }
 export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly MenuColumnDefinition[]; footer?: MenuItemDefinition }
@@ -169,6 +175,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", resource: "products" },
   },
   {
+    // Rodapé de Cadastros: relatórios de contatos e produtos (cada relatório confere a parte dele).
+    id: "erp.registry-reports", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 285,
+    label: "Ver relatórios de cadastros",
+    target: { kind: "ported", to: "/preferencias/sistema/relatorios-customizados" },
+    permission: { kind: "erp" },
+  },
+  {
     id: "erp.sales-orders", module: "erp-vendas", part: "vendas",
     primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 170,
@@ -210,7 +224,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   {
     // Obrigações em arquivo (src/erp/sped): SPED Fiscal, EFD-Contribuições e SINTEGRA do mês, com a conferência antes de gerar.
     id: "erp.sped", module: "erp-fiscal", part: "fiscal",
-    ...ERP_MENU_GROUPS.fiscal, order: 196,
+    ...ERP_MENU_GROUPS.fiscal, order: 197,
     label: "SPED e SINTEGRA",
     target: { kind: "ported", to: "/sped-fiscal" },
     permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
@@ -218,7 +232,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   {
     // Reforma tributária (src/erp/reforma): alíquotas por ano, Simples, classificações e o relatório de IBS, CBS e IS.
     id: "erp.tax-reform", module: "erp-fiscal", part: "fiscal",
-    ...ERP_MENU_GROUPS.fiscal, order: 197,
+    ...ERP_MENU_GROUPS.fiscal, order: 198,
     label: "Reforma tributária (IBS, CBS e IS)",
     target: { kind: "ported", to: "/reforma-tributaria" },
     permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
@@ -248,6 +262,8 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
   },
   {
     id: "erp.service-reports", module: "erp-vendas", part: "servicos",
+    // Com o módulo Ordem de Serviço ligado, as OS do ERP saem do menu e os relatórios delas também.
+    hidden_when_modules_enabled: ["os"],
     ...ERP_MENU_GROUPS.comercial, order: 230,
     label: "Relatórios de serviço",
     target: { kind: "ported", to: "/documentos-empresa?tipo=service_orders&acao=relatorios" },
@@ -291,6 +307,7 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","estoque","financeiro","fiscal"] },
   },
   {
+    // Sem motor no Wabotia ainda (web/erp/motor.ts): fica fora dos dois menus enquanto a rota não responder.
     id: "erp.incoming-invoices", module: "erp-fiscal", part: "fiscal",
     ...ERP_MENU_GROUPS.fiscal, order: 270,
     label: "Notas fiscais de entrada",
@@ -377,27 +394,44 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/financeiro-empresa?area=receivable" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
+  // Telas do Financeiro que só abriam por dentro de outras: transferências, recorrentes, borderôs e vencimentos.
+  {
+    id: "erp.transfers", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 355,
+    label: "Transferências entre contas",
+    target: { kind: "ported", to: "/financeiro-empresa?area=transferencias" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.recurring", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 372,
+    label: "Contas recorrentes",
+    target: { kind: "ported", to: "/financeiro-empresa?area=recorrentes" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.borderos", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 374,
+    label: "Borderôs de recebimentos e pagamentos",
+    target: { kind: "ported", to: "/financeiro-empresa?area=borderos" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.due-dates", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 376,
+    label: "Relatório de vencimentos",
+    target: { kind: "ported", to: "/relatorio-vencimentos" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
   {
     id: "erp.bank-remittances", module: "erp-cobranca", part: "cobranca",
     primary: true,
     ...ERP_MENU_GROUPS.financeiro, order: 380,
+    // Um só caminho para a cobrança: a lista de remessas leva a "Incluir remessa" (/cobranca-operacional)
+    // e a "Ver retornos", que leva a "Incluir retorno" (/retornos-operacionais).
     label: "Remessas e retornos",
     target: { kind: "ported", to: "/financeiro-empresa?area=remessas" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
-  },
-  {
-    id: "erp.operational-billing", module: "erp-cobranca", part: "cobranca",
-    ...ERP_MENU_GROUPS.financeiro, order: 381,
-    label: "Cobrança operacional",
-    target: { kind: "ported", to: "/cobranca-operacional" },
-    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
-  },
-  {
-    id: "erp.operational-returns", module: "erp-cobranca", part: "cobranca",
-    ...ERP_MENU_GROUPS.financeiro, order: 382,
-    label: "Retornos operacionais",
-    target: { kind: "ported", to: "/retornos-operacionais" },
-    permission: { kind: "erp", roles: ["admin", "consulta", "financeiro"] },
   },
   {
     id: "erp.financial-statement", module: "erp-financeiro", part: "financeiro",
@@ -419,6 +453,13 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     ...ERP_MENU_GROUPS.financeiro, order: 392,
     label: "Conciliação de cartões",
     target: { kind: "ported", to: "/conciliacao-cartoes" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
+  },
+  {
+    id: "erp.finance-import", module: "erp-financeiro", part: "financeiro",
+    ...ERP_MENU_GROUPS.financeiro, order: 393,
+    label: "Importação de registros financeiros",
+    target: { kind: "ported", to: "/financeiro-empresa?area=importacao" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
   {
@@ -504,12 +545,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
 
 // Projeção de compatibilidade: conserva forma, rótulos, ordem, colunas e rodapés.
 const legacyItems: Record<string, MenuItemDefinition> = Object.fromEntries(
-  ERP_MANAGEMENT_ITEMS.map(({ id, label, target, permission }) => [id, {
+  ERP_MANAGEMENT_ITEMS.map(({ id, label, target, permission, shownWithAny, hidden_when_modules_enabled }) => [id, {
     label,
     // O menu legado conserva seu alias; a casa publica o destino canônico.
     real: { to: id === "erp.overview" ? "/acesso" : target.to,
       ...(permission.roles ? { roles: permission.roles } : {}),
       ...(permission.resource ? { resource: permission.resource } : {}),
+      ...(shownWithAny ? { shownWithAny } : {}),
+      ...(hidden_when_modules_enabled ? { hiddenWith: hidden_when_modules_enabled } : {}),
     },
   }]),
 );
@@ -541,7 +584,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.product-categories"],
       legacyItems["erp.price-lists"],
     ] },
-  ], footer: { label: 'Ver relatórios de cadastros' } },
+  ], footer: { ...legacyItems["erp.registry-reports"], homeShortcut: false } },
   { name: 'Vendas', columns: [
     { title: 'Gestão', items: [
       legacyItems["erp.sales-orders"],
@@ -588,12 +631,15 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.cash-and-banks"],
       legacyItems["erp.payables"],
       legacyItems["erp.receivables"],
+      { ...legacyItems["erp.transfers"], homeShortcut: false },
+      { ...legacyItems["erp.recurring"], homeShortcut: false },
+      { ...legacyItems["erp.borderos"], homeShortcut: false },
+      { ...legacyItems["erp.due-dates"], homeShortcut: false },
       legacyItems["erp.bank-remittances"],
-      { ...legacyItems["erp.operational-billing"], homeShortcut: false },
-      { ...legacyItems["erp.operational-returns"], homeShortcut: false },
       legacyItems["erp.financial-statement"],
       { ...legacyItems["erp.bank-reconciliation"], homeShortcut: false },
       { ...legacyItems["erp.card-reconciliation"], homeShortcut: false },
+      { ...legacyItems["erp.finance-import"], homeShortcut: false },
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],

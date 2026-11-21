@@ -5,13 +5,13 @@ import { FISCAL_REPORT_TITLES, type FiscalReportId } from './fiscal-reports-mode
 
 // Leva H (362): the Relatórios de Notas Fiscais over the real notes (imported XMLs and the Origin mirror).
 export type ReportId = 'vendas' | 'bairro' | 'curva-abc' | 'os' | 'ocorrencias' | 'romaneio' | FiscalReportId;
-export interface ReportCard { id: ReportId | null; title: string; description: string; reason?: string }
+export interface ReportCard { id: ReportId | null; title: string; description: string; reason?: string; /** Wabotia: o relatório está em outra tela do ERP. */ to?: string }
 export interface ReportGroup { title: string; cards: ReportCard[] }
 /** Origin "Relatórios de vendas" (relatorios.php?id=3) and "Relatórios de serviço" (id=6), in the Origin order. */
 export const REPORT_CATALOG: Record<'sales_orders' | 'service_orders', ReportGroup[]> = {
   sales_orders: [
-    { title: 'Checkout de Pedidos de Venda', cards: [{ id: null, title: 'Relatório de Separação (Picking)', description: 'Itens a separar dos pedidos.', reason: 'O relatório consolidado de separação ainda não está disponível. Para conferir um pedido, acesse Comercial > Checkout de pedidos.' }] },
-    { title: 'Comissões', cards: [{ id: null, title: 'Relatório Complementar de Comissões', description: 'Comissões dos vendedores.', reason: 'O relatório ainda não existe no ERP; as comissões de cada vendedor estão em Financeiro > Comissões.' }] },
+    { title: 'Checkout de Pedidos de Venda', cards: [{ id: null, title: 'Relatório de Separação (Picking)', description: 'Itens a separar dos pedidos.', reason: 'A separação dos pedidos fica em Comercial › Expedição.', to: '/expedicao' }] },
+    { title: 'Comissões', cards: [{ id: null, title: 'Relatório Complementar de Comissões', description: 'Comissões dos vendedores.', reason: 'Fica em Financeiro › Comissões, no relatório complementar.', to: '/financeiro-empresa?area=comissoes-relatorio' }] },
     { title: 'Notas Fiscais', cards: [{ id: 'nf-difal', title: 'Notas Fiscais ICMS DIFAL', description: 'Diferencial de alíquota das notas autorizadas, por UF de destino, com a cobertura do detalhamento.' }] },
     { title: 'Relatórios de Notas Fiscais', cards: [
       { id: 'nf-operacao', title: 'Notas Fiscais por Operação', description: 'Faturamento das notas autorizadas por natureza de operação.' },
@@ -25,11 +25,11 @@ export const REPORT_CATALOG: Record<'sales_orders' | 'service_orders', ReportGro
     { title: 'Pedidos de Venda', cards: [{ id: 'curva-abc', title: 'Relatório de curva ABC de itens de vendas (últimos 30 dias)', description: 'Itens mais vendidos e a classificação A, B e C.' }] },
   ],
   service_orders: [
-    { title: 'Contratos', cards: [{ id: null, title: 'Relatório de Início e Término de Contratos', description: 'Contratos por período.', reason: 'Os contratos ainda não existem no ERP.' }, { id: null, title: 'Relatório de Início e Término de Contratos Agrupados por Mês', description: 'Contratos agrupados por mês.', reason: 'Os contratos ainda não existem no ERP.' }] },
+    { title: 'Contratos', cards: [{ id: null, title: 'Relatório de Início e Término de Contratos', description: 'Contratos por período.', reason: 'Os contratos ficam em Financeiro › Contratos, com início, término, reajuste e renovação.', to: '/contratos' }, { id: null, title: 'Relatório de Início e Término de Contratos Agrupados por Mês', description: 'Contratos agrupados por mês.', reason: 'Os contratos ficam em Financeiro › Contratos, com início, término, reajuste e renovação.', to: '/contratos' }] },
     { title: 'Customizáveis', cards: [
-      { id: null, title: 'Relatório de Contratos (Visão de Contratos)', description: 'Visão de contratos.', reason: 'Os contratos ainda não existem no ERP.' },
-      { id: null, title: 'Relatório de Nota Serviço Parcela', description: 'Parcelas das notas de serviço.', reason: 'A NFS-e está fora do escopo do ERP.' },
-      { id: null, title: 'Relatório de NFS-e', description: 'Notas fiscais de serviço.', reason: 'A NFS-e está fora do escopo do ERP.' },
+      { id: null, title: 'Relatório de Contratos (Visão de Contratos)', description: 'Visão de contratos.', reason: 'Os contratos ficam em Financeiro › Contratos, com início, término, reajuste e renovação.', to: '/contratos' },
+      { id: null, title: 'Relatório de Nota Serviço Parcela', description: 'Parcelas das notas de serviço.', reason: 'A NFS-e sai pela ordem de serviço; as notas do mês ficam em Fiscal › Para o contador.', to: '/contador-fiscal' },
+      { id: null, title: 'Relatório de NFS-e', description: 'Notas fiscais de serviço.', reason: 'A NFS-e sai pela ordem de serviço; as notas do mês ficam em Fiscal › Para o contador.', to: '/contador-fiscal' },
       { id: 'ocorrencias', title: 'Relatório de Ocorrências por Ordem de Serviço (Visão de Ocorrências)', description: 'Ocorrências das ordens de serviço no período.' },
       { id: 'os', title: 'Relatório de Ordem de Serviço (Visão de Ordem de Serviço)', description: 'Ordens de serviço com peças, serviços e total.' }] },
   ],

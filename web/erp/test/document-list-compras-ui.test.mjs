@@ -71,7 +71,7 @@ test('a selection shows the chip “Selecionados: N cadastro” and Informaçõe
     assert.doesNotMatch(view.text(), /Selecionados: 2/);
     await view.click('Exportar para a planilha');
     await view.change('documents-export-month', '02'); await view.change('documents-export-year', '2028');
-    await view.click('Download');
+    await view.click('Baixar');
     const read = new URLSearchParams(srv.lists().at(-1).split('?')[1]);
     assert.deepEqual([read.get('date_from'), read.get('date_to'), read.has('status')], ['2028-02-01', '2028-02-29', false], 'the whole month, any situação');
     assert.equal(downloads.downloads.at(-1)[0], 'pedidos-de-compra-2028-02.csv');

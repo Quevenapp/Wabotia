@@ -63,8 +63,6 @@ export const MENU_ITEM_PLACEMENT: Readonly<Record<string, MenuPlacement>> = {
   "erp.service-reports": { top: "servicos", column: "Ordens de serviço" },
   "erp.stock-reports": { top: "compras-estoque", column: "Relatórios" },
   "erp.bank-remittances": { top: "financeiro", column: "Cobrança bancária" },
-  "erp.operational-billing": { top: "financeiro", column: "Cobrança bancária" },
-  "erp.operational-returns": { top: "financeiro", column: "Cobrança bancária" },
   "erp.financial-reports": { top: "financeiro", column: "Relatórios" },
   "erp.integrations": { top: "mais", column: "Integrações" },
   "erp.receive-bling": { top: "mais", column: "Integrações" },

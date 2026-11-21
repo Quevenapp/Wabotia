@@ -156,7 +156,7 @@ export async function runExportStreamed(
     // O manifesto do Fagoo, campo a campo.
     const manifest = {
       formato: "brufap-exportacao-v1",
-      empresa: "dados desta instalação do Brufap",
+      empresa: "dados desta instalação do ERP do Wabotia",
       gerado_em: new Date().toISOString(),
       dados_ate: plan.as_of,
       escopo:

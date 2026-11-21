@@ -72,11 +72,8 @@ test('menu comercial prepara somente NF-e integral e fecha NFC-e, parcial e lote
     const prepare = items.find(item => item.label === 'Preparar NF-e');
     assert.equal(prepare.disabled, false); prepare.onClick(); await view.flush();
     assert.deepEqual(opened, [[`/historico-fiscal?modelo=55&pedido=${id}&versao=3`, '_blank', 'noopener']]);
-    for (const label of ['Gerar NFC-e', 'Gerar nota fiscal parcial']) {
-      const item = items.find(item => item.label === label);
-      assert.equal(item.disabled, true); assert.match(item.title, /não são atendidas/);
-      item.onClick(); await view.flush();
-    }
+    // Acabamento do painel: botão sempre desligado sai do menu (antes: aparecia desligado, "não são atendidas").
+    for (const label of ['Gerar NFC-e', 'Gerar nota fiscal parcial']) assert.equal(items.some(item => item.label === label), false, label);
     assert.equal(opened.length, 1);
     assert.equal(view.button('Gerar NF-e dos pedidos selecionados').disabled, true);
     assert.equal(view.button('NFC-es selecionadas').disabled, true);

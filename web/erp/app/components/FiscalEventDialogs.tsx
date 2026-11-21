@@ -12,7 +12,7 @@ const roleOf = (controller: AccessController) => controller.getSnapshot?.()?.mem
 const failure = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'A nota ou a faixa mudou, já tem esse pedido ou usa números já emitidos. Confira e tente de novo.'
   : error.status === 403 ? 'Seu perfil não registra eventos fiscais.' : error.status === 400 ? 'O servidor recusou os dados. Confira o texto e os números.' : 'Não foi possível registrar o pedido.' : 'Não foi possível registrar o pedido.';
 type Command = { id: string; actor: string | null; body: Record<string, unknown>; uncertain: boolean };
-const HOMOLOGATION = 'Somente homologação. O pedido fica registrado como "Aguardando transmissão": a transmissão à SEFAZ ainda não está disponível no ERP e a nota não muda de situação.';
+const HOMOLOGATION = 'Este registro é do acervo antigo do ERP e fica como "Aguardando transmissão". Para transmitir à SEFAZ, use o emissor de notas: a carta de correção na nota autorizada em Notas fiscais de saída e a inutilização em Preferências › Notas Fiscais › Emissor de notas.';
 
 /** Shared send/recovery loop: one command id per request, repeated as is after an unknown outcome. */
 function useEventCommand(controller: AccessController, action: string, verify: (event: ReturnType<typeof eventRecord>) => boolean, onDone: () => void) {
@@ -69,7 +69,7 @@ export function CorrectionDialog({ controller, record, onClose }: { controller: 
   const guard = useUnsavedChanges(Boolean(text.trim()) || cmd.uncertain, cmd.busy);
   const close = () => { if (!cmd.busy) guard.confirmLeave(() => onClose(false)); };
   return <Modal title="Carta de correção" onClose={close} actions={<><button type="button" className="secondary-button" disabled={cmd.busy} onClick={close}>Voltar</button>
-    <button type="button" className="secondary-button" disabled title="A impressão da carta de correção depende do evento autorizado pela SEFAZ.">Imprimir carta de correção</button>
+    <button type="button" className="secondary-button" disabled title="A carta autorizada é impressa pela nota, em Notas fiscais de saída (emissor de notas).">Imprimir carta de correção</button>
     {cmd.uncertain ? <button type="button" className="primary-button" disabled={cmd.busy} onClick={cmd.retry}>{cmd.busy ? 'Conferindo…' : 'Conferir resultado'}</button>
       : <button type="button" className="primary-button" disabled={[...text.trim()].length < 15 || cmd.busy} onClick={() => cmd.start({ invoice_id: record.id, expected_version: record.version, correction: text.trim() })}>{cmd.busy ? 'Registrando…' : 'Registrar carta de correção'}</button>}</>}>
     {counter({ id: 'fiscal-correction-text', label: 'Correção', value: text, min: 15, max: 1000, multiline: true, disabled: cmd.busy || cmd.uncertain, onChange: setText })}

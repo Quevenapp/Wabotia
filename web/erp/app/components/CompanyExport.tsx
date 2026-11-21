@@ -39,7 +39,7 @@ export default function CompanyExport({ controller }: { controller: Controller }
   };
   const running = items?.some(e => e.status === 'queued' || e.status === 'running');
   return <div className="company-export">
-    <nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/backup">Backup e Exportação de Dados</Link> › <span aria-current="page">Backup</span></nav>
+    <nav className="preferences-breadcrumb preferences-screen-trail" aria-label="Localização"><Link to="/acesso">Início</Link> › <Link to="/preferencias">Preferências</Link> › <Link to="/preferencias/backup">Backup e Exportação de Dados</Link> › <span aria-current="page">Backup</span></nav>
     <header className="real-heading"><div><h1>Backup</h1><p>Um pacote ZIP com os dados e os arquivos anexados da empresa. Fica 7 dias numa área privada; cada download usa um link novo de 2 minutos.</p></div>
       <button type="button" className="primary-button" onClick={() => void ask()} disabled={busy || running}>Gerar exportação</button></header>
     {notice && <p className="real-notice" role="status">{notice} Acompanhe em <Link to="/preferencias/sistema/gestao-acoes">Consultar gestão de ações</Link>.</p>}

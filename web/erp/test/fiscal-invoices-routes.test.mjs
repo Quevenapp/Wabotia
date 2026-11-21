@@ -39,7 +39,7 @@ test('the Origin menu still points to the same addresses and Preferências lists
   const vendas = resolveMenu('real', { role: 'fiscal', resources: ['nfe', 'nfce'] }).find(g => g.name === 'Vendas').columns[0].items;
   assert.equal(vendas.find(i => i.label === 'Notas fiscais de saída').to, '/historico-fiscal?modelo=55'); assert.equal(vendas.find(i => i.label === 'NFC-e').to, '/historico-fiscal?modelo=65');
   const labels = role => resolvePreferences({ role, resources: [] }).find(c => c.id === 'notas-fiscais')?.entries.map(e => e.label) ?? [];
-  assert.ok(labels('fiscal').includes('Naturezas de operação') && labels('fiscal').includes('Consulta de inutilizações de NF-es') && labels('fiscal').includes('Consulta de correções de NF-es'));
-  assert.deepEqual(labels('consulta').filter(l => l.startsWith('Consulta de')), []); assert.ok(labels('consulta').includes('Naturezas de operação'));
+  assert.ok(labels('fiscal').includes('Naturezas de operação') && labels('fiscal').includes('Inutilizar numeração de NF-e e NFC-e') && labels('fiscal').includes('Cartas de correção de NF-e'));
+  assert.deepEqual(labels('consulta').filter(l => l.startsWith('Consulta de') || l.startsWith('Inutilizar') || l.startsWith('Cartas de correção')), []); assert.ok(labels('consulta').includes('Naturezas de operação'));
   assert.deepEqual(labels('vendas'), []);
 });

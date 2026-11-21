@@ -624,7 +624,7 @@ export const providerNotConfigured = () =>
   new FiscalError(
     409,
     "fiscal_provider_not_configured",
-    "Nenhum emissor de notas fiscais está configurado nesta área. Um administrador informa o endereço do cofre NFapi e a chave de API em ERP → Fiscal → Emissor.",
+    "Nenhum emissor de notas fiscais está configurado nesta área. Um administrador informa o endereço do emissor e a chave de API em Preferências › Notas Fiscais › Emissor de notas.",
   );
 
 // ---------------------------------------------------------------------------

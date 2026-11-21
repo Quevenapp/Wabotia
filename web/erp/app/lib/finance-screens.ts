@@ -3,6 +3,6 @@
 // Onda D: Ver relatórios financeiros (SQL 212) e Remessas / Retornos no padrão Origin (SQL 213).
 // Leva H: Relatório complementar de comissões (SQL 370).
 // Relatórios do ERP: DRE gerencial e Pagamento da equipe.
-export const FINANCE_SCREENS = ['contas-financeiras', 'categories', 'accounts', 'ficha', 'conciliacao', 'recorrentes', 'importacao', 'comissoes', 'controle-caixa', 'faturamento-agrupado', 'relatorios', 'remessas', 'retornos', 'comissoes-relatorio', 'dre', 'equipe'] as const;
+export const FINANCE_SCREENS = ['contas-financeiras', 'categories', 'accounts', 'ficha', 'conciliacao', 'recorrentes', 'importacao', 'comissoes', 'controle-caixa', 'faturamento-agrupado', 'relatorios', 'remessas', 'retornos', 'comissoes-relatorio', 'dre', 'equipe', 'transferencias'] as const;
 export type FinanceScreen = typeof FINANCE_SCREENS[number];
 export const financeScreen = (area: string | null): area is FinanceScreen => (FINANCE_SCREENS as readonly string[]).includes(area ?? '');

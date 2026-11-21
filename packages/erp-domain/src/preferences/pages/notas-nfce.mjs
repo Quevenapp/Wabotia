@@ -3,8 +3,8 @@ import{definePage,PREFERENCE_READERS}from'../core.mjs';
 import{applied,documents,info,toggle}from'../fields.mjs';
 const E='emissao',S='csc',N='numeracao',P='preenchimento';
 // Notas lane (wave F): what the NFC-e of the Brufap post today (contas by migration 247, stock by 259), always by the ⋮ of the list.
-const FINANCE_ON_EMISSION='Guardado. Hoje as contas a receber das NFC-e do ERP são lançadas e estornadas pelo ⋮ Lançar contas / Estornar contas da listagem (migração 247). Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
-const STOCK_ON_EMISSION='Guardado. Hoje o estoque das NFC-e do ERP é lançado e estornado pelo ⋮ Lançar estoque / Estornar estoque da listagem (migração 259). Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
+const FINANCE_ON_EMISSION='Guardado. Hoje as contas a receber das NFC-e do ERP são lançadas e estornadas pelo ⋮ Lançar contas / Estornar contas da listagem. Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
+const STOCK_ON_EMISSION='Guardado. Hoje o estoque das NFC-e do ERP é lançado e estornado pelo ⋮ Lançar estoque / Estornar estoque da listagem. Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
 const wired=note=>({status:'applied',note});
 export const ENVIRONMENT_TEXT='2 - Homologação (teste). A emissão com valor fiscal (1 - Produção) fica bloqueada até a decisão da troca do módulo fiscal; as notas reais continuam saindo do sistema de origem.';
 export default definePage({id:'notas-nfce',category:'notas-fiscais',path:'nfce',title:'Configurações de NFC-e',scope:'company',readRoles:PREFERENCE_READERS.fiscal,subsections:true,

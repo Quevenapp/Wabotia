@@ -18,7 +18,7 @@ export default function HelpCenter({originIntegration=false}:{originIntegration?
   const { pathname } = useLocation();
   const slug = pathname.startsWith(`${HELP_ROOT}/`) ? pathname.slice(HELP_ROOT.length + 1) : '';
   const topic = helpTopic(slug), news = slug === 'novidades';
-  const trail = <nav className="preferences-breadcrumb" aria-label="Localização"><Link to="/acesso">Home</Link> › <Link to={HELP_ROOT}>Central de ajuda</Link>{topic || news ? <> › <span aria-current="page">{topic?.title ?? 'Novidades'}</span></> : null}</nav>;
+  const trail = <nav className="preferences-breadcrumb" aria-label="Localização"><Link to="/acesso">Início</Link> › <Link to={HELP_ROOT}>Central de ajuda</Link>{topic || news ? <> › <span aria-current="page">{topic?.title ?? 'Novidades'}</span></> : null}</nav>;
   if (slug && !topic && !news) return <section className="real-state-panel">{trail}<h1>Tema não encontrado</h1><p>Este tema não existe na Central de ajuda.</p><Link className="primary-button" to={HELP_ROOT}>Ver os temas</Link></section>;
   return <div className="help-center">{trail}
     <header className="real-heading"><div><h1>{topic?.title ?? (news ? 'Novidades no ERP' : 'Central de ajuda do ERP')}</h1>

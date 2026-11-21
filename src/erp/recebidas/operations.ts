@@ -37,7 +37,7 @@ export const RECEBIDAS_OPERATIONS: readonly RecebidasOperation[] = [
     description: "Recalcula a conferência com o produto, a unidade, o lote, o depósito, o pedido e as contas escolhidos na tela, sem gravar nada." },
   { name: "recebidas.buscar", method: "POST", path: "buscar", sensitive: true, bot: true, body: ["ambiente", "autorizacao_producao"], query: [], parts: CF,
     summary: "Buscar no cofre as notas emitidas contra o CNPJ",
-    description: "Lê no cofre da NFapi as notas que outras empresas emitiram contra o CNPJ e guarda o índice e o XML completo na área. Uma busca a cada dois minutos; em produção, só o administrador e com a autorização marcada na própria busca." },
+    description: "Lê no emissor de notas as notas que outras empresas emitiram contra o CNPJ e guarda o índice e o XML completo na área. Uma busca a cada dois minutos; em produção, só o administrador e com a autorização marcada na própria busca." },
   { name: "recebidas.importar_xml", method: "POST", path: "importar", sensitive: true, bot: true, body: ["xml"], query: [], parts: C,
     summary: "Importar o XML de uma nota do fornecedor",
     description: "Guarda o XML que o fornecedor mandou (até 1 MB), confere que a nota é para o CNPJ da empresa e a coloca na lista para conferência, sem consultar o cofre." },

@@ -1,5 +1,6 @@
 import { requirementEnabled, currentErpModules, hasErpModuleContext } from '../../blocks.ts';
 import { erpRouteRequirement } from '../../../../src/erp/parts-requirements.ts';
+import { ERP_MODULE_IDS, ERP_PART_NAMES } from '../../../../src/erp/parts.ts';
 import {captureStockObservationsRequest,STOCK_OBSERVATIONS_BASE,STOCK_OBSERVATIONS_MAX_BYTES} from './origin-stock-observations-request.ts';
 import {captureBackupRequest,fetchBackupRequest,BackupImportHttpError} from './backup-import-client.ts';
 import type {BackupRequestOptions} from './backup-import.ts';
@@ -70,12 +71,50 @@ export interface AuthPort {
   signOut(options: { scope: 'local' }): Promise<{ error: unknown }>;
 }
 const initial: AccessState = { phase: 'loading', membership: null, records: null, listPending: false, loginPending: false, message: null, logoutFailed: false, permissionMessage: null, permissions: null };
+/** Wabotia: o que a tela diz quando a API recusa, com a causa quando ela é conhecida (nunca o genérico "não foi possível"). */
+export function accessErrorText(status: number, code?: string, detail?: string): string {
+  if (detail) return detail;
+  if (code === 'module_disabled' || code === 'erp_parts_stale') return 'Esta ação depende de uma parte do ERP que está desligada nesta área. Peça ao administrador para ligá-la em Gestão › Módulos.';
+  if (code === 'erp_parts_unavailable') return 'Não deu para conferir agora quais partes do ERP estão ligadas. Atualize a tela e tente de novo.';
+  if (code?.startsWith('ERP_ACCESS_OUTSIDE')) return 'Seu acesso ao ERP está fora do horário permitido. Fale com o administrador.';
+  if (status === 401) return 'Sua sessão terminou. Entre de novo no Wabotia.';
+  if (status === 403) return 'Seu papel no ERP não permite esta ação. Peça ao administrador em Gestão › Pessoas e acessos.';
+  if (status === 404) return 'O registro não foi encontrado: pode ter sido excluído. Atualize a tela.';
+  if (status === 409) return 'Os dados mudaram enquanto você trabalhava. Atualize a tela, confira e tente de novo.';
+  if (status === 413) return 'O arquivo ou a lista passou do tamanho aceito. Divida em partes menores.';
+  if (status === 429) return 'Muitas tentativas seguidas. Espere um minuto e tente de novo.';
+  if (status === 400 || status === 422) return 'Algum dado não foi aceito ou está faltando. Confira os campos e tente de novo.';
+  if (status === 501) return 'Esta ação ainda não está disponível no ERP desta área.';
+  if (status >= 500) return 'Não foi possível concluir a operação agora: o ERP não respondeu. Tente de novo em instantes.';
+  return 'Não foi possível concluir a operação. Tente de novo.';
+}
 export class AccessError extends Error {
   status: number;
   code?: string;
   /** Field named by a specific refusal of the API (contatos, onda C), e.g. the required field of Preferências. */
   field?: string;
-  constructor(status: number, code?: string, field?: string) { super('access_request_failed'); this.status = status; this.code = code; if (field) this.field = field; }
+  /** Wabotia: a frase do servidor (ou a parte desligada), já conferida para ir à tela. */
+  detail?: string;
+  constructor(status: number, code?: string, field?: string, detail?: string) { super(accessErrorText(status, code, detail)); this.status = status; this.code = code; if (field) this.field = field; if (detail) this.detail = detail; }
+}
+/** A mensagem que a tela mostra para uma falha qualquer: a do erro de acesso (com a causa) ou a do próprio erro. */
+export function failureText(error: unknown, fallback = 'Não foi possível concluir a operação. Tente de novo.'): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+/** Só frases para gente: começa com maiúscula, tem espaço, sem código técnico (snake_case), marcação ou nome interno. */
+const screenSentence = (value: unknown): value is string => typeof value === 'string' && value.length >= 8 && value.length <= 400 &&
+  /^[A-ZÀ-Ú]/.test(value) && / /.test(value) && !/[\u0000-\u001f<>{}]/.test(value) && !/\b[a-z0-9]+_[a-z0-9_]+\b/.test(value) &&
+  !/\b(?:fagoo|origin|brufap|nfapi)\b/i.test(value);
+/** Parte desligada: diz quais partes ligar, pela regra da própria rota (src/erp/parts-requirements.ts). */
+function partsOffText(method: string, path: string): string | undefined {
+  try {
+    const requirement = erpRouteRequirement(method, new URL(path, 'https://erp.invalid'));
+    if (!requirement || requirement === 'externo') return undefined;
+    const modules = currentErpModules(), off = ERP_MODULE_IDS.filter(id => requirement.all.includes(id) && modules[id] !== true);
+    if (!off.length) return undefined;
+    const names = off.map(id => ERP_PART_NAMES[id]), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' e ' + names.at(-1) : names[0];
+    return `Esta ação depende de ${list}, que ${off.length > 1 ? 'estão desligados' : 'está desligado'} nesta área. Peça ao administrador para ligar em Gestão › Módulos.`;
+  } catch { return undefined; }
 }
 export type NativeRequestOptions = { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown; signal?: AbortSignal };
 export type A1RequestOptions = { method?: 'GET' | 'POST'; body?: Uint8Array | Record<string, unknown>; signal?: AbortSignal };
@@ -93,12 +132,14 @@ async function limitedBytes(response: Response, limit: number) {
   chunks.forEach(chunk => { bytes.set(chunk, position); position += chunk.byteLength; });
   return bytes;
 }
-/** Code and field of an API refusal ({ error: { code, field } }), read from at most 4 KiB; anything else stays unread. */
-async function refusalDetail(response: Response): Promise<{ code?: string; field?: string }> {
+/** Code, field and the sentence of an API refusal ({ error: { code, field, message } }), read from at most 4 KiB; anything
+ * else stays unread. Wabotia: a frase do servidor só passa se for texto para gente (screenSentence). */
+async function refusalDetail(response: Response): Promise<{ code?: string; field?: string; message?: string }> {
   try {
-    const value = (JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await limitedBytes(response, 4096))) as { error?: { code?: unknown; field?: unknown } } | null)?.error;
+    const value = (JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await limitedBytes(response, 4096))) as { error?: { code?: unknown; field?: unknown; message?: unknown } } | null)?.error;
     return { ...(typeof value?.code === 'string' && (/^(?:ERP_[A-Z0-9_]{1,64}|module_disabled|erp_parts_stale|erp_parts_unavailable)$/.test(value.code)) ? { code: value.code } : {}),
-      ...(typeof value?.field === 'string' && /^[a-z_]{1,40}$/.test(value.field) ? { field: value.field } : {}) };
+      ...(typeof value?.field === 'string' && /^[a-z_]{1,40}$/.test(value.field) ? { field: value.field } : {}),
+      ...(screenSentence(value?.message) ? { message: value.message } : {}) };
   } catch { return {}; }
 }
 const entities = Object.keys(RESOURCE_LABELS);
@@ -164,7 +205,10 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       const response = await fetcher(`${apiUrl}${path}`, { method: options.method || 'GET', headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json', ...(options.body ? { 'Content-Type': 'application/json' } : {}) }, body: options.body ? JSON.stringify(options.body) : undefined,
         cache: 'no-store', credentials: 'omit', redirect: 'error', signal: AbortSignal.any([controller.signal, timeout.signal]) });
       // Only the allow-listed code and field of the API refusal are kept (contatos, onda C); the rest of the body is dropped.
-      if (!response.ok) { const detail = await refusalDetail(response); throw new AccessError(response.status, detail.code, detail.field); }
+      if (!response.ok) { const detail = await refusalDetail(response);
+        // Parte desligada: a tela diz qual ligar; senão, a frase do servidor (dado faltando, limite, permissão).
+        const off = detail.code === 'module_disabled' || detail.code === 'erp_parts_stale' ? partsOffText(options.method || 'GET', path) : undefined;
+        throw new AccessError(response.status, detail.code, detail.field, off ?? detail.message); }
       return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await limitedBytes(response, options.responseLimit ?? 1024 * 1024)));
     } catch (error) {
       if (controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');

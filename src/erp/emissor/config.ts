@@ -295,7 +295,7 @@ export async function saveEmissor(env: Env, actor: Actor, profile: string, data:
   const old = await stored(env, profile);
   const provider = data?.provider ?? old?.provider ?? NFAPI_PROVIDER_ID;
   if (provider !== NFAPI_PROVIDER_ID)
-    throw new ApiError(400, "fiscal_invalid_provider", "Emissor desconhecido: o único disponível é a NFapi.");
+    throw new ApiError(400, "fiscal_invalid_provider", "Emissor desconhecido: esta instalação só aceita o emissor de notas padrão.");
   const url = data?.url === undefined && old ? old.url : normalizeVaultUrl(data?.url);
   const key = data?.api_key;
   if (key !== undefined && (typeof key !== "string" || !API_KEY.test(key.trim())))

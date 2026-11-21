@@ -65,7 +65,7 @@ test("Preferências explicam o cofre sem alterar valores legados ou consultar nu
   assert.equal(stock.default, page.fields.find(entry => entry.key === stock.key).default);
   assert.deepEqual(page, original);
   const certificate = sectionEntries(preferencePage("certificado-digital"), "tipos").find(entry => entry.id === "certificado.a1_servidor");
-  assert.match(certificate.text, /diretamente no cofre NFapi/);
+  assert.match(certificate.text, /diretamente no emissor de notas/);
   assert.match(certificate.text, /não recebe o certificado nem assina/);
 });
 

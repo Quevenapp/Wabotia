@@ -103,6 +103,9 @@ function ledgerOrigin(value:unknown):StockOrigin {
     :(value.document_id!==null||value.document_kind!==null||value.document_number!==null||value.via!==null))throw new Error('INVALID_LEDGER');
   return {type,document_id:value.document_id as string|null,document_kind:kind,document_number:value.document_number as string|null,via:value.via as StockOrigin['via']};
 }
+/** Wabotia: a abertura de saldo do sincronizador antigo grava o nome dele no motivo e na referência (texto conferido
+ * contra o oráculo SQL, que não muda); na tela, o lançamento aparece como importado. */
+const importedText=(text:string)=>text.replace(/^Abertura Origin depósito /,'Abertura importada do depósito ').replace(/ \(Origin\)/g,' (importado)').replace(/\bOrigin\b/g,'importado');
 /** Defensive read of the worker's projected page; it must answer this exact product, filter set and page. */
 export function stockLedgerPage(value:unknown,productId:string,filters:StockLedgerFilters,page:number):StockLedgerPage {
   const offset=(page-1)*STOCK_LEDGER_SIZE;
@@ -123,7 +126,7 @@ export function stockLedgerPage(value:unknown,productId:string,filters:StockLedg
       ||(filters.from&&row.occurred_on<filters.from)||(filters.to&&row.occurred_on>filters.to))throw new Error('INVALID_LEDGER');
     const origin=ledgerOrigin(row.origin);
     if(filters.origin&&origin.type!==filters.origin)throw new Error('INVALID_LEDGER');
-    return {...(row as unknown as StockLedgerMovement),origin,...ledgerDetail(row,origin,filters)};
+    return {...(row as unknown as StockLedgerMovement),reason:importedText(row.reason as string),reference:row.reference===null?null:importedText(row.reference as string),origin,...ledgerDetail(row,origin,filters)};
   });
   return {product_id:productId,items,limit:STOCK_LEDGER_SIZE,offset,total:value.total as number,has_more:value.has_more,next_offset:(value.next_offset as number|null)??null,
     totals:{entries:totals.entries as string,exits:totals.exits as string,current_balance:totals.current_balance as string,unit:totals.unit as string|null},data_mode:'erp_native'};

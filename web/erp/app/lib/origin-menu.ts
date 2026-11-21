@@ -2,7 +2,7 @@ import { originHistoryAvailable, isOriginIntegrationRoute } from './integration-
 // Access-controlled destinations consumed by the FAGOO workspace navigation.
 
 import { preferencePage, preferencePageHref } from '../../../../packages/erp-domain/src/preferences/catalog.mjs';
-import { blockOf, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks.ts';
+import { blockOf, currentErpModules, ERP_BLOCK_LABELS, hiddenInWabotia, targetEnabled } from '../../blocks.ts';
 
 import { ORIGIN_MENU } from '../../../../src/modules/erp/panel-menu.ts';
 import type { CompanyRole, MenuGroupName, MenuItemDefinition, RealTarget } from '../../../../src/modules/erp/panel-menu.ts';
@@ -26,9 +26,7 @@ const page = (id: string): PreferenceEntry => {
   if (!schema) throw new Error(`PREFERENCE_PAGE_MISSING ${id}`);
   return { label: schema.title, to: preferencePageHref(schema), roles: schema.readRoles };
 };
-const soon = (label: string, disabledReason: string, roles?: readonly CompanyRole[]): PreferenceEntry => ({ label, disabledReason, ...(roles ? { roles } : {}) });
 const ADMIN: readonly CompanyRole[] = ['admin'];
-const NOT_YET = 'Ainda não disponível no ERP.';
 // Readers of the product cadastros (erp_access.resources_for_role 'products'): the product taxonomy screens follow them.
 const PRODUCT_READERS: readonly CompanyRole[] = ['admin', 'consulta', 'vendas', 'estoque', 'fiscal'];
 // Tags of Produtos and of Contatos (migration 153): whoever reads products or contacts.
@@ -52,7 +50,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   ] },
   { id: 'cadastros', label: 'Cadastros', icon: 'address-book', sections: [
     { title: 'Configurações de cadastros', entries: [page('cadastros-contatos'), page('cadastros-lotes'), page('cadastros-produtos')] },
-    { title: 'Tabelas e configurações adicionais', entries: [{ label: 'Categorias de produtos', to: '/categorias-produtos', roles: PRODUCT_READERS }, { label: 'Gerenciar tipos de contatos', to: '/tipos-contatos-empresa', roles: ADMIN }] },
+    { title: 'Tabelas e configurações adicionais', entries: [{ label: 'Categorias de produtos', to: '/categorias-produtos', roles: PRODUCT_READERS }, { label: 'Gerenciar tipos de contatos', to: '/tipos-contatos-empresa' }] },
     // Contatos lane: Cadastros > Vendedores e Funcionários ainda sem item real no menu (o atalho do Início segue o menu).
     { title: TOOLS, entries: [{ label: 'Vendedores', to: '/vendedores-empresa', roles: ['admin', 'consulta', 'vendas', 'financeiro'], description: 'Cadastros › Vendedores: vendedores, usuário vinculado, comissionamento e descontos.' },
       { label: 'Funcionários', to: '/funcionarios-empresa', roles: ADMIN, description: 'Cadastros › Funcionários: dados cadastrais, contato e endereço.' }] },
@@ -69,21 +67,20 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   { id: 'notas-fiscais', label: 'Notas Fiscais', icon: 'file-invoice', notice: { title: 'Importante', text: 'Antes de alterar as configurações entre em contato com o seu contador.' }, sections: [
     { title: 'Configurações de notas fiscais', entries: [page('notas-nfce'), page('notas-nfe')] },
     { title: 'Tabelas e configurações adicionais', entries: [
-      { label: 'Consulta de inutilizações de NF-es', to: '/inutilizacoes-nfe', roles: ['admin', 'fiscal'] },
-      { label: 'Consulta de correções de NF-es', to: '/cartas-correcao', roles: ['admin', 'fiscal'] },
+      // Wabotia: inutilização e carta de correção vão pelo emissor de notas (as consultas antigas não têm motor).
+      { label: 'Inutilizar numeração de NF-e e NFC-e', to: '/certificado-a1', roles: ['admin', 'fiscal'], description: 'No emissor de notas, em Inutilizações: a faixa de números pulados, com a justificativa.' },
+      { label: 'Cartas de correção de NF-e', to: '/historico-fiscal?modelo=55', roles: ['admin', 'fiscal'], description: 'Abra a nota autorizada em Notas fiscais de saída e use Carta de correção.' },
       { label: 'Naturezas de operação', to: '/naturezas-operacao', roles: FISCAL_READ, description: 'Naturezas com regras de ICMS, IPI, PIS, COFINS e II, padrões e configurações globais de impostos.' },
       { label: 'Contador e envio dos arquivos fiscais', to: '/contador-fiscal?aba=contador', roles: FISCAL_READ, description: 'Nome, e-mail e WhatsApp do contador, envio automático do pacote do mês e anexo do Simples de cada natureza.' },
     ] },
+    // Wabotia: rascunhos, séries e a conexão com a SEFAZ são feitos pelo emissor de notas (certificado no cofre).
     { title: TOOLS, entries: [
-      { label: 'Emissor de NF-e · rascunhos', to: '/emissor-fiscal?modelo=55', roles: ['admin', 'fiscal'] },
-      { label: 'Emissor de NFC-e · rascunhos', to: '/emissor-fiscal?modelo=65', roles: ['admin', 'fiscal'] },
-      { label: 'Séries fiscais · homologação', to: '/numeracao-fiscal', roles: ['admin', 'fiscal'] },
-      { label: 'Conexão com a SEFAZ', to: '/conexao-sefaz', roles: ['admin', 'fiscal'] },
+      { label: 'Emissor de notas', to: '/certificado-a1', roles: ['admin', 'fiscal'], description: 'Certificado, ambiente, série e numeração, teste de conexão com a SEFAZ e inutilizações.' },
     ] },
   ] },
   { id: 'certificado', label: 'Certificado Digital', icon: 'certificate', sections: [
     { title: 'Configurações do certificado digital', entries: [page('certificado-digital')] },
-    { title: TOOLS, entries: [{ label: 'Emissor de notas (cofre NFapi)', to: '/certificado-a1', roles: ['admin', 'fiscal'] }] },
+    { title: TOOLS, entries: [{ label: 'Emissor de notas', to: '/certificado-a1', roles: ['admin', 'fiscal'], description: 'O certificado A1 e a senha ficam guardados no emissor de notas, que assina e transmite as notas.' }] },
   ] },
   { id: 'financas', label: 'Finanças', icon: 'dollar-sign', sections: [
     { title: 'Configurações de finanças', entries: [page('financas-pagar'), page('financas-receber')] },
@@ -92,8 +89,8 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Gerenciar contas financeiras', to: '/financeiro-empresa?area=contas-financeiras', roles: FINANCE },
       { label: 'Gerenciar formas de pagamento', to: '/formas-pagamento-empresa', roles: FINANCE }, { label: 'Controle de caixa', to: '/financeiro-empresa?area=controle-caixa', roles: FINANCE }] },
     { title: TOOLS, entries: [
-      { label: 'Cobrança bancária · homologação', to: '/cobranca-empresa', roles: FINANCE },
-      { label: 'Retornos operacionais', to: '/retornos-operacionais', roles: FINANCE },
+      { label: 'Cobrança bancária', to: '/cobranca-empresa', roles: FINANCE, description: 'Contratos de cobrança com o banco, carteira e numeração dos boletos.' },
+      { label: 'Remessas e retornos', to: '/financeiro-empresa?area=remessas', roles: FINANCE, description: 'Gerar remessas, importar retornos e baixar os títulos pagos.' },
       { label: 'Relatório de vencimentos', to: '/relatorio-vencimentos', roles: FINANCE },
       { label: 'Ficha financeira', to: '/financeiro-empresa?area=ficha', roles: FINANCE },
     ] },
@@ -118,19 +115,23 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Importar e atualizar contatos', to: '/preferencias/importacoes/contatos', roles: ADMIN, description: 'Inclui contatos e atualiza os já cadastrados pelo CPF/CNPJ.' },
       { label: 'Importar pedidos de compra', to: '/preferencias/importacoes/pedidos-compra', roles: ADMIN }, { label: 'Importar movimentações de estoque em massa', to: '/preferencias/importacoes/movimentacoes-estoque', roles: ADMIN },
       { label: 'Importar fornecedores de produto', to: '/preferencias/importacoes/fornecedores-produtos', roles: ADMIN, description: 'Inclui ou atualiza os fornecedores de cada produto.' },
-      { label: 'Importar notas fiscais em Lote', to: '/preferencias/importacoes/notas-fiscais', roles: ADMIN, description: 'Rascunhos de NF-e de saída em homologação, um por número da planilha.' }, { label: 'Importar contas a receber/pagar', to: '/preferencias/importacoes/contas-receber', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
+      { label: 'Importar notas fiscais em Lote', to: '/preferencias/importacoes/notas-fiscais', roles: ADMIN, description: 'Notas de saída a conferir antes de emitir, uma por número da planilha.' }, { label: 'Importar contas a receber', to: '/preferencias/importacoes/contas-receber', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
+      { label: 'Importar contas a pagar', to: '/preferencias/importacoes/contas-pagar', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
       { label: 'Importar vendas', to: '/preferencias/importacoes/vendas', roles: ADMIN, description: 'Pedidos de venda em aberto, sem lançar estoque nem contas.' },
       // Wabotia (versão 28): a planilha fiscal dos produtos, as naturezas com as regras fiscais e os saldos iniciais das contas.
       { label: 'Importar dados fiscais dos produtos', to: '/preferencias/importacoes/fiscal-produtos', roles: ADMIN, description: 'NCM, CEST, origem e os impostos de cada produto por natureza, com prévia do que muda.' },
       { label: 'Importar naturezas de operação e regras fiscais', to: '/preferencias/importacoes/naturezas-operacao', roles: ADMIN, description: 'Inclui ou atualiza naturezas e regras; trocar a natureza padrão pede confirmação.' },
       { label: 'Importar saldos iniciais das contas financeiras', to: '/preferencias/importacoes/saldos-iniciais', roles: ADMIN, description: 'O saldo de cada conta num dia, lançado como no Financeiro.' }] },
     { title: TOOLS, entries: [
-      { label: 'Importar contatos (somente inclusão)', to: '/importar-contatos', roles: ADMIN, description: 'Tela de Clientes e fornecedores que inclui contatos sem atualizar os existentes.' },
+      { label: 'Importar contatos (somente inclusão)', to: '/importar-contatos', roles: ['admin', 'vendas', 'financeiro'], description: 'Tela de Clientes e fornecedores que inclui contatos sem atualizar os existentes.' },
     ] },
   ] },
   { id: 'backup', label: 'Backup e Exportação de Dados', icon: 'database', sections: [
-    { title: 'Backup e exportação', entries: [{ label: 'Backup', to: '/preferencias/backup/exportacao', roles: ADMIN, description: 'Pacote ZIP com os dados e os arquivos da empresa, gerado no servidor.' }, soon('Gerar arquivo auxiliar do SPED PIS/COFINS (Contribuições)', NOT_YET, ADMIN),
-      soon('Gerar arquivo auxiliar do SPED ICMS/IPI (Fiscal)', NOT_YET, ADMIN), soon('Exportar dados para Sintegra', NOT_YET, ADMIN)] },
+    { title: 'Backup e exportação', entries: [{ label: 'Backup', to: '/preferencias/backup/exportacao', roles: ADMIN, description: 'Pacote ZIP com os dados e os arquivos da empresa, gerado no servidor.' },
+      // Wabotia: SPED e SINTEGRA ficam em Fiscal › SPED e SINTEGRA (/sped-fiscal), com a conferência antes de gerar.
+      { label: 'Gerar SPED PIS/COFINS (Contribuições)', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' },
+      { label: 'Gerar SPED ICMS/IPI (Fiscal)', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' },
+      { label: 'Exportar dados para o SINTEGRA', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' }] },
   ] },
 ];
 
@@ -142,6 +143,10 @@ export function realTargetAllowed(target: RealTarget | undefined, access: Compan
   if (!targetEnabled(target.to)) return false;
   if (isOriginIntegrationRoute(target.to) && !originHistoryAvailable(access)) return false;
   if (target.resource && !(access.resources || []).includes(target.resource)) return false;
+  // Os mesmos filtros do menu de gestão (web/management/registry.ts): shownWithAny e hidden_when_modules_enabled.
+  const modules = currentErpModules();
+  if (target.shownWithAny && !target.shownWithAny.some(id => modules[id] === true)) return false;
+  if (target.hiddenWith?.some(id => modules[id] === true)) return false;
   return !target.roles || target.roles.includes(access.role as CompanyRole);
 }
 

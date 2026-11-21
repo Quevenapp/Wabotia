@@ -14,7 +14,7 @@ import './real-finance.css';
 import './finance-registry.css';
 
 const noSubscription = () => () => {}, noSnapshot = () => null;
-const message = (error: unknown) => error instanceof AccessError ? error.status === 400 ? 'A importação não foi aceita: confira a planilha e envie o arquivo novamente.' : error.status === 403 ? 'Seu acesso a esta operação foi alterado.'
+const message = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 400 ? 'A importação não foi aceita: confira a planilha e envie o arquivo novamente.' : error.status === 403 ? 'Seu acesso a esta operação foi alterado.'
   : error.status === 409 ? 'Esta importação já foi usada com outro arquivo. Envie o arquivo novamente.' : 'Não foi possível concluir a operação. Tente novamente.' : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 function BusyGuard() { useUnsavedChanges(false, true); return null; }
 const KIND_PARAM: Readonly<Record<string, ImportKind>> = { receivable: 'receivable', payable: 'payable', caixa: 'cash' };

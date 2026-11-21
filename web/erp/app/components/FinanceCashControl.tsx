@@ -21,7 +21,7 @@ import './finance-commissions.css';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const noSubscription = () => () => {}, noSnapshot = () => null;
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'O caixa mudou, já está aberto ou não aceita esta operação na situação atual. Atualize a tela.' : error.status === 400 ? 'A operação não foi aceita. Confira os campos.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'O caixa mudou, já está aberto ou não aceita esta operação na situação atual. Atualize a tela.' : error.status === 400 ? 'A operação não foi aceita. Confira os campos.'
   : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'O caixa não foi encontrado. Atualize a listagem.' : 'Não foi possível concluir a operação. Tente novamente.' : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 function BusyGuard() { useUnsavedChanges(false, true); return null; }
 function Field({ label, children }: { label: string; children: (id: string) => ReactNode }) { const id = useId(); return <div className="form-field"><label htmlFor={id}>{label}</label>{children(id)}</div>; }

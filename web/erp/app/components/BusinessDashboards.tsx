@@ -210,7 +210,7 @@ function PanelBody({data,onTab,onMode=()=>{},forecast=false,taxRate=null,onSetti
    {/* 265: Variações + Simples + Composições | Produtos | Desmembrados (Origin). FAGOO has no variations: Produtos would repeat the first view. */}
    <div className="business-tabs" role="tablist" aria-label="Giro de Produto">
     <button type="button" role="tab" aria-selected={data.filters.mode==='itens'} className={data.filters.mode==='itens'?'active':''} onClick={()=>onMode('itens')}>Variações + Simples + Composições</button>
-    <button type="button" role="tab" aria-selected={false} disabled title="O ERP não tem produtos com variações: a visão por produto pai seria igual a Variações + Simples + Composições.">Produtos</button>
+    <button type="button" role="tab" aria-selected={false} disabled title="A visão por produto pai ainda não está neste painel; as variações aparecem uma a uma em Variações + Simples + Composições.">Produtos</button>
     <button type="button" role="tab" aria-selected={data.filters.mode==='desmembrados'} className={data.filters.mode==='desmembrados'?'active':''} onClick={()=>onMode('desmembrados')}>Desmembrados</button></div>
    <DataTable title="Giro de Produto" file="giro-de-produto" rows={data.turnover} rowKey={r=>r.product_id} limit={300} columns={[{key:'code',label:'Código',value:r=>r.code},{key:'name',label:'Descrição',value:r=>r.name},
     {key:'composition',label:'Composição',value:r=>r.composition==='virtual'?'Virtual':r.composition==='physical'?'Físico':null},

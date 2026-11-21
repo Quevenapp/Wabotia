@@ -76,22 +76,22 @@ export function visible(entry:PreferenceField|PreferenceInfo,draft:Draft){
 }
 // Apresentação do percurso comercial; os valores e o contrato legado continuam intactos.
 const commercialFiscalInfo:Record<string,string>={
- 'certificado.a1_servidor':'Certificado e senha são configurados diretamente no cofre NFapi. O ERP guarda somente a conexão com o cofre; não recebe o certificado nem assina notas.',
+ 'certificado.a1_servidor':'Certificado e senha são configurados diretamente no emissor de notas (um cofre à parte). O ERP guarda somente a conexão com o emissor; não recebe o certificado nem assina notas.',
  'nfe.ambiente':'A NF-e do pedido usa o ambiente escolhido no Emissor de notas. Homologação fica separada de produção; habilitar produção exige confirmação de administrador.',
- 'nfe.disponibilidade':'Teste a conexão com o cofre NFapi no Emissor de notas. A consulta confere versão, emitente e ambientes permitidos; não representa homologação com a SEFAZ.',
- 'nfe.numeracao':'Série e número da NF-e pertencem ao cofre NFapi. O ERP permite escolher apenas séries informadas pelo cofre para o ambiente; não mantém próximo número fiscal.',
- 'nfce.ambiente':'A emissão de NFC-e está fora deste percurso. A NF-e de pedido, modelo 55, tem ambiente e habilitação próprios no Emissor de notas.',
- 'nfce.disponibilidade':'A conexão fiscal é com o cofre NFapi. A emissão e a homologação de NFC-e ainda não estão disponíveis neste percurso.',
- 'nfce.numeracao':'A NFC-e está fora deste percurso. Não há numeração fiscal local; séries e números de NF-e são mantidos pelo cofre NFapi.',
- 'nfce.csc':'CSC e identificador de CSC são configurados diretamente no cofre quando o percurso de NFC-e estiver disponível. Nunca informe esses segredos nesta página.',
+ 'nfe.disponibilidade':'Teste a conexão no Emissor de notas. A consulta confere versão, emitente e ambientes permitidos.',
+ 'nfe.numeracao':'Série e número da NF-e pertencem ao emissor de notas. O ERP permite escolher apenas as séries que o emissor informa para o ambiente; não mantém próximo número fiscal.',
+ 'nfce.ambiente':'A NFC-e sai pela frente de caixa, no ambiente escolhido no Emissor de notas.',
+ 'nfce.disponibilidade':'Teste a conexão no Emissor de notas. A NFC-e é emitida pela frente de caixa com as partes Fiscal e Frente de caixa ligadas.',
+ 'nfce.numeracao':'Série e número da NFC-e pertencem ao emissor de notas. O ERP não mantém próximo número fiscal.',
+ 'nfce.csc':'CSC e identificador de CSC são configurados diretamente no emissor de notas. Nunca informe esses segredos nesta página.',
 };
 const commercialFiscalNotes:Record<string,string>={
  'nfe.lancar_estoque':'Preferência legada. No pedido com NF-e, o momento do estoque é escolhido por área no Emissor de notas. Cancelamento fiscal exige avaliação da compensação e confirmação do retorno físico.',
  'nfe.lancar_contas':'Preferência legada. No pedido com NF-e, o momento dos títulos é escolhido por área no Emissor de notas. Cancelamento não apaga recebimentos nem cancela cobranças.',
  'nfe.emitir_lote':'Emissão em lote está fora deste percurso. Prepare e revise uma NF-e por pedido salvo; a emissão usa o comando confirmado no acompanhamento.',
  'nfe.consulta_automatica':'A retomada é explícita: use Consultar / retomar no acompanhamento da mesma emissão. Esta preferência não agenda chamadas ao cofre.',
- 'nfe.itens_primeira_pagina':'O DANFE comercial é fornecido pelo cofre NFapi. Esta preferência legada não altera o PDF do cofre.',
- 'nfe.itens_demais_paginas':'O DANFE comercial é fornecido pelo cofre NFapi. Esta preferência legada não altera o PDF do cofre.',
+ 'nfe.itens_primeira_pagina':'O DANFE é fornecido pelo emissor de notas. Esta preferência antiga não altera o PDF do emissor.',
+ 'nfe.itens_demais_paginas':'O DANFE é fornecido pelo emissor de notas. Esta preferência antiga não altera o PDF do emissor.',
  'nfe.danfe_simplificado_produtos':'DANFE simplificado está fora deste percurso. O DANFE da NF-e comercial é obtido no cofre.',
  'nfe.danfe_simplificado_total':'DANFE simplificado está fora deste percurso. O DANFE da NF-e comercial é obtido no cofre.',
  'vendas.gerar_nfe':'Preparação e emissão não são automáticas ao salvar. No pedido de venda salvo, use Preparar NF-e para revisar dados e emitir pelo cofre.',

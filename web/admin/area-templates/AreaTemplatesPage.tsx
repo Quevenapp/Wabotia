@@ -162,7 +162,7 @@ function Preview({
       ))}
       <fieldset>
         <legend>Módulos</legend>
-        {Object.entries(template.modules).some(([id, enabled]) => id === "erp-fiscal" && enabled) && <p>Fiscal começa desmarcado porque a emissão fiscal ainda não está disponível. Você pode selecionar essa parte.</p>}
+        {Object.entries(template.modules).some(([id, enabled]) => id === "erp-fiscal" && enabled) && <p>Fiscal começa desmarcado: para emitir notas, a área precisa do emissor de notas configurado. Você pode selecionar essa parte.</p>}
         {Object.entries(template.modules).map(([id, enabled]) => (
           <label key={id} className="os-work-check">
             <input

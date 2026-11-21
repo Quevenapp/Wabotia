@@ -77,8 +77,11 @@ describe("catálogo da casa de gestão", () => {
     // + 2 da conciliação: Conciliação bancária e Conciliação de cartões (Financeiro).
     // + 1 dos contratos de serviço: Contratos (Financeiro).
     // + 1 do SPED e SINTEGRA (Fiscal).
-    expect(linked).toHaveLength(62);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(63);
+    // - 2 da cobrança num só caminho: Cobrança operacional e Retornos operacionais saem (entram por Remessas e retornos).
+    // + 1 do rodapé de Cadastros com destino: Ver relatórios de cadastros.
+    // + 5 do Financeiro que só abriam por dentro: transferências, recorrentes, borderôs, vencimentos e importação.
+    expect(linked).toHaveLength(66);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(67);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
@@ -88,11 +91,9 @@ describe("catálogo da casa de gestão", () => {
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.overview")?.target.to).toBe("/visao-geral");
     expect(portedLegacy.map(legacyTarget)).toEqual(linked.map((item) => item.real!.to));
     const reopened = ERP_MANAGEMENT_ITEMS.filter(item => [
-      "erp.operational-billing", "erp.operational-returns", "erp.activity", "erp.deletions",
+      "erp.activity", "erp.deletions",
     ].includes(item.id));
     expect(reopened.map(item => [item.id, item.target.to, item.groupLabel, item.part, item.permission.roles])).toEqual([
-      ["erp.operational-billing", "/cobranca-operacional", "Financeiro", "cobranca", ["admin", "consulta", "financeiro"]],
-      ["erp.operational-returns", "/retornos-operacionais", "Financeiro", "cobranca", ["admin", "consulta", "financeiro"]],
       ["erp.activity", "/preferencias/sistema/registro-atividades", "Sistema", "sistema", ["admin"]],
       ["erp.deletions", "/preferencias/sistema/consulta-exclusoes", "Sistema", "sistema", ["admin"]],
     ]);
@@ -120,8 +121,11 @@ describe("catálogo da casa de gestão", () => {
         "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao", "producao", "contratos",
       ]).toContain(item.part);
     }
-    // O único rodapé sem destino continua no menu de compatibilidade.
-    expect(originItems.filter((item) => !item.real)).toEqual([{ label: "Ver relatórios de cadastros" }]);
+    // Todo rodapé tem destino (Ver relatórios de cadastros abre os relatórios de contatos e produtos).
+    expect(originItems.filter((item) => !item.real)).toEqual([]);
+    // Cobrança operacional e Retornos operacionais seguem abrindo pelo caminho de Remessas e retornos.
+    for (const to of ["/cobranca-operacional", "/retornos-operacionais"])
+      expect(portedTarget(to)).toMatchObject({ part: "cobranca", roles: ["admin", "consulta", "financeiro"] });
   });
 
   it("classifica explicitamente sem depender do rótulo apresentado", () => {

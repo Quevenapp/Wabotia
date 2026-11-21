@@ -22,7 +22,7 @@ import './finance-commissions.css';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const noSubscription = () => () => {}, noSnapshot = () => null;
-const failureText = (error: unknown) => error instanceof AccessError ? error.status === 409 ? 'Algum pedido mudou, já foi faturado ou teve as contas lançadas. Atualize a listagem.' : error.status === 400 ? 'A operação não foi aceita. Confira a condição e os pedidos.'
+const failureText = (error: unknown) => error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'Algum pedido mudou, já foi faturado ou teve as contas lançadas. Atualize a listagem.' : error.status === 400 ? 'A operação não foi aceita. Confira a condição e os pedidos.'
   : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'O faturamento não foi encontrado. Atualize a listagem.' : 'Não foi possível concluir a operação. Tente novamente.' : error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
 function BusyGuard() { useUnsavedChanges(false, true); return null; }
 type Chosen = { items: GroupedDocument[]; total: number; chosen: string[] };
