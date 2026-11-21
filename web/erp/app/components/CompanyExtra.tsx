@@ -68,15 +68,15 @@ export function CompanyExtraSection({controller,onPersonType}:{controller:Pick<S
      {cnae.dataset&&<small className="company-hint">Tabela oficial: {cnae.dataset.version}, {cnae.dataset.source.split(',')[0]}.</small>}</label>
     {select('company-extra-size','Tamanho da empresa','company_size',COMPANY_SIZES)}{select('company-extra-revenue','Faturamento do último ano','revenue',REVENUES)}{select('company-extra-employees','Quantidade de funcionários','employees',EMPLOYEES)}</div>
    <fieldset className="company-segments"><legend>Seu segmento *</legend>{SEGMENTS.map(([v,t])=><label key={v}><input type="checkbox" id={`company-extra-segment-${v}`} checked={draft.segments.includes(v)} onChange={e=>set({segments:SEGMENTS.map(o=>o[0]).filter(s=>s===v?e.target.checked:draft.segments.includes(s))})}/>{t}</label>)}</fieldset>
-   <h3>Contato</h3><div className="company-settings-grid">{input('company-extra-contacts','Pessoas de contato','contacts',120)}{input('company-extra-mobile','Celular','mobile',20)}{input('company-extra-billing','E-mail de Cobrança','billing_email',254)}{input('company-extra-site','Site','site',200)}</div>
+   {/* "Contato" já é o título do telefone e do e-mail na Identidade comercial: aqui são os outros contatos. */}
+   <h3>Outros contatos</h3><div className="company-settings-grid">{input('company-extra-contacts','Pessoas de contato','contacts',120)}{input('company-extra-mobile','Celular','mobile',20)}{input('company-extra-billing','E-mail de Cobrança','billing_email',254)}{input('company-extra-site','Site','site',200)}</div>
    <h3>Inscrições Estaduais dos substitutos tributários</h3>
    <table className="data-table company-substitutes"><thead><tr><th scope="col">UF</th><th scope="col">Inscrição Estadual</th><th scope="col"><span className="sr-only">Ações</span></th></tr></thead><tbody>{draft.substitute_ies.map((row,i)=><tr key={i}>
     <td><select id={`company-extra-ie-uf-${i}`} aria-label="UF" value={row.uf} onChange={e=>set({substitute_ies:draft.substitute_ies.map((r,j)=>j===i?{...r,uf:e.target.value}:r)})}><option value="">UF</option>{SUBSTITUTE_UFS.map(uf=><option key={uf} value={uf}>{uf}</option>)}</select></td>
     <td><input id={`company-extra-ie-${i}`} aria-label="Inscrição Estadual" maxLength={20} value={row.ie} onChange={e=>set({substitute_ies:draft.substitute_ies.map((r,j)=>j===i?{...r,ie:e.target.value}:r)})}/></td>
     <td><button type="button" className="text-button" onClick={()=>set({substitute_ies:draft.substitute_ies.filter((_,j)=>j!==i)})}>Remover</button></td></tr>)}</tbody></table>
    <button type="button" className="text-button" disabled={draft.substitute_ies.length>=27} onClick={()=>set({substitute_ies:[...draft.substitute_ies,{uf:'',ie:''}]})}><Icon name="plus" size={10}/>Adicionar inscrição</button>
-   {/* Sua marca (the logo) is its own section since 262 (CompanyLogo); no disabled stand-in here. */}
-   <h3>Sua marca</h3><p className="real-help">O logo da empresa é enviado na seção Sua marca desta página (PNG ou JPEG de até 2 MB, pelo administrador).</p>
+   {/* Sua marca (the logo) is its own section since 262 (CompanyLogo). Pedido do dono (21/11, dados repetidos): sem o segundo título "Sua marca" aqui. */}
   </fieldset>
   {view.can_manage?<div className="real-editor-actions"><button type="submit" className="primary-button" disabled={locked||!dirty}>Salvar</button><button type="button" className="secondary-button" disabled={busy||pending||!dirty} onClick={()=>setDraft(JSON.parse(baseline) as Draft)}>Cancelar</button><span className="real-help">(*) Campos obrigatórios</span></div>
    :<p className="real-help">Somente administradores alteram os dados da empresa.</p>}</form>}
