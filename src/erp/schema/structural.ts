@@ -234,4 +234,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Relatórios do ERP: DRE gerencial com Custos separados das despesas, e o pagamento da equipe (salário, comissão, adiantamento e vale) como conta a pagar com a pessoa ligada, o período e, na comissão de vendedor, a base e o percentual conferidos.",
     replaced_by: "Versão 21 aditiva (20→21): erp_finance__dre_cost (a categoria de despesa do primeiro nível que o DRE mostra em Custos; o dre_group continua o do oráculo, Despesas Operacionais) e erp_finance__team_payment (a conta a pagar, funcionário ou vendedor, tipo, período, base e percentual). A conta a pagar é a do Financeiro (erp_finance__title), no contato do vendedor ou no contato com o CPF do funcionário.",
   },
+  {
+    id: "adotar-bling-d",
+    oracle: "O coletor externo não lia listas de preços, naturezas de operação, campos customizados, contratos, NFS-e, lotes nem fornecedores de produto do Bling; esses dados ficavam fora do ERP.",
+    reason: "Fatia D do Bling: o coletor lê esses recursos (cada um desligado e não confirmado até o dono conferir) e a adoção revisada os leva às listas de preços, às naturezas do fiscal (sem trocar a padrão), aos campos próprios de produto e de contato, aos lotes do estoque, ao fornecedor do produto e ao contrato de manutenção da ordem de serviço; NFS-e fica só de consulta. Listas e campos entram na mão dupla com interruptores desligados.",
+    replaced_by: "Versão 24 aditiva (23→24; 22 e 23 são de outras frentes): wb_bling_adoption_extra_link (vínculo por entidade e id no Bling, com a impressão do ERP), wb_bling_adoption_extra_review (pendências com o motivo), wb_bling_adoption_extra_twoway (interruptor por tipo e sentido, desligados), wb_bling_adoption_extra_outbox (fila de saída das listas e dos campos) e wb_bling_adoption_extra_audit (quem ligou ou desligou, imutável). O acervo bruto continua em wb_bling_extra_raw (versão 11).",
+  },
 ];

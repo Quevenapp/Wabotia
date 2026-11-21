@@ -102,7 +102,7 @@ export class FakeBling {
   }
   /** Aplica uma escrita da mão dupla no estado simulado. */
   #write(method, path, body) {
-    const root = path.match(/^(\/(?:contatos|produtos|propostas-comerciais|pedidos\/vendas|pedidos\/compras|contas\/receber|contas\/pagar))(?:\/(\d+))?(\/baixar)?$/);
+    const root = path.match(/^(\/(?:contatos|produtos|propostas-comerciais|pedidos\/vendas|pedidos\/compras|contas\/receber|contas\/pagar|listas-precos|campos-customizados))(?:\/(\d+))?(\/baixar)?$/);
     if (method === "POST" && path === "/estoques") {
       const product = String(body?.produto?.id), deposit = String(body?.deposito?.id);
       if (body?.operacao !== "B") return { status: 400, data: { error: { type: "VALIDATION_ERROR", description: "Operação de estoque não simulada." } } };
@@ -161,6 +161,7 @@ export class FakeBling {
       assert.equal(url.origin, base.origin, "host fora do simulador");
       const path = url.pathname.slice(base.pathname.replace(/\/$/, "").length);
       assert.ok(!/\/(nfe|nfce|ordens-servico)/.test(path), "nota fiscal e ordem de serviço nunca são escritas");
+      assert.ok(!/\/(nfse|contratos|naturezas-operacoes)/.test(path), "NFS-e, contratos e naturezas nunca voltam ao Bling");
       assert.ok(/^Bearer \S+$/.test(request.headers.get("authorization") ?? ""), "escrita sem autorização");
       const body = await request.json();
       const call = Object.freeze({ method: request.method, path, query: {}, at: this.#clock.now() });
@@ -225,3 +226,34 @@ export class FakeBling {
   }
 }
 export const fakeBling = options => new FakeBling(options);
+
+/** Fatia D: registros de exemplo no formato público da API v3 (ainda não
+ * conferido numa conta real). Cada caminho é o proposto em resources.ts. */
+export const BLING_EXTRAS_PATHS = Object.freeze({
+  price_lists: "/listas-precos", operation_natures: "/naturezas-operacoes", custom_fields: "/campos-customizados", contracts: "/contratos",
+  service_invoices: "/nfse", product_lots: "/produtos/lotes", product_suppliers: "/produtos/fornecedores",
+});
+export function blingExtrasSample() {
+  return {
+    custom_fields: [
+      { id: "7001", nome: "Voltagem", situacao: 1, obrigatorio: false, tipoCampo: { id: 4, nome: "Lista" }, modulo: { id: 1, nome: "Produtos" }, opcoes: [{ id: 1, nome: "110 V" }, { id: 2, nome: "220 V" }] },
+      { id: "7002", nome: "Aniversário", obrigatorio: false, tipoCampo: { nome: "Data" }, modulo: { nome: "Contatos" } },
+      { id: "7003", nome: "Sem módulo", tipoCampo: { nome: "Texto" } },
+    ],
+    price_lists: [
+      { id: "8001", nome: "Atacado", produtos: [{ produto: { id: "501" }, preco: "9.90" }] },
+      { id: "8002", nome: "Formato estranho", regras: [] },
+    ],
+    operation_natures: [
+      { id: "9001", descricao: "Venda de mercadoria (Bling)", tipo: "S", crt: "1", padrao: true },
+      { id: "9002", descricao: "Natureza sem regime", tipo: "S" },
+    ],
+    product_suppliers: [{ id: "9501", produto: { id: "501" }, fornecedor: { id: "301" }, codigo: "FORN-01", descricao: "Caneta do fornecedor", precoCusto: "1.25" }],
+    product_lots: [{ id: "9601", produto: { id: "501" }, lote: "L-2026-01", dataValidade: "2027-01-31", saldo: "12", deposito: { id: "401" } }],
+    contracts: [
+      { id: "9701", numero: "15", descricao: "Manutenção mensal do ar-condicionado", contato: { id: "301", nome: "Cliente Bling" }, dataInicio: "2026-01-01", dataFim: "2026-12-31", valor: "150.00", periodicidade: "Mensal", situacao: "Ativo" },
+      { id: "9702", numero: "16", contato: { id: "301" } },
+    ],
+    service_invoices: [{ id: "9801", numero: "321", serie: "1", dataEmissao: "2026-10-05", valor: "250.00", situacao: "Emitida", tomador: { nome: "Cliente Bling" } }],
+  };
+}

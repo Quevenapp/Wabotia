@@ -29,6 +29,20 @@ desabilitadas. Se algum item não puder ser comprovado, parar neste ponto;
 não criar endpoint ou escopo por tentativa, nem reutilizar confirmação do
 simulador.
 
+**Outros dados (fatia D).** Listas de preços, naturezas de operação, campos
+customizados, contratos, NFS-e, lotes e fornecedores de produto têm só o
+acesso **proposto** (`BLING_EXTRA_PROPOSED_ACCESS` em
+`src/erp/bling/resources.ts`, com a dúvida de cada um). Para cada um que
+for usar: conferir na documentação vigente o caminho, se há detalhe por id,
+a paginação e os escopos; fazer **uma coleta real só dele**, abrir alguns
+registros no Acervo e conferir os nomes dos campos que a adoção lê (lista
+em [Receber dados do Bling](RECEBER-BLING.md), "Outros dados do Bling");
+só então registrar a evidência (`confirmBlingExtraResource`). Na aba Outros
+dados, ver a prévia antes de adotar: registro com formato diferente aparece
+como pendência "formato não conferido", nunca como cadastro. A mão dupla
+das listas e dos campos fica desligada até conferir também o `PUT` num
+registro de teste.
+
 ## 2. Preparar aplicativo, acesso e baseline
 
 1. Registrar aplicativo próprio no Bling e guardar as credenciais somente

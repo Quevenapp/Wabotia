@@ -1,7 +1,7 @@
 /** Transporte de dados de uma tentativa. Não possui repetição, espera ou renovação implícita. */
 import { BLING_BUDGET, BlingError, type BlingCapture, type BlingContext, type BlingExpectedState, type BlingFailure, type JsonObject, type ResourceDescriptor } from "./contracts.ts";
 import type { AuthorizationPort, BlingDataPort, BlingDataRequest, BlingDataResult } from "./ports.ts";
-import { BLING_RESOURCES, BLING_XML_RESOURCE, assertResourceConfirmed, buildBlingListQuery, exactSourceId, getBlingResource } from "./resources.ts";
+import { BLING_EXTRA_PROPOSED_ACCESS, BLING_RESOURCES, BLING_XML_RESOURCE, assertResourceConfirmed, buildBlingListQuery, exactSourceId, getBlingResource, isBlingExtraCollected } from "./resources.ts";
 // @ts-ignore Gramática lexical pura original, com limites e rejeição de chaves duplicadas.
 import { parseSelectedPriceJson, isCapturedPriceNumber } from "../fagoo/workers/origin-sync/src/price-json-parser.mjs";
 // @ts-ignore Perfis puros originais; nenhum executor é importado.
@@ -141,7 +141,9 @@ function requestUrl(request: BlingDataRequest, catalog: readonly ResourceDescrip
   if (!resource) throw new BlingError("BLING_RESOURCE_UNCONFIRMED");
   assertResourceConfirmed(resource);
   const xml = resource.key === BLING_XML_RESOURCE.key;
-  const known = xml ? BLING_XML_RESOURCE : BLING_RESOURCES.find(entry => entry.entity === resource.entity);
+  // Fatia D: o caminho fixo é o proposto no catálogo versionado, nunca o do descritor recebido.
+  const proposed = isBlingExtraCollected(resource.entity) ? BLING_EXTRA_PROPOSED_ACCESS[resource.entity] : null;
+  const known = xml ? BLING_XML_RESOURCE : proposed ? { path: proposed.path, detail: proposed.detail ? { path: proposed.detail } : null } : BLING_RESOURCES.find(entry => entry.entity === resource.entity);
   if (!known?.path || resource.path !== known.path || resource.detail?.path !== known.detail?.path) throw invalid();
   const path = request.path;
   const isList = path === resource.path;
@@ -160,7 +162,7 @@ function requestUrl(request: BlingDataRequest, catalog: readonly ResourceDescrip
     const variants = resource.variants;
     const valid = variants.some(variant => {
       try {
-        const expected = buildBlingListQuery(variant.key, { page: Number(request.query.pagina), limit: resource.pagination?.limit_parameter ? Number(request.query.limite) : 10, from: resource.dateFilter?.from ? request.query[resource.dateFilter.from] as string : undefined, to: resource.dateFilter?.to ? request.query[resource.dateFilter.to] as string : undefined });
+        const expected = buildBlingListQuery(variant.key, { page: Number(request.query.pagina), limit: resource.pagination?.limit_parameter ? Number(request.query.limite) : 10, from: resource.dateFilter?.from ? request.query[resource.dateFilter.from] as string : undefined, to: resource.dateFilter?.to ? request.query[resource.dateFilter.to] as string : undefined }, proposed ? resource : undefined);
         return canonicalJson(expected) === canonicalJson(request.query);
       } catch { return false; }
     });

@@ -20,6 +20,8 @@ import {
 } from "./cutover.ts";
 import { packageDownload, packageList, packageRunning, packageStart, runPackageUnit, type PackageMedia } from "./cutover-package.ts";
 import { runTwoWayLocalUnit, twoWayIssues, twoWayPace, twoWayQueue, twoWayResolve, twoWayStatus, twoWaySwitch } from "./two-way.ts";
+import { extrasAdopt, extrasContractDraftFor, extrasContractLink, extrasContracts, extrasInvoices, extrasPreview, extrasResolve, extrasReviews, extrasStatus, extrasUnlink } from "./extras.ts";
+import { extrasOutbox, extrasOutboxResolve, extrasSwitch, runExtrasTwoWayLocal } from "./extras-two-way.ts";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
 export const adoptionRequestHash = (value: unknown) => createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
@@ -134,6 +136,23 @@ export async function handleAdoptionOperation(call: AdoptionDispatch, dependenci
       case "erp_bling_twoway_resolve": result = twoWayResolve(context, input as never); break;
       case "erp_bling_twoway_switch": result = twoWaySwitch(context, input as never); break;
       case "erp_bling_twoway_pace": result = twoWayPace(context, input as never); break;
+      // Fatia D: outros dados do Bling (versão 24).
+      case "erp_bling_extras_status": result = extrasStatus(context); break;
+      case "erp_bling_extras_preview": result = extrasPreview(context, input as never); break;
+      case "erp_bling_extras_reviews": result = extrasReviews(context, input as never); break;
+      case "erp_bling_extras_adopt": result = extrasAdopt(context, input as never); break;
+      case "erp_bling_extras_resolve": result = extrasResolve(context, input as never); break;
+      case "erp_bling_extras_unlink": result = extrasUnlink(context, input as never); break;
+      case "erp_bling_extras_invoices": result = extrasInvoices(context, input as never); break;
+      case "erp_bling_extras_contracts": result = extrasContracts(context, input as never); break;
+      // O Worker completa com os módulos, os planos e os clientes do atendimento.
+      case "erp_bling_extras_contract_options": result = { draft: extrasContractDraftFor(context, (input as { source_id: string }).source_id), modules: { os: false, mensalidade: false },
+        missing: "Ligue o módulo Ordem de Serviço em Gestão → Módulos.", plans: [], contacts: [] }; break;
+      case "erp_bling_extras_contract_create": throw new BlingAdoptionError("BLING_ADOPTION_INVALID", "O contrato de manutenção é criado pela tela Receber dados do Bling.");
+      case "erp_bling_extras_contract_link": result = extrasContractLink(context, input as never); break;
+      case "erp_bling_extras_switch": result = extrasSwitch(context, input as never); break;
+      case "erp_bling_extras_outbox": result = extrasOutbox(context, input as never); break;
+      case "erp_bling_extras_outbox_resolve": result = extrasOutboxResolve(context, input as never); break;
     }
     const output = adoptionOutputs[call.name].safeParse(result);
     if (!output.success) throw new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE");
@@ -161,6 +180,10 @@ export async function runTwoWayWake(profile: string, dependencies: AdoptionDepen
   const now = dependencies.now ?? (() => Date.now());
   const snapshot = readErpPartsSnapshot(await dependencies.readSnapshot(), profile, now());
   if (!snapshot?.parts.customers) return { worked: false, nextWake: null };
-  const result = runTwoWayLocalUnit({ db: storageDriver(dependencies.storage), profile, now, parts: snapshot.parts });
-  return { worked: result.worked, nextWake: result.more ? now() + 1_000 : null };
+  const db = storageDriver(dependencies.storage);
+  const result = runTwoWayLocalUnit({ db, profile, now, parts: snapshot.parts });
+  if (result.worked) return { worked: true, nextWake: result.more ? now() + 1_000 : null };
+  // Fatia D: listas de preços e campos customizados, com interruptores próprios.
+  const extras = runExtrasTwoWayLocal({ db, profile, now, parts: snapshot.parts });
+  return { worked: extras.worked, nextWake: extras.more ? now() + 1_000 : null };
 }
