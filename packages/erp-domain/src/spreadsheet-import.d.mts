@@ -1,4 +1,4 @@
-export type ImportKind='products'|'contacts'|'purchase_orders'|'stock_movements'|'receivables'|'payables'|'sales_orders'|'nfe'|'compositions'|'custom_fields'|'product_suppliers'|'lots';
+export type ImportKind='products'|'contacts'|'purchase_orders'|'stock_movements'|'receivables'|'payables'|'sales_orders'|'nfe'|'compositions'|'custom_fields'|'product_suppliers'|'lots'|'product_taxes'|'natures'|'opening_balances';
 export type ImportResultStatus='valid'|'created'|'updated'|'unchanged'|'invalid';
 export type ImportJobStatus='em_andamento'|'concluida';
 export const IMPORT_BASE:'/v1/importacoes';
@@ -14,10 +14,14 @@ export const IMPORT_RESULT_STATUSES:readonly ImportResultStatus[];
 export const IMPORT_JOB_STATUSES:readonly ImportJobStatus[];
 export class ImportContractError extends Error{status:number;code:string;constructor(status:number,code:string);}
 export interface ImportOption{value:string;label:string;aliases:string[]}
-export interface ImportColumn{label:string;key:string;t:'text'|'digits'|'decimal'|'integer'|'date'|'bool'|'option';max?:number;multiline?:boolean;lengths?:number[];int?:number;scale?:number;
+export interface ImportColumn{label:string;key:string;t:'text'|'digits'|'decimal'|'integer'|'date'|'bool'|'option'|'code'|'list';pattern?:string;hint?:string;strip?:boolean;upper?:boolean;item?:ImportColumn;help?:string;example?:string;max?:number;multiline?:boolean;lengths?:number[];int?:number;scale?:number;
  signed?:boolean;positive?:boolean;options?:ImportOption[];required?:boolean;createRequired?:boolean;match?:boolean;group?:boolean;line?:boolean}
 export interface ImportGroup{key:string;unit:string;max?:number;tooMany:string;itemRequired:readonly string[];itemOneOf?:readonly string[];contact:boolean}
-export interface ImportTemplate{kind:ImportKind;title:string;noun:[string,string];file:string;columns:readonly ImportColumn[]|null;readOnly:readonly string[];rule:string;oneOf?:readonly string[];grouped?:ImportGroup}
+export interface ImportTemplate{kind:ImportKind;title:string;noun:[string,string];file:string;columns:readonly ImportColumn[]|null;readOnly:readonly string[];rule:string;oneOf?:readonly string[];oneOfText?:string;grouped?:ImportGroup;check?:(data:ImportData)=>string[];extra?:Readonly<Record<string,Partial<ImportColumn>>>}
+export const IMPORT_PREVIEW_KINDS:readonly ImportKind[];
+export const IMPORT_DEFAULT_CHANGE:string;
+export const IMPORT_NATURE_DEFAULTS:Readonly<Record<string,readonly ['0'|'1',string]>>;
+export function templateInstructions(kind:ImportKind):string[][];
 export const IMPORT_TEMPLATES:Readonly<Record<ImportKind,ImportTemplate>>;
 export type ImportValue=string|boolean|ImportData[]|string[];
 export interface ImportData{[key:string]:ImportValue}
@@ -28,7 +32,7 @@ export function importKindOf(slug:string):ImportKind|null;
 export function foldHeader(value:unknown):string;
 export function isGroupedKind(kind:ImportKind):boolean;
 export function isoDay(value:unknown):value is string;
-export function normalizeCell(column:ImportColumn,raw:unknown):{value?:string|boolean;problem?:string};
+export function normalizeCell(column:ImportColumn,raw:unknown):{value?:string|boolean|string[];problem?:string};
 export function mapHeader(columns:readonly ImportColumn[],header:readonly string[],mapping?:Record<string,string>):{index:Map<string,number>;unknown:string[]};
 export function templateRows(kind:ImportKind,cells:readonly (readonly string[])[],mapping?:Record<string,string>):TemplateRows;
 export function templateHeader(kind:ImportKind):string[];

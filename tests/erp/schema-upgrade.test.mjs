@@ -238,13 +238,13 @@ function commercialRows(db) {
   return { emission, command, document, person };
 }
 
-test("v25 vazia tem 1208 instruções e 510 tabelas; repetição e restrições comerciais preservadas", () => {
+test("v28 vazia tem 1209 instruções e 511 tabelas; repetição e restrições comerciais preservadas", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
   const first = migrate(storage(db));
   assert.equal(first.version, ERP_DDL_VERSION);
-  assert.equal(first.statements, 1208);
-  assert.equal(tablesOf(db).length, 510);
+  assert.equal(first.statements, 1209);
+  assert.equal(tablesOf(db).length, 511);
   assert.equal(migrate(storage(db)).status, "current");
   assert.equal(commercialTables.length, 7);
   for (const table of commercialTables) {

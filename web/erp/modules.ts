@@ -1,6 +1,6 @@
 import type { ErpPart } from "../../src/modules/erp/panel-menu.ts";
 import { ERP_MODULE_IDS, erpPartOffMessage, erpRequirement, type ErpModuleId, type ErpRequirement } from "../../src/erp/parts.ts";
-import { erpDestinationRequirement, erpEntityRequirement, erpImportRequirement, ERP_IMPORT_KINDS, erpOperationRequirement, erpXmlRequirement, erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS } from "../../src/erp/parts-requirements.ts";
+import { erpDestinationRequirement, erpEntityRequirement, erpImportOwner, erpImportRequirement, ERP_IMPORT_KINDS, erpOperationRequirement, erpXmlRequirement, erpPreferenceRequirement, ERP_PREFERENCE_DESTINATIONS } from "../../src/erp/parts-requirements.ts";
 export const ERP_MODULES = ERP_MODULE_IDS;
 export type ErpModule = ErpModuleId;
 export type ErpBlock = ErpModule;
@@ -40,7 +40,7 @@ export function requirementOf(target: string) {
   const imported = /^\/preferencias\/importacoes\/([^/]+)$/.exec(url.pathname);
   if (imported) {
     const kind = ERP_IMPORT_KINDS[imported[1]], requirement = erpImportRequirement(kind);
-    return requirement ? { owner: erpEntityRequirement(kind)!.all[0], requirement } : null;
+    return requirement ? { owner: erpImportOwner(kind)!, requirement } : null;
   }
   if (containers.has(url.pathname)) return erpDestinationRequirement("/preferencias");
   const resolved = erpDestinationRequirement(url);

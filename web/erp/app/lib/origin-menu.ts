@@ -119,7 +119,11 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Importar pedidos de compra', to: '/preferencias/importacoes/pedidos-compra', roles: ADMIN }, { label: 'Importar movimentações de estoque em massa', to: '/preferencias/importacoes/movimentacoes-estoque', roles: ADMIN },
       { label: 'Importar fornecedores de produto', to: '/preferencias/importacoes/fornecedores-produtos', roles: ADMIN, description: 'Inclui ou atualiza os fornecedores de cada produto.' },
       { label: 'Importar notas fiscais em Lote', to: '/preferencias/importacoes/notas-fiscais', roles: ADMIN, description: 'Rascunhos de NF-e de saída em homologação, um por número da planilha.' }, { label: 'Importar contas a receber/pagar', to: '/preferencias/importacoes/contas-receber', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
-      { label: 'Importar vendas', to: '/preferencias/importacoes/vendas', roles: ADMIN, description: 'Pedidos de venda em aberto, sem lançar estoque nem contas.' }] },
+      { label: 'Importar vendas', to: '/preferencias/importacoes/vendas', roles: ADMIN, description: 'Pedidos de venda em aberto, sem lançar estoque nem contas.' },
+      // Wabotia (versão 28): a planilha fiscal dos produtos, as naturezas com as regras fiscais e os saldos iniciais das contas.
+      { label: 'Importar dados fiscais dos produtos', to: '/preferencias/importacoes/fiscal-produtos', roles: ADMIN, description: 'NCM, CEST, origem e os impostos de cada produto por natureza, com prévia do que muda.' },
+      { label: 'Importar naturezas de operação e regras fiscais', to: '/preferencias/importacoes/naturezas-operacao', roles: ADMIN, description: 'Inclui ou atualiza naturezas e regras; trocar a natureza padrão pede confirmação.' },
+      { label: 'Importar saldos iniciais das contas financeiras', to: '/preferencias/importacoes/saldos-iniciais', roles: ADMIN, description: 'O saldo de cada conta num dia, lançado como no Financeiro.' }] },
     { title: TOOLS, entries: [
       { label: 'Importar contatos (somente inclusão)', to: '/importar-contatos', roles: ADMIN, description: 'Tela de Clientes e fornecedores que inclui contatos sem atualizar os existentes.' },
     ] },

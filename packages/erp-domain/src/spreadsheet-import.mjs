@@ -19,10 +19,18 @@ export const IMPORT_FILE_BYTES=20*1024*1024;
 // 265: composições, campos customizados and fornecedores de produtos (Origin "Importações: composições · Campos Customizados ·
 // fornecedores de produto"; the Lista de Preços import lives in Cadastros › Listas de preços, ⋮ Importar).
 // 300: Lotes (Origin "Importações: … Lista de Preços · Lotes"), through erp_stock_lot_import of the stock lane (277).
-export const IMPORT_KINDS=Object.freeze(['products','contacts','purchase_orders','stock_movements','receivables','payables','sales_orders','nfe','compositions','custom_fields','product_suppliers','lots']);
+// Wabotia (versão 28 do esquema do ERP): dados fiscais dos produtos, naturezas de operação com as regras fiscais e saldos iniciais
+// das contas financeiras.
+export const IMPORT_KINDS=Object.freeze(['products','contacts','purchase_orders','stock_movements','receivables','payables','sales_orders','nfe','compositions','custom_fields','product_suppliers','lots',
+ 'product_taxes','natures','opening_balances']);
 /** Address of each import screen and API path (/preferencias/importacoes/<slug>, /v1/importacoes/<slug>/lote). */
 export const IMPORT_SLUGS=Object.freeze({products:'produtos',contacts:'contatos',purchase_orders:'pedidos-compra',stock_movements:'movimentacoes-estoque',
- receivables:'contas-receber',payables:'contas-pagar',sales_orders:'vendas',nfe:'notas-fiscais',compositions:'composicoes',custom_fields:'campos-customizados',product_suppliers:'fornecedores-produtos',lots:'lotes'});
+ receivables:'contas-receber',payables:'contas-pagar',sales_orders:'vendas',nfe:'notas-fiscais',compositions:'composicoes',custom_fields:'campos-customizados',product_suppliers:'fornecedores-produtos',lots:'lotes',
+ product_taxes:'fiscal-produtos',natures:'naturezas-operacao',opening_balances:'saldos-iniciais'});
+/** Kinds whose validation (dry run) answers what the line changes in `reference` (the preview of each record). */
+export const IMPORT_PREVIEW_KINDS=Object.freeze(['product_taxes','natures','opening_balances']);
+/** Start of the preview reference of a natureza whose "Padrão para" takes the default from another natureza: only with confirmation. */
+export const IMPORT_DEFAULT_CHANGE='Troca a natureza padrão';
 export const IMPORT_RESULT_STATUSES=Object.freeze(['valid','created','updated','unchanged','invalid']);
 export const IMPORT_JOB_STATUSES=Object.freeze(['em_andamento','concluida']);
 export class ImportContractError extends Error{constructor(status,code){super(code);this.status=status;this.code=code;}}
@@ -47,6 +55,9 @@ const text=(max,extra={})=>({t:'text',max,...extra}),area=max=>({t:'text',max,mu
  alnumCnpj=v=>typeof v==='string'&&/[A-Z]/.test(v)&&validCnpj(v),
  decimal=(intDigits,scale,extra={})=>({t:'decimal',int:intDigits,scale,...extra}),integer=max=>({t:'integer',max}),DATE={t:'date'},BOOL={t:'bool'},
  option=(...values)=>({t:'option',options:values.map(([value,label,...aliases])=>({value,label,aliases}))});
+// Wabotia (versão 28): code (one text matched by a pattern, `strip` drops dots, dashes and spaces, `upper` upper-cases) and list
+// (values separated by comma or semicolon, each with the `item` grammar, distinct, up to `max`).
+const code=(pattern,hint,extra={})=>({t:'code',pattern,hint,...extra}),list=(item,max,hint)=>({t:'list',item,max,hint});
 const col=(label,key,grammar,extra={})=>Object.freeze({label,key,...grammar,...extra});
 const ORIGINS=option(...['0','1','2','3','4','5','6','7','8'].map(d=>[d,d]));
 const ITEM_TYPES=option(...['00','01','02','03','04','05','06','07','08','09','10','99'].map(d=>[d,d]));
@@ -88,6 +99,90 @@ const financeColumns=role=>[col(role==='supplier'?'Fornecedor':'Cliente','contac
  * and one of `itemOneOf` when given; `contact` asks the contato of the document; `max` lines per item (default 250; the composições
  * follow the 100 components of the Estrutura, erp_stock_product_compose). */
 const ORDER_GROUP=Object.freeze({key:'number',unit:'pedido',tooMany:'O pedido tem mais de 250 itens',itemRequired:Object.freeze(['quantity']),itemOneOf:Object.freeze(['code','description']),contact:true});
+// ---- Wabotia (versão 28): fiscal dos produtos, naturezas e regras fiscais, saldos iniciais ----
+// The codes are the ones of the natureza rules (erp_fiscal_invoices.nature_specs); the server checks again against the regime
+// (CST or CSOSN) and the direction (IPI) of the natureza. NCM and CEST: the format (8 and 7 digits); the repository has no table of
+// valid codes.
+const ICMS_SITUATION=code('^(00|02|10|15|20|30|40|41|50|51|53|60|61|70|90|101|102|103|201|202|203|300|400|500|900)$','CST de 2 dígitos (Regime normal) ou CSOSN de 3 dígitos (Simples Nacional)',{strip:true});
+const IPI_SITUATION=code('^(00|01|02|03|04|05|49|50|51|52|53|54|55|99)$','CST do IPI: 00 a 05 ou 49 (entrada), 50 a 55 ou 99 (saída)',{strip:true});
+const PIS_SITUATION=code('^(01|02|03|04|05|06|07|08|09|49|50|51|52|53|54|55|56|60|61|62|63|64|65|66|67|70|71|72|73|74|75|98|99)$','CST de PIS/COFINS de 2 dígitos (01 a 99)',{strip:true});
+const ANY_SITUATION=code('^([0-9]{2,3}|T|N)$','CST ou CSOSN do imposto (T ou N no II)',{strip:true,upper:true});
+const CFOP=code('^[1-7][0-9]{3}$','CFOP de 4 dígitos (1000 a 7999)',{strip:true});
+const BENEFIT=code('^[A-Z0-9]{8}([A-Z0-9]{2})?$','código de 8 ou 10 letras e números',{strip:true,upper:true});
+const GTIN_TAX=code('^(SEM GTIN|[0-9]{8}|[0-9]{12,14})$','8, 12, 13 ou 14 dígitos, ou SEM GTIN',{upper:true});
+const RATE=decimal(3,4);
+const UF_OPTIONS=option(...['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(u=>[u,u]),['EX','EX','exterior']);
+/** Códigos de "Padrão para" das naturezas (DEFAULT_LABELS do fiscal-core), com a direção que cada um aceita. */
+export const IMPORT_NATURE_DEFAULTS=Object.freeze({S:['1','Padrão venda'],E:['0','Padrão compra'],VF:['1','Padrão venda física'],VJ:['1','Padrão venda jurídica'],CF:['0','Padrão compra física'],
+ CJ:['0','Padrão compra jurídica'],C:['1','Padrão venda cupom'],DE:['0','Padrão devolução (entrada)'],DS:['1','Padrão devolução (saída)']});
+const DEFAULT_OPTIONS=option(...Object.entries(IMPORT_NATURE_DEFAULTS).map(([value,[,label]])=>[value,label,label.replace('Padrão ','')]));
+const TAX_COLUMNS=[['icms','ICMS'],['ipi','IPI'],['pis','PIS'],['cofins','COFINS']];
+const PRODUCT_TAX_COLUMNS=[
+ col('Código','code',text(100),{match:true,help:'Código do produto no ERP. Informe o Código ou o GTIN/EAN.',example:'CAMISETA-P'}),
+ col('GTIN/EAN','gtin',digits(8,12,13,14),{match:true,help:'Usado para achar o produto quando a linha não tem Código.',example:'7891234567895'}),
+ col('NCM','ncm',digits(8),{help:'8 dígitos, com ou sem pontos.',example:'6109.10.00'}),
+ col('CEST','cest',digits(7),{help:'7 dígitos. O produto precisa ter NCM.',example:'2806300'}),
+ col('Origem','origin',ORIGINS,{help:'0 a 8 (0 = nacional).',example:'0'}),
+ col('Unidade tributável','tax_unit',text(6),{help:'O ERP usa a Unidade do produto como unidade tributável: deixe vazia ou igual à Unidade do produto.',example:'UN'}),
+ col('GTIN/EAN tributável','gtin_tax',GTIN_TAX,{help:'8, 12, 13 ou 14 dígitos, ou SEM GTIN.',example:'SEM GTIN'}),
+ col('Natureza de operação','nature',text(60),{help:'Nome da natureza onde ficam as regras de impostos deste produto. Vazia: a natureza com o Padrão venda.',example:'Venda de mercadoria'}),
+ col('ICMS: CST/CSOSN','icms_situation',ICMS_SITUATION,{help:'CST (Regime normal) ou CSOSN (Simples Nacional), conforme o regime da natureza.',example:'102'}),
+ col('CFOP','icms_cfop',CFOP,{help:'CFOP do ICMS deste produto na natureza.',example:'5102'}),
+ col('Alíquota ICMS (%)','icms_rate',RATE,{help:'Número com vírgula, até 4 casas.',example:'18'}),
+ col('Benefício fiscal (cBenef)','benefit_code',BENEFIT,{help:'Código do benefício fiscal do ICMS (8 ou 10 letras e números).',example:'SP070001'}),
+ col('IPI: CST','ipi_situation',IPI_SITUATION,{help:'50 a 55 ou 99 nas naturezas de saída; 00 a 05 ou 49 nas de entrada.',example:'53'}),
+ col('Alíquota IPI (%)','ipi_rate',RATE,{example:'0'}),
+ col('PIS: CST','pis_situation',PIS_SITUATION,{example:'49'}),col('Alíquota PIS (%)','pis_rate',RATE,{example:'0,65'}),
+ col('COFINS: CST','cofins_situation',PIS_SITUATION,{example:'49'}),col('Alíquota COFINS (%)','cofins_rate',RATE,{example:'3'}),
+];
+const label=(columns,key)=>columns.find(c=>c.key===key)?.label??key;
+/** Combinations a line must keep (preview and Worker): rate, CFOP and benefit only with the CST of the tax; a natureza only with a tax. */
+function productTaxProblems(data){
+ const out=[],l=key=>label(PRODUCT_TAX_COLUMNS,key);
+ for(const[tax]of TAX_COLUMNS){const situation=data[`${tax}_situation`]!==undefined;
+  for(const key of[`${tax}_rate`,...(tax==='icms'?['icms_cfop','benefit_code']:[])])if(data[key]!==undefined&&!situation)out.push(`${l(key)}: informe também ${l(`${tax}_situation`)}`);}
+ if(data.nature!==undefined&&!TAX_COLUMNS.some(([tax])=>data[`${tax}_situation`]!==undefined))out.push(`${l('nature')}: informe o CST de ao menos um imposto`);
+ if(!Object.keys(data).some(k=>!['code','gtin'].includes(k)))out.push('Linha sem nenhuma coluna fiscal preenchida');
+ return out;
+}
+const NATURE_COLUMNS=[
+ col('Natureza de operação','description',text(60),{group:true,required:true,help:'Nome da natureza. As linhas com o mesmo nome formam uma natureza; uma natureza com esse nome e o mesmo Tipo é atualizada.',example:'Venda de mercadoria'}),
+ col('Tipo','direction',option(['0','Entrada','e'],['1','Saída','saida','s']),{required:true,help:'Entrada ou Saída.',example:'Saída'}),
+ col('Regime tributário','crt',option(['1','Simples Nacional','simples'],['2','Simples Nacional - excesso de sublimite','excesso de sublimite'],['3','Regime Normal','normal'],['4','MEI','Simples Nacional - MEI']),
+  {help:'Obrigatório para incluir: Simples Nacional, Simples Nacional - excesso de sublimite, Regime Normal ou MEI.',example:'Simples Nacional'}),
+ col('Série','series',integer(999),{help:'Série da nota (0 a 999).',example:'1'}),
+ col('Consumidor final','final_consumer',BOOL,{help:'Sim ou Não.',example:'Não'}),
+ col('Padrão para','default_for',list(DEFAULT_OPTIONS,9,'códigos de Padrão para separados por vírgula'),{help:'S, VF, VJ, C, DS (saída) ou E, CF, CJ, DE (entrada), separados por vírgula. Tirar o padrão de outra natureza pede confirmação na tela.',example:'S, VJ'}),
+ col('Informações complementares','additional_info',area(5000),{help:'Texto das informações complementares da nota.',example:''}),
+ col('Informações ao fisco','fiscal_info',area(2000),{example:''}),
+ col('Imposto','item_tax',option(['icms','ICMS'],['ipi','IPI'],['pis','PIS'],['cofins','COFINS'],['ii','II','imposto de importacao']),{line:true,help:'Uma regra por linha: ICMS, IPI, PIS, COFINS ou II. Linha sem imposto só descreve a natureza.',example:'ICMS'}),
+ col('CST/CSOSN','item_situation',ANY_SITUATION,{line:true,help:'Obrigatório na regra. ICMS: CST no Regime normal, CSOSN no Simples Nacional.',example:'102'}),
+ col('CFOP','item_cfop',CFOP,{line:true,help:'Só no ICMS.',example:'5102'}),
+ col('Alíquota (%)','item_rate',RATE,{line:true,example:'18'}),
+ col('Base de cálculo (%)','item_base_rate',RATE,{line:true,help:'Percentual da base (100 = sem redução).',example:'100'}),
+ col('Benefício fiscal (cBenef)','item_benefit_code',BENEFIT,{line:true,help:'Só no ICMS.',example:''}),
+ col('Destinos (UF)','item_destinations',list(UF_OPTIONS,28,'UFs separadas por vírgula (EX para exterior)'),{line:true,help:'Vazio: vale para todos os destinos.',example:'SP, RJ'}),
+ col('NCMs','item_ncms',list(code('^[0-9]{2}([0-9]{2}){0,3}$','início do NCM com 2, 4, 6 ou 8 dígitos',{strip:true}),10,'inícios de NCM separados por vírgula'),{line:true,help:'Vazio: vale para todos os produtos. Até 10 inícios de NCM (2, 4, 6 ou 8 dígitos).',example:'6109'}),
+];
+function natureProblems(data){
+ const out=[],l=key=>label(NATURE_COLUMNS,`item_${key}`);
+ if(Array.isArray(data.default_for))for(const c of data.default_for)if(data.direction!==undefined&&IMPORT_NATURE_DEFAULTS[c]?.[0]!==data.direction)
+  out.push(`Padrão para: ${IMPORT_NATURE_DEFAULTS[c]?.[1]??c} não vale para uma natureza de ${data.direction==='0'?'entrada':'saída'}`);
+ (Array.isArray(data.items)?data.items:[]).forEach((item,i)=>{const at=`Regra ${i+1}`,keys=Object.keys(item);
+  if(!keys.length)return;
+  if(item.tax===undefined){out.push(`${at}: informe o ${l('tax')}`);return;}
+  if(item.situation===undefined)out.push(`${at}: informe ${l('situation')}`);
+  for(const key of['cfop','benefit_code'])if(item[key]!==undefined&&item.tax!=='icms')out.push(`${at}: ${l(key)} só no ICMS`);
+  if(item.tax==='ii'&&item.situation!==undefined&&!['T','N'].includes(item.situation))out.push(`${at}: no II, CST/CSOSN é T (tributado) ou N (não tributado)`);
+  if(item.tax!=='ii'&&item.tax!=='icms'&&item.situation!==undefined&&!/^[0-9]{2}$/.test(item.situation))out.push(`${at}: ${l('situation')} de 2 dígitos no ${item.tax.toUpperCase()}`);});
+ return out;
+}
+const OPENING_COLUMNS=[
+ col('Conta financeira','account',text(50),{required:true,help:'Nome da conta como está em Financeiro › Caixas e bancos.',example:'Banco do Brasil'}),
+ col('Data','date',DATE,{required:true,help:'Dia do saldo (dd/mm/aaaa), a partir da Data de início da conta.',example:'31/12/2025'}),
+ col('Saldo','balance',decimal(13,2,{signed:true}),{required:true,help:'Saldo da conta no fim desse dia, com vírgula; negativo com sinal de menos.',example:'1.500,00'}),
+ col('Observação','note',text(400),{help:'Entra no histórico do lançamento.',example:'Saldo trazido do sistema antigo'}),
+];
 /** Templates in the order of the Origin hub (Produtos, Contatos, Suprimentos, Finanças, Vendas). `title` is the Origin entry. */
 export const IMPORT_TEMPLATES=Object.freeze({
  products:Object.freeze({kind:'products',title:'Importar e atualizar produtos',noun:['produto','produtos'],file:'modelo-produtos',columns:Object.freeze(PRODUCT_COLUMNS),readOnly:Object.freeze(PRODUCT_READ_ONLY),
@@ -132,7 +227,24 @@ export const IMPORT_TEMPLATES=Object.freeze({
   columns:Object.freeze([col('Código do produto','code',text(100),{required:true}),col('Lote','lot',text(60),{required:true}),col('Data de fabricação','manufactured_on',DATE),
    col('Data de validade','expires_on',DATE),col('Obs.','note',text(500))]),
   rule:'Um lote por linha. O produto é encontrado pelo Código e precisa ter Controle de lote (aba Estoque do produto). Um Lote novo é incluído no produto; um Lote que o produto já tem atualiza só as datas e a Obs. preenchidas. Valem as datas obrigatórias de Preferências › Cadastros › Controle de lotes e a fabricação até a validade. Nenhum saldo é lançado: o lote recebe estoque pelos lançamentos.'}),
+ // Wabotia (versão 28): the preview (Validar) says what changes in each record; Importar writes through the screens' own rules.
+ product_taxes:Object.freeze({kind:'product_taxes',title:'Importar dados fiscais dos produtos',noun:['produto','produtos'],file:'modelo-fiscal-produtos',columns:Object.freeze(PRODUCT_TAX_COLUMNS),
+  readOnly:Object.freeze(['Descrição','Unidade']),oneOf:Object.freeze(['code','gtin']),oneOfText:'informe o Código ou o GTIN/EAN do produto',check:productTaxProblems,
+  rule:'Um produto por linha, encontrado pelo Código ou, sem ele, pelo GTIN/EAN. A linha atualiza só as colunas preenchidas: NCM, CEST, Origem e GTIN/EAN tributável no cadastro do produto; CST/CSOSN, CFOP, alíquotas e benefício fiscal numa regra só deste produto na natureza informada (vazia: a natureza com o Padrão venda). As outras regras da natureza não mudam. A validação mostra o que muda em cada produto antes de importar.'}),
+ natures:Object.freeze({kind:'natures',title:'Importar naturezas de operação e regras fiscais',noun:['natureza','naturezas'],file:'modelo-naturezas-operacao',columns:Object.freeze(NATURE_COLUMNS),readOnly:Object.freeze([]),
+  grouped:Object.freeze({key:'description',unit:'natureza',max:250,tooMany:'A natureza tem mais de 250 regras',itemRequired:Object.freeze([]),contact:false}),check:natureProblems,
+  extra:Object.freeze({confirm_default:BOOL}),
+  rule:'Uma linha por regra fiscal. As linhas com o mesmo nome formam uma natureza: uma natureza com esse nome e o mesmo Tipo é atualizada (só as colunas preenchidas), as outras são incluídas. As regras da planilha substituem as regras gerais e por NCM dos impostos que aparecem nela; as regras por produto ou grupo e os outros impostos ficam. Padrão para tira o padrão de outra natureza só com a confirmação na tela.'}),
+ opening_balances:Object.freeze({kind:'opening_balances',title:'Importar saldos iniciais das contas financeiras',noun:['saldo','saldos'],file:'modelo-saldos-iniciais',columns:Object.freeze(OPENING_COLUMNS),readOnly:Object.freeze([]),
+  rule:'Um saldo por linha: a conta financeira (pelo nome), o dia e o saldo no fim desse dia. O ERP lança a diferença entre esse saldo e o saldo da conta no dia, como entrada ou saída de caixa com o histórico de saldo inicial (o mesmo lançamento do Financeiro). Importar a mesma planilha de novo não lança nada: o saldo já está igual.'}),
 });
+/** Planilha modelo: the instructions of the first sheet (Wabotia): title, rule and one row per column with how to fill and an example. */
+export function templateInstructions(kind){
+ const t=IMPORT_TEMPLATES[kind];need(t&&t.columns,400,'ERP_INVALID_INPUT');
+ const kinds={text:'Texto',digits:'Número',decimal:'Número',integer:'Número inteiro',date:'Data',bool:'Sim ou Não',option:'Opção',code:'Código',list:'Lista'};
+ return[[t.title],[t.rule],['A planilha com os dados é a segunda aba; esta aba não é importada.'],[],['Coluna','Obrigatória','Tipo','Como preencher','Exemplo'],
+  ...t.columns.map(c=>[c.label,c.required||c.group?'Sim':'Não',kinds[c.t]??'',[c.help,c.t==='option'?`Opções: ${c.options.map(o=>o.label).join(', ')}`:c.t==='list'&&c.item.t==='option'?`Opções: ${c.item.options.map(o=>`${o.value} (${o.label})`).join(', ')}`:null].filter(Boolean).join(' '),c.example??''])];
+}
 /** Kinds whose lines form one item (pedidos, notas, composições and campos customizados of a produto). */
 export const isGroupedKind=kind=>Boolean(IMPORT_TEMPLATES[kind]?.grouped);
 
@@ -164,6 +276,13 @@ export function normalizeCell(column,raw){
    const found=column.options.find(o=>[o.value,o.label,...o.aliases].some(x=>foldHeader(x)===f))??column.options.find(o=>[o.value,o.label,...o.aliases].some(x=>foldHeader(x)===head));
    if(!found)return{problem:`uma das opções: ${column.options.map(o=>o.label).join(', ')}`};
    return{value:column.key==='active'?found.value==='true':found.value};}
+  case'code':{const v=(column.strip?value.replace(/[\s./-]/g,''):value.replace(/\s+/g,' ')),u=column.upper?v.toUpperCase():v;
+   return new RegExp(column.pattern).test(u)?{value:u}:{problem:column.hint};}
+  case'list':{const parts=value.split(/[,;|]/).map(v=>v.trim()).filter(Boolean),out=[];
+   for(const part of parts){const r=normalizeCell(column.item,part);if(r.problem)return{problem:`${column.hint} (${part}: ${r.problem})`};out.push(r.value);}
+   if(new Set(out).size!==out.length)return{problem:`${column.hint}, sem repetir`};
+   if(out.length>column.max)return{problem:`até ${column.max} valores`};
+   return out.length?{value:out}:{value:undefined};}
  }
  return{problem:'coluna desconhecida'};
 }
@@ -177,6 +296,8 @@ function canonical(column,value){
   case'date':return isoDay(value);
   case'bool':return typeof value==='boolean';
   case'option':return column.key==='active'?typeof value==='boolean':column.options.some(o=>o.value===value);
+  case'code':return typeof value==='string'&&new RegExp(column.pattern).test(value);
+  case'list':return Array.isArray(value)&&value.length>=1&&value.length<=column.max&&new Set(value).size===value.length&&value.every(v=>canonical(column.item,v));
  }
  return false;
 }
@@ -199,7 +320,8 @@ export function templateRows(kind,cells,mapping={}){
   // Pedidos: the header columns may stay empty after the first line of a document; they are checked per document below.
  for(const c of t.columns)if(c.required&&(c.line||c.group||!isGroupedKind(kind))&&index.has(c.key)&&data[c.key]===undefined&&!problems.some(p=>p.startsWith(`${c.label}:`)))problems.push(`${c.label}: obrigatório`);
   if(!problems.length&&!Object.keys(data).length)problems.push('Linha sem nenhuma coluna do modelo preenchida');
-  if(!isGroupedKind(kind)&&t.oneOf&&t.oneOf.every(k=>data[k]===undefined))problems.push(`${t.columns.find(c=>c.key===t.oneOf[0]).label}: informe o nome ou o CPF/CNPJ`);
+  if(!isGroupedKind(kind)&&t.oneOf&&t.oneOf.every(k=>data[k]===undefined))problems.push(`${t.columns.find(c=>c.key===t.oneOf[0]).label}: ${t.oneOfText??'informe o nome ou o CPF/CNPJ'}`);
+  if(!isGroupedKind(kind)&&t.check&&!problems.length)problems.push(...t.check(data));
   return{row:i+2,data,problems};});
  if(!isGroupedKind(kind))return{items:parsed.map(p=>({row:p.row,lines:[p.row],data:p.data,problems:p.problems})),missing,unknown:unknown.filter(u=>!readOnly.includes(u)),readOnly};
  // Pedidos: consecutive or not, the lines with the same Número do pedido form one document, in the order of their first line.
@@ -215,6 +337,7 @@ export function templateRows(kind,cells,mapping={}){
   if(data.items.length>(g.max??250))problems.push(g.tooMany);
   if(g.contact&&!data.contact_name&&!data.contact_document)problems.push(`${head.find(c=>c.key==='contact_name').label}: informe o nome ou o CPF/CNPJ`);
   if(g.itemOneOf)data.items.forEach((item,i)=>{if(!item.code&&!item.description)problems.push(`Linha ${group[i].row}: informe o Código ou a Descrição do produto`);});
+  if(t.check&&!problems.length)problems.push(...t.check(data).map(p=>p.replace(/^Regra (\d+):/,(_,n)=>`Linha ${group[Number(n)-1].row}:`)));
   return{row:first.row,lines:group.map(p=>p.row),data,problems};});
  return{items,missing,unknown:unknown.filter(u=>!readOnly.includes(u)),readOnly};
 }
@@ -226,16 +349,18 @@ function captureData(kind,data,validateContact){
  const t=IMPORT_TEMPLATES[kind];
  if(kind==='contacts'){need(plain(data)&&Object.keys(data).length>0&&typeof validateContact==='function');return validateContact(data);}
  need(plain(data));
- const own=t.columns.filter(c=>!c.line),lines=t.columns.filter(c=>c.line),allowed=new Set([...own.map(c=>c.key),...(isGroupedKind(kind)?['items']:[])]);
+ const own=[...t.columns.filter(c=>!c.line),...Object.entries(t.extra??{}).map(([key,grammar])=>({key,...grammar}))],lines=t.columns.filter(c=>c.line),
+  allowed=new Set([...own.map(c=>c.key),...(isGroupedKind(kind)?['items']:[])]);
  need(Object.keys(data).length>0&&Object.keys(data).every(k=>allowed.has(k)));
  for(const c of own)if(Object.hasOwn(data,c.key))need(canonical(c,data[c.key]));
  for(const c of own)if(c.required)need(Object.hasOwn(data,c.key));
  if(t.oneOf)need(t.oneOf.some(k=>Object.hasOwn(data,k)));
- if(!isGroupedKind(kind))return data;
+ if(!isGroupedKind(kind)){if(t.check)need(!t.check(data).length);return data;}
  const g=t.grouped;need(Array.isArray(data.items)&&data.items.length>=1&&data.items.length<=(g.max??250)&&(!g.contact||data.contact_name!==undefined||data.contact_document!==undefined));
  const keys=new Map(lines.map(c=>[c.key.slice(5),c]));
  for(const item of data.items){need(plain(item)&&Object.keys(item).every(k=>keys.has(k))&&g.itemRequired.every(k=>Object.hasOwn(item,k))&&(!g.itemOneOf||g.itemOneOf.some(k=>Object.hasOwn(item,k))));
   for(const[k,v]of Object.entries(item))need(canonical(keys.get(k),v));if(Object.hasOwn(item,'quantity'))need(Number(item.quantity)>0);}
+ if(t.check)need(!t.check(data).length);
  return data;
 }
 /** POST /v1/importacoes/<tipo>/lote body: {command_id, job_id, file_name, total_rows, dry_run, items:[{row, lines, data}]}. */

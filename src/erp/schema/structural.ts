@@ -258,4 +258,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Expedição (parte erp-expedicao, depende de Vendas e Estoque): lista de separação consolidada por produto e endereço, situação do pedido na expedição (a separar, em separação, separado, embalado, expedido), pendência quando falta quantidade, embalagens e volumes que alimentam o transporte do pedido, etiquetas e romaneio, entrega local pelo módulo Entrega e devolução física com entrada no estoque.",
     replaced_by: "Versão 25 aditiva (24→25): erp_shipping__package, __order, __pick_list, __pick_line, __pending, __volume, __return e __command. A situação comercial do pedido não muda; a pendência também entra como ocorrência do pedido; o transporte do pedido (volumes e peso bruto) é gravado pelo salvamento do próprio pedido; a entrada no estoque é a do Estoque (erp_stock.post, recebimento); a devolução fiscal continua a da NF-e (só o atalho).",
   },
+  {
+    id: "importacao-fiscal",
+    oracle: "A importação por planilha cobre produtos, contatos, compras, vendas, estoque, contas, composições, campos customizados, fornecedores de produto e lotes; o CHECK de kind de erp_preferences.import_job só aceita esses tipos e não há planilha fiscal, de naturezas nem de saldos iniciais.",
+    reason: "Quem vem de outro sistema traz por planilha os dados fiscais dos produtos (NCM, CEST, origem, unidade e GTIN tributáveis, CST/CSOSN e alíquotas por natureza, benefício fiscal), as naturezas de operação com as regras fiscais e o saldo inicial das contas financeiras, com prévia, lote, idempotência e relatório de erros da importação existente.",
+    replaced_by: "Versão 28 aditiva (27→28; 26 e 27 são de outras frentes): erp_preferences__import_job_kind (job_id, kind product_taxes | natures | opening_balances). O lote continua em import_job com um tipo de apoio (products, nfe ou receivables), import_row e import_command; as leituras do lote, a lista, as partes e o registro de atividades usam o tipo desta tabela quando ela tem a linha. As linhas gravam pelas RPCs dos domínios (erp_catalog_product_save, erp_fiscal_nature_execute e o lançamento do Financeiro).",
+  },
 ];
