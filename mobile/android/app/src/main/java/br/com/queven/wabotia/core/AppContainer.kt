@@ -145,6 +145,8 @@ class AppContainer(context: Context) {
      */
     private fun wipeLocalData() {
         conversationCache.wipe()
+        // Cópias das ordens de serviço para ver sem conexão (lista, fichas e modelos).
+        br.com.queven.wabotia.modules.os.WorkOrderCache.wipe(appContext)
         Notifications.cancelAll(appContext)
         scope.launch(Dispatchers.IO) {
             runCatching { AuthenticatedMedia.clear() }

@@ -40,10 +40,49 @@ final class ProfileAPI {
 
     /// Escrita com `Idempotency-Key`; `body` é um objeto JSON (chaves nulas omitidas).
     func send<T: Decodable>(_ method: String, _ path: String, _ body: [String: Any?] = [:], key: String) async throws -> T {
+        try QueueHTTP.decode(T.self, try await sendData(method, path, body, key: key))
+    }
+
+    /// A resposta crua de uma escrita, para quem decodifica com outro decodificador (ordem por modelo).
+    func sendData(_ method: String, _ path: String, _ body: [String: Any?] = [:], key: String) async throws -> Data {
         let clean = body.compactMapValues { $0 }
         let data = (try? JSONSerialization.data(withJSONObject: clean, options: [.sortedKeys])) ?? Data("{}".utf8)
         let request = QueueHTTP.request(try url(path, [:]), method: method, token: token(), key: key, body: data)
-        return try QueueHTTP.decode(T.self, try await QueueHTTP.send(session, request))
+        return try await QueueHTTP.send(session, request)
+    }
+
+    /// Envio de bytes para um caminho do mesmo servidor (`upload_url` de documento): `Authorization` só vai para a
+    /// origem da sessão; endereço de outro domínio é recusado antes de sair do aparelho.
+    func upload(_ uploadURL: String, data: Data, contentType: String, key: String, headers: [String: String] = [:]) async throws -> Data {
+        guard let target = Self.sameOrigin(base: base, uploadURL) else {
+            throw QueueError(status: 0, code: "upload_url_rejected", message: "O endereço de envio da foto não é deste Wabotia. A foto não foi enviada; avise o administrador.")
+        }
+        var request = QueueHTTP.request(target, method: "PUT", token: token(), key: key)
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        request.httpBody = data
+        return try await QueueHTTP.send(session, request)
+    }
+
+    /// Bytes de um caminho da área com o token (conteúdo de documento).
+    func download(_ path: String) async throws -> Data {
+        var request = QueueHTTP.request(try url(path, [:]), method: "GET", token: token())
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        return try await QueueHTTP.send(session, request)
+    }
+
+    /// `upload_url` relativo (`/api/v1/...`) vira endereço do servidor da sessão; absoluto só com o mesmo esquema,
+    /// host e porta. Qualquer outro caso: `nil`.
+    static func sameOrigin(base: String, _ uploadURL: String) -> URL? {
+        let text = uploadURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let root = URL(string: base), let host = root.host?.lowercased() else { return nil }
+        if text.hasPrefix("/") && !text.hasPrefix("//") {
+            guard text.hasPrefix("/api/") else { return nil }
+            return URL(string: base + text)
+        }
+        guard let url = URL(string: text), let otherHost = url.host?.lowercased(), otherHost == host,
+              url.scheme?.lowercased() == root.scheme?.lowercased(), url.port == root.port, url.user == nil else { return nil }
+        return url
     }
 
     private func url(_ path: String, _ query: [String: String?]) throws -> URL {
