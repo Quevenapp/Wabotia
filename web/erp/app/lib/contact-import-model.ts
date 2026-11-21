@@ -7,7 +7,7 @@ import { fieldColumns, rowFieldValues, type ContactField } from './contact-field
 // a planilha"), até 10.000 contatos. Tudo é lido no navegador; o servidor valida e importa em lotes de 50 linhas.
 export const IMPORT_LIMIT = 10000;
 export const IMPORT_BATCH = 50;
-// Wabotia: `custom` são os campos próprios de contato da linha (coluna com o nome do campo), gravados depois que o contato é criado.
+// Vinki: `custom` são os campos próprios de contato da linha (coluna com o nome do campo), gravados depois que o contato é criado.
 export type ImportRow = { row: number; data: Record<string, unknown>; problems: string[]; ignored: string[]; custom?: Record<string, string> };
 const fold = (value: string) => value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -142,7 +142,7 @@ export function importRows(cells: readonly string[][], types: readonly ContactTy
 }
 export const API_FIELD_LABEL: Record<string, string> = Object.fromEntries(SHEET_COLUMNS.map(([label, key]) => [key, label]));
 /** Planilha modelo: só o cabeçalho, em CSV ou XLSX. */
-// Wabotia: com campos próprios de contato ativos, uma coluna a mais com o nome de cada um.
+// Vinki: com campos próprios de contato ativos, uma coluna a mais com o nome de cada um.
 const modelHeader = (fields: readonly ContactField[]) => [...SHEET_COLUMNS.map(([label]) => textCell(label)), ...fields.filter(field => field.active).map(field => textCell(field.name))];
 export const modelCsv = (fields: readonly ContactField[] = []) => toCsv([modelHeader(fields)]);
 export const modelXlsx = (fields: readonly ContactField[] = []) => toXlsx('Contatos', [modelHeader(fields)]);

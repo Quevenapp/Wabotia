@@ -442,7 +442,7 @@ export function retryAtOf(message: string): string | null {
 // Erros do cofre → erros do ERP
 
 /**
- * Código do cofre → [status HTTP do Wabotia, código do ERP, pode repetir].
+ * Código do cofre → [status HTTP do Vinki, código do ERP, pode repetir].
  * As chaves são exatamente a tabela `x-codigos` do contrato (o teste de
  * contrato confere). Código fora da tabela é tratado pelo status HTTP.
  */
@@ -512,7 +512,7 @@ export function fiscalError(error: unknown, kind: FiscalKind | null = null, expe
       return new FiscalError(
         502,
         "fiscal_provider_same_zone",
-        "A Cloudflare recusou a chamada do Wabotia ao cofre (erro 1042). Instale o cofre em outra zona ou ligue a flag global_fetch_strictly_public no Wabotia.",
+        "A Cloudflare recusou a chamada do Vinki ao cofre (erro 1042). Instale o cofre em outra zona ou ligue a flag global_fetch_strictly_public no Vinki.",
         { retryable: false },
       );
     if (error.kind === "too_large") return new FiscalError(502, "fiscal_file_too_large", error.message, { retryable: false });

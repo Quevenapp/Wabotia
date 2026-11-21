@@ -107,7 +107,7 @@ export default function ErpPermissions({
       </header>
       <p className="real-notice">
         Convidar alguém, trocar o papel no ERP, redefinir a senha ou o segundo
-        fator e encerrar sessões: em Gestão › Pessoas e acessos do Wabotia.
+        fator e encerrar sessões: em Gestão › Pessoas e acessos do Vinki.
       </p>
       <div
         className="erp-permissions-filters"

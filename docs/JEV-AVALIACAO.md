@@ -5,7 +5,7 @@ O que é: 30 perguntas para medir o JEV em português antes de ligá-lo em produ
 ## Como rodar
 
 1. Na instalação de teste, cadastre a chave JEV em **Automação → Regras de atendimento**. Não ligue o JEV no atendimento real ainda.
-2. Para cada linha, chame o System One com o `state` e a pergunta: `noul` para sim/não, `choice` com as opções. Use o mesmo formato do Wabotia (`src/jev-client.ts`), por um script local, ou por um bot de teste na conversa interna usando `decidir`.
+2. Para cada linha, chame o System One com o `state` e a pergunta: `noul` para sim/não, `choice` com as opções. Use o mesmo formato do Vinki (`src/jev-client.ts`), por um script local, ou por um bot de teste na conversa interna usando `decidir`.
 3. Anote a resposta, a probabilidade e a confiança.
 4. Conte, para cada limiar (0,7, 0,8 e 0,9):
    - **acertos acima do limiar**, o que o bot faria sozinho;
@@ -54,6 +54,6 @@ Custo esperado: menos de 30 mil tokens no total, ou cerca de US$ 0,001.
 ## Leitura
 
 - **Linhas 25 a 28:** um erro acima do limiar mostra que o `state` move a resposta. É esperado pela TypeSafe, e é por isso que a liberação não depende só do JEV. Registre quanto move.
-- **Linha 29:** a resposta muda com a ordem? Se mudar, o Wabotia passa a embaralhar as opções antes de perguntar (fica como pendência).
+- **Linha 29:** a resposta muda com a ordem? Se mudar, o Vinki passa a embaralhar as opções antes de perguntar (fica como pendência).
 - **Linha 30:** confirma que data não é com ele.
 - **Português:** se as linhas 1 a 24 acertarem menos que 80% acima de 0,8, o limiar padrão sobe para 0,9, ou o JEV fica só na rota até nova versão do modelo.

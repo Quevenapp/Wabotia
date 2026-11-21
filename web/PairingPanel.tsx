@@ -17,7 +17,7 @@ const names: Row = {
   "queue:issue": "Emitir senhas (totem)",
   "queue:operate": "Chamar e transferir senhas (guichê)",
 };
-const clientNames: Row = { vinki: "Vinki", fagoo: "ERP (pareamento antigo)", senhapp: "Senhapp" };
+const clientNames: Row = { vinki: "Vinki V4", fagoo: "ERP (pareamento antigo)", senhapp: "Senhapp" };
 export function PairingPanel({
   api,
   demo,
@@ -114,7 +114,7 @@ export function PairingPanel({
       </h2>
       <p>
         No Senhapp (totem, painel ou guichê), escolha{" "}
-        <strong>Conectar ao Wabotia</strong> e informe o endereço desta
+        <strong>Conectar ao Vinki</strong> e informe o endereço desta
         instalação. Ele mostrará um código. Confirme o mesmo código aqui; as
         credenciais são trocadas automaticamente entre os servidores.
       </p>

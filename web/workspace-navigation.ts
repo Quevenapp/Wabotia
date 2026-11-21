@@ -364,7 +364,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   connections:
     "Conecte um provedor de IA e confira o funcionamento dos canais.",
   applications:
-    "Pareie o Senhapp e gerencie o acesso de outros sistemas ao Wabotia.",
+    "Pareie o Senhapp e gerencie o acesso de outros sistemas ao Vinki.",
   presence: "Informe quando você está disponível para assumir atendimentos.",
   team: "Converse com pessoas e bots da equipe sem enviar mensagens ao cliente.",
   surveys:

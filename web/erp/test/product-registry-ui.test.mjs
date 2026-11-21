@@ -323,7 +323,7 @@ test('product list: "Tornar padrão" offers the applied filters and applies the 
   const view = await mountComponent('RealCatalog.tsx', { controller: base.controller, initialEntity: 'products' }, { expandChildren: ['NativeListLayout'] });
   try {
     assert.deepEqual(Object.fromEntries(new URLSearchParams(pages.at(-1).split('?')[1])), { page: '1', size: '100', q: 'parafuso', situation: 'active', category: child });
-    // Wabotia: a primeira página espera as preferências e sai uma vez só, já com os filtros padrão (antes: sem filtro, abortada e refeita).
+    // Vinki: a primeira página espera as preferências e sai uma vez só, já com os filtros padrão (antes: sem filtro, abortada e refeita).
     assert.equal(pages.length, 1, 'one list request, after the preferences');
     assert.deepEqual(view.find(node => node.type?.name === 'ListPreferencesBar').props.currentFilters, { situation: 'active', q: 'parafuso', category: child });
     await view.change('catalog-images-filter', 'yes'); await view.submit();

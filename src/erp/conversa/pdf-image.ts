@@ -98,7 +98,7 @@ const latin1 = (bytes: Uint8Array) => { let out = ""; for (let i = 0; i < bytes.
 const ascii = (text: string) => [...text].map(char => { const code = char.charCodeAt(0); return code < 32 || code > 126 || "()\\".includes(char) ? "?" : char; }).join("");
 
 /** O PDF das páginas, com a imagem como recurso de todas (mesma estrutura do pdfDocument do painel). */
-export function pdfDocumentWithImage(pages: readonly PdfPage[], image: PdfImage | null, { title = "Documento", producer = "Wabotia" } = {}): Uint8Array {
+export function pdfDocumentWithImage(pages: readonly PdfPage[], image: PdfImage | null, { title = "Documento", producer = "Vinki" } = {}): Uint8Array {
   const num = (value: number) => (Math.round(value * 100) / 100).toString();
   const objects: string[] = [];
   const add = (body: string) => { objects.push(body); return objects.length; };

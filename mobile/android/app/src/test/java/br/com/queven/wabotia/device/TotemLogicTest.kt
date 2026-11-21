@@ -23,7 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/** A lógica do totem e do painel que veio do Senhapp, ligada ao contrato do Wabotia. */
+/** A lógica do totem e do painel que veio do Senhapp, ligada ao contrato do Vinki. */
 class TotemLogicTest {
     private lateinit var server: MockWebServer
     private lateinit var client: QueueClient

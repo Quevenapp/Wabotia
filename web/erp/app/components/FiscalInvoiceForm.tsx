@@ -104,7 +104,7 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
   // Section shortcuts keep the full document mounted and preserve field focus/state.
   const [tab, selectSection] = useState<Tab>(initialTab), [itemIndex, setItemIndex] = useState<number | null>(null), [showMore, setShowMore] = useState(false);
   const sectionRoot = useRef<HTMLElement>(null);
-  // Wabotia: nota de crédito e de débito (finalidades 5 e 6 da reforma) só aparecem quando o cofre as aceita.
+  // Vinki: nota de crédito e de débito (finalidades 5 e 6 da reforma) só aparecem quando o cofre as aceita.
   const reformVault = useReformVault();
   const scrollSection = (value: Tab) => {
     const section = sectionRoot.current?.querySelector<HTMLElement>(`#fiscal-section-${value}`);

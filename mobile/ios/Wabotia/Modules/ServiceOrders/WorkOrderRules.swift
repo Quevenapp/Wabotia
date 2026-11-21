@@ -106,7 +106,7 @@ enum WorkOrderRules {
     static let offlineAction = "Sem conexão. Esta mudança não foi guardada: tente de novo quando a internet voltar."
     static let versionConflict = "Outra pessoa mudou esta ordem. A ficha foi atualizada; confira e tente de novo."
     static let forbidden = "Sua conta não tem acesso às ordens de serviço. Peça a um administrador."
-    static let noCamera = "Este item pede foto pela câmera. Libere a câmera para o Wabotia nos Ajustes do aparelho."
+    static let noCamera = "Este item pede foto pela câmera. Libere a câmera para o Vinki nos Ajustes do aparelho."
     static let noCustomer = "Nenhum cliente com esse nome ou telefone. Cadastre o cliente na conversa ou no painel e busque de novo."
 
     static func offlineBanner(_ savedAt: Int64) -> String {
@@ -129,15 +129,15 @@ enum WorkOrderRules {
         case "customer_required": return "Confirme o cadastro do cliente antes de escolher o objeto."
         case "object_definition_conflict", "object_archived": return "O cadastro do objeto mudou. Escolha o objeto de novo."
         case "unsupported_media_type", "payload_too_large", "document_too_large":
-            return "A foto não foi aceita: ficou grande demais ou num formato que o Wabotia não recebe. Tire a foto de novo."
+            return "A foto não foi aceita: ficou grande demais ou num formato que o Vinki não recebe. Tire a foto de novo."
         case "invalid_transition": return "Esta mudança de etapa não vale para a ordem agora. A ficha foi atualizada."
         case "upload_url_rejected": return e.message
         default: break
         }
         if e.status == 403 { return forbidden }
-        if e.status == 413 || e.status == 415 { return "A foto não foi aceita: ficou grande demais ou num formato que o Wabotia não recebe. Tire a foto de novo." }
+        if e.status == 413 || e.status == 415 { return "A foto não foi aceita: ficou grande demais ou num formato que o Vinki não recebe. Tire a foto de novo." }
         if e.retryable && e.status != 0 { return e.message + " Toque de novo para repetir com segurança." }
-        return e.message.isEmpty ? "O Wabotia recusou a mudança. Tente de novo." : e.message
+        return e.message.isEmpty ? "O Vinki recusou a mudança. Tente de novo." : e.message
     }
 
     /// O catálogo de modelos não existe neste servidor (versão anterior aos modelos).

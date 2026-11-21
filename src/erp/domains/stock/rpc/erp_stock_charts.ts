@@ -1,4 +1,4 @@
-// Relatórios em gráfico do Estoque e o alerta de lotes vencendo (Wabotia, sem
+// Relatórios em gráfico do Estoque e o alerta de lotes vencendo (Vinki, sem
 // função no oráculo):
 // - erp_stock_chart, p_args.report "warehouses": produtos com saldo e
 //   quantidade por depósito; "turnover": giro dos produtos no período (saídas

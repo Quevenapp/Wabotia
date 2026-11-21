@@ -146,7 +146,7 @@ export async function readDocumentPreferences(controller: PreferencesPort, kind:
   if (typeof controller.preferences !== 'function') return defaultDocumentPreferences(kind);
   const pageId = DOCUMENT_PREFERENCE_PAGES[kind];
   // The products page is read for the location options only; without it (another profile, a failure) they stay off.
-  // Wabotia: as duas páginas saem juntas (Promise.all), um RT a menos; a falha da página do tipo continua recusando como antes.
+  // Vinki: as duas páginas saem juntas (Promise.all), um RT a menos; a falha da página do tipo continua recusando como antes.
   const [page, productsView] = await Promise.all([controller.preferences(`/v1/preferencias/${pageId}`, { signal }),
     kind === 'sales_orders' ? controller.preferences('/v1/preferencias/cadastros-produtos', { signal }).then(value => parsePreferencesPage(value, 'cadastros-produtos')).catch(() => null) : null]);
   const view = parsePreferencesPage(page, pageId);

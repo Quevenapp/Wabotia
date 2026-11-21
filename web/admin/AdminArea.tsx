@@ -419,7 +419,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
               <Page key={app.profile + ":" + page} page={page} />
             )}
             <footer className="app-footer">
-              <span>Wabotia · Atendimento conectado</span>
+              <span>Vinki · Queven</span>
               <SourceFooterLink />
             </footer>
           </div>

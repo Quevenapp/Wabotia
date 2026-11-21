@@ -175,7 +175,7 @@ export default function PreferenceSettingsPage({controller,page,section,category
       :<button type="button" className="text-button" disabled={busy||pending!=='none'} onClick={()=>state.dirty?setDiscard(true):setReload(n=>n+1)}>Recarregar</button>)}
      {notice&&!state.dirty&&<span className="preference-saved" aria-hidden="true">{notice}</span>}
      {state.dirty&&!busy&&pending==='none'&&<span className="real-help">{state.changes.length} alteração(ões) não salva(s){state.invalid.length?`, ${state.invalid.length} com valor a corrigir`:''}.</span>}</footer>
-    {/* Wabotia: campos próprios de contato, na página de clientes e fornecedores (Preferências › Cadastros). */}
+    {/* Vinki: campos próprios de contato, na página de clientes e fornecedores (Preferências › Cadastros). */}
     {page.id==='cadastros-contatos'&&!embedded&&<ContactCustomFieldsAdmin/>}
    </section>
   </div>}

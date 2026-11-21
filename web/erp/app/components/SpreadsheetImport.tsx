@@ -20,7 +20,7 @@ const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const admin=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';
 // An answer that did not arrive (timeout, network, 5xx or "unconfirmed") may have been recorded: only the same command can tell.
 const uncertain=(e:unknown)=>!(e instanceof AccessError)||[0,408,500,502,503,504].includes(e.status);
-// Wabotia: a parte desligada é dita pelo nome (Gestão → Módulos).
+// Vinki: a parte desligada é dita pelo nome (Gestão → Módulos).
 const partsOf=(kind:ImportKind)=>{const ids=(erpImportRequirement(kind)?.all??[]).filter(id=>id!=='erp').map(id=>ERP_BLOCK_LABELS[id as keyof typeof ERP_BLOCK_LABELS]??id);
  return ids.length>1?`${ids.slice(0,-1).join(', ')} e ${ids.at(-1)}`:ids[0]??null;};
 const refusal=(e:unknown,kind:ImportKind)=>e instanceof AccessError&&e.code==='module_disabled'?(partsOf(kind)?`Esta importação depende de ${partsOf(kind)}. Ligue em Gestão → Módulos e tente de novo.`:'Esta importação depende de uma parte desligada. Ative as partes necessárias nas configurações da área.')

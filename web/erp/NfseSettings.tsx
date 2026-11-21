@@ -92,7 +92,7 @@ export function NfseSettingsPanel() {
       <h4>O que o cofre informa</h4>
       <ul>
         <li>Emite NFS-e: {config.vault.nfse === true ? "sim" : config.vault.nfse === false ? "não" : "ainda não informado (use Testar conexão)"}.</li>
-        <li>Inscrição municipal, série da DPS e regime especial: ficam no cofre, que não os informa ao Wabotia. Confira na tela do cofre.</li>
+        <li>Inscrição municipal, série da DPS e regime especial: ficam no cofre, que não os informa ao Vinki. Confira na tela do cofre.</li>
         <li>Regime da empresa: {config.company.regime}{config.company.municipality_code ? `; município ${config.company.municipality_code}` : ""}.</li>
       </ul>
       {missing.length > 0 && <><h4>O que falta configurar</h4><ul>{missing.map(item => <li key={item}>{item}</li>)}</ul></>}

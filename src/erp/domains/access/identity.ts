@@ -3,7 +3,7 @@
 // src/erp/schema/structural.ts.
 //
 // Projeção (antes de todo RPC, quando o envelope traz as pessoas):
-// erp_access.membership e profile seguem o Wabotia. Papel = erp:<papel> da
+// erp_access.membership e profile seguem o Vinki. Papel = erp:<papel> da
 // pessoa; quem não tem papel fica inativo (a linha fica, com o último papel);
 // nome do perfil = nome da pessoa. Nenhum RPC grava papel. Só escreve o que
 // mudou, e pula tudo quando o diretório é o mesmo da última vez.

@@ -13,7 +13,7 @@
 //   fica a conferência de que a assinatura antiga de erp_document_list sumiu;
 // - o teste 'publication: the new API keeps answering a database still on 233'
 //   inteiro: abre um banco parado na migração 233; o oráculo tem todas as
-//   migrações e no Wabotia cada instalação começa com o esquema inteiro
+//   migrações e no Vinki cada instalação começa com o esquema inteiro
 //   (PLANO-FAGOO.md, decisão 2), não há banco "antes da 238" a atender.
 import test from 'node:test';
 import assert from 'node:assert/strict';

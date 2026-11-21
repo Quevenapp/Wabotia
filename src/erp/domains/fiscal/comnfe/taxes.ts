@@ -77,7 +77,7 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
   const vaultAccepts = vaultKnown && obj(reformSources.vault).ibs_cbs === true;
   const vaultSelective = vaultAccepts && obj(reformSources.vault).selective === true;
   const reformUnknown = (field: string, index?: number) => block("fiscal_reform_required", field,
-    "Este item tem classificação de IBS/CBS, mas o Wabotia ainda não sabe se o seu cofre recebe a reforma tributária. Teste a conexão do cofre e salve a configuração da NF-e (Fiscal › Emissor fiscal) e prepare a nota de novo.", index, "fiscal_settings");
+    "Este item tem classificação de IBS/CBS, mas o Vinki ainda não sabe se o seu cofre recebe a reforma tributária. Teste a conexão do cofre e salve a configuração da NF-e (Fiscal › Emissor fiscal) e prepare a nota de novo.", index, "fiscal_settings");
   const amount = (value: unknown, field: string, scale = 2, digits = 13, index?: number): string | null => {
     // Zeros finais de quantidade comercial com seis casas não mudam seu valor.
     const raw = typeof value === "string" || typeof value === "number" ? String(value).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "") : value;
@@ -461,7 +461,7 @@ function reformGroups(p: {
   const vault = !p.vaultKnown ? "unknown" : p.vaultAccepts ? "accepts" : "refuses";
   const message = vault === "refuses"
     ? "O seu cofre ainda não recebe IBS, CBS e IS (reforma tributária): a nota sai como hoje, sem esse grupo. Os valores abaixo são só para conferência."
-    : vault === "unknown" ? "O Wabotia ainda não sabe se o seu cofre recebe a reforma tributária: teste a conexão do cofre e salve a configuração da NF-e."
+    : vault === "unknown" ? "O Vinki ainda não sabe se o seu cofre recebe a reforma tributária: teste a conexão do cofre e salve a configuração da NF-e."
     : result.regime === "simples" ? "Empresa do Simples Nacional: a nota sai sem o grupo IBS/CBS."
     : result.informative ? "Valores de IBS e CBS enviados na nota em caráter informativo (2026): não mudam o total a pagar." : null;
   return json({ ...result, vault, sent, message });

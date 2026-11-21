@@ -1,8 +1,8 @@
 # Emissor fiscal do ERP (cliente do cofre NFapi)
 
-A emissão de nota fiscal não fica no Wabotia. Cada emitente instala um
+A emissão de nota fiscal não fica no Vinki. Cada emitente instala um
 **cofre NFapi**: um Worker na conta Cloudflare dele, que guarda o certificado
-A1, numera, monta e assina o XML e fala com a SEFAZ. O Wabotia é só cliente:
+A1, numera, monta e assina o XML e fala com a SEFAZ. O Vinki é só cliente:
 guarda o endereço do cofre e uma chave de API e chama a API.
 
 O ERP fala só com `FiscalProvider` (`provider.ts`). A NFapi é a única
@@ -207,7 +207,7 @@ O `FiscalError` estende `ApiError`. Em `details` vêm:
 - `emission`: o resultado, quando o cofre mandou a emissão;
 - `retryable`.
 
-| Cofre | Wabotia | Pode repetir |
+| Cofre | Vinki | Pode repetir |
 |---|---|---|
 | `400 requisicao_invalida` (+`campo`) | `422 fiscal_invalid_request` | não |
 | `401 nao_autenticado` | `409 fiscal_provider_unauthorized` | não |
@@ -339,7 +339,7 @@ Estado (`GET`, `PUT`, `DELETE`, `POST /test`):
   "provider": "nfapi",
   "url": "https://nfapi-cofre.sua-conta.workers.dev",
   "api_key_set": true,
-  "contract_version": "0.12.0",         // contrato versionado pelo Wabotia
+  "contract_version": "0.12.0",         // contrato versionado pelo Vinki
   "updated": 1763300000000,
   "checked": {                          // null antes do primeiro teste
     "at": 1763300000000, "ok": true,
@@ -396,14 +396,14 @@ A documentação da Cloudflare (lida em 16/11/2026) diz:
   ([fetch](https://developers.cloudflare.com/workers/runtime-apis/fetch/)). O
   service binding exige o Worker de destino na mesma conta.
 
-O que isso significa para o Wabotia:
+O que isso significa para o Vinki:
 - **Cofre em outra zona ou em outra conta:** o `fetch` comum funciona. Isso
-  vale, por exemplo, para o cofre em `*.workers.dev` com o Wabotia num
+  vale, por exemplo, para o cofre em `*.workers.dev` com o Vinki num
   domínio próprio.
-- **Cofre na mesma zona do Wabotia:** dá erro 1042 sem a flag. Exemplos: os
+- **Cofre na mesma zona do Vinki:** dá erro 1042 sem a flag. Exemplos: os
   dois em subdomínios do mesmo domínio próprio, ou provavelmente os dois no
   mesmo `<conta>.workers.dev`.
-- **A flag vale para quem chama:** ela iria no Worker do Wabotia, não no do
+- **A flag vale para quem chama:** ela iria no Worker do Vinki, não no do
   cofre. A NFapi registra o mesmo arranjo.
 - **Correção sem recurso novo:** uma linha no `wrangler.jsonc` (arquivo do
   núcleo, das sessões A e O; não editei):
@@ -417,23 +417,23 @@ O que isso significa para o Wabotia:
     instalação.
   - Os testes (vitest) leem o mesmo `wrangler.jsonc` e passariam a rodar com
     a flag.
-- **Efeito no resto do Wabotia:**
+- **Efeito no resto do Vinki:**
   - A flag só muda o `fetch` global. Bindings não mudam: Durable Objects,
     `ASSETS`, D1 e R2.
-  - Os `fetch` globais do Wabotia vão a serviços de fora: Zernio, Meta,
+  - Os `fetch` globais do Vinki vão a serviços de fora: Zernio, Meta,
     Mercado Pago, provedores de IA e o catálogo
     `https://wabotia.queven.app`. Não achei `fetch` à própria instalação.
   - Uma instalação na mesma zona do catálogo (`queven.app`) passaria a
     alcançá-lo pela borda, que é o comportamento correto.
   - Com a flag, regras de WAF e Access da própria zona passam a valer para o
-    tráfego do Wabotia que fica na zona.
+    tráfego do Vinki que fica na zona.
 - **Do lado do cofre:**
   - Cada chamada chega com o cabeçalho `CF-Worker: <zona dona do Worker do
-    Wabotia>`, que a Cloudflare acrescenta a todo `fetch` de Worker
+    Vinki>`, que a Cloudflare acrescenta a todo `fetch` de Worker
     ([cabeçalhos HTTP](https://developers.cloudflare.com/fundamentals/reference/http-headers/)).
   - O IP de origem é compartilhado da Cloudflare: entre zonas, o
     `CF-Connecting-IP` é um endereço fixo de Workers.
-  - Por isso o cofre não pode liberar o Wabotia por IP. A autenticação é a
+  - Por isso o cofre não pode liberar o Vinki por IP. A autenticação é a
     chave de API, e para o cliente nada muda.
 - **Service binding:** não usado, porque o atualizador não o cria. O
   `FiscalContext.fetch` aceita um `fetch` injetado, se um dia existir um.
@@ -559,7 +559,7 @@ vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
   `exportCreate` não repete sozinho (um POST repetido criaria outra).
   - **Links:** `parts[].url` e `spreadsheet.url` são links assinados para o
     **navegador do usuário** abrir direto no cofre, sem chave de API. O
-    servidor do Wabotia nunca baixa esses arquivos nem monta o endereço
+    servidor do Vinki nunca baixa esses arquivos nem monta o endereço
     (`GET /exportacoes/{id}/{arquivo}` está em `BROWSER_ONLY_OPERATIONS`,
     fora do cliente). O link só é repassado se sair da origem do cofre;
     outro host vira `502 fiscal_provider_error`.
@@ -597,7 +597,7 @@ vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
   o QR Code não foram lidos por leitor físico. A 0.9.0 foi testada com um
   Ambiente Nacional simulado, nunca contra o serviço real. Aqui, tudo contra
   o cofre simulado.
-- **Teste real a partir do Wabotia:** não executado nesta entrega. Os testes
+- **Teste real a partir do Vinki:** não executado nesta entrega. Os testes
   usam cofre simulado e não provam comunicação entre Workers, certificado,
   credenciamento, aceitação SEFAZ nem validade tributária. Relatos de ensaios
   anteriores do cofre não homologam esta integração. O roteiro operacional

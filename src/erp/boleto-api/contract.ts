@@ -91,7 +91,7 @@ export const BOLETO_BANK_INFO: Readonly<Record<BoletoBank, BoletoBankInfo>> = Ob
 export const bankByCode = (code: unknown): BoletoBank | null =>
   BOLETO_BANKS.find(id => BOLETO_BANK_INFO[id].code === String(code ?? "").padStart(3, "0").slice(-3)) ?? null;
 
-/** Situação do boleto no Wabotia (migrations/0260_erp_boleto_api.sql). */
+/** Situação do boleto no Vinki (migrations/0260_erp_boleto_api.sql). */
 export type BoletoStatus = "registrando" | "incerto" | "registrado" | "pago" | "baixado" | "falhou";
 export const BOLETO_STATUS_LABELS: Readonly<Record<BoletoStatus, string>> = Object.freeze({
   registrando: "Registrando no banco", incerto: "Sem resposta do banco: confira",

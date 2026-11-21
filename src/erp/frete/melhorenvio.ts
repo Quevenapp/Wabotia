@@ -1,6 +1,6 @@
 // Frete: adaptador do Melhor Envio (agregador: Correios, Jadlog, Loggi e
 // outras pela mesma conta). API v2 com o token da conta: calcular, pôr no
-// carrinho (com a referência do Wabotia na etiqueta interna), pagar com o
+// carrinho (com a referência do Vinki na etiqueta interna), pagar com o
 // saldo da carteira, gerar, imprimir, cancelar e rastrear. Sandbox em
 // sandbox.melhorenvio.com.br (o interruptor "sandbox"). O que ligar e
 // conferir: docs/FRETE.md.
@@ -20,7 +20,7 @@ function headers(conn: FreightConnection) {
   if (!token) throw new FreightError("freight_provider_not_configured", "Falta o token do Melhor Envio. Preencha em Expedição › Frete e transportadoras.", { status: 409 });
   // O Melhor Envio pede um contato técnico no User-Agent.
   const email = conn.options.email?.trim() || "contato@wabotia.invalid";
-  return { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "User-Agent": `Wabotia (${email})` };
+  return { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json", "User-Agent": `Vinki (${email})` };
 }
 const volumes = (list: readonly FreightVolume[]) => list.map((v) => ({
   height: cmCeil(v.height_mm), width: cmCeil(v.width_mm), length: cmCeil(v.length_mm), weight: Math.max(0.001, v.weight_g / 1000),
@@ -45,7 +45,7 @@ async function advance(http: FreightHttp, conn: FreightConnection, id: string) {
   const read = async () => {
     const r = await callJson(http, NAME, `${base(conn)}/me/orders/${encodeURIComponent(id)}`, { method: "GET", headers: headers(conn) });
     if (r.status === 404) return null;
-    if (!r.ok) throw new FreightError("freight_provider_unavailable", "O Melhor Envio não confirmou o envio agora. O Wabotia consulta de novo antes de repetir.", { uncertain: true });
+    if (!r.ok) throw new FreightError("freight_provider_unavailable", "O Melhor Envio não confirmou o envio agora. O Vinki consulta de novo antes de repetir.", { uncertain: true });
     return r.data;
   };
   let order = await read();
@@ -109,14 +109,14 @@ export const melhorEnvioProvider: FreightProvider = {
         options: {
           insurance_value: req.declared_cents / 100, receipt: false, own_hand: false, reverse: false,
           ...(req.invoice ? { non_commercial: false, invoice: { key: req.invoice.key } } : { non_commercial: true }),
-          platform: "Wabotia", tags: [{ tag: req.reference, url: null }],
+          platform: "Vinki", tags: [{ tag: req.reference, url: null }],
         },
       },
     });
     if (!cart.ok) throw new FreightError("freight_rejected", `O Melhor Envio recusou o envio: ${providerMessage(cart.data) ?? "confira os endereços, o peso e as medidas"}.`, { status: 422 });
     const id = cart.data?.id;
     if (typeof id !== "string" && typeof id !== "number")
-      throw new FreightError("freight_provider_unavailable", "O Melhor Envio respondeu sem o número do envio. O Wabotia consulta antes de tentar de novo.", { uncertain: true });
+      throw new FreightError("freight_provider_unavailable", "O Melhor Envio respondeu sem o número do envio. O Vinki consulta antes de tentar de novo.", { uncertain: true });
     try {
       const done = await advance(http, conn, String(id));
       if (!done) throw new FreightError("freight_provider_unavailable", "O envio sumiu do Melhor Envio logo depois de criado. Confira no Melhor Envio.", { uncertain: true });
@@ -162,7 +162,7 @@ export const melhorEnvioProvider: FreightProvider = {
 
   async track(http, conn, providerRef) {
     const r = await callJson(http, NAME, `${base(conn)}/me/shipment/tracking`, { method: "POST", headers: headers(conn), body: { orders: [providerRef] } });
-    if (!r.ok) throw new FreightError("freight_provider_unavailable", "O Melhor Envio não devolveu o rastreio agora. O Wabotia tenta de novo mais tarde.");
+    if (!r.ok) throw new FreightError("freight_provider_unavailable", "O Melhor Envio não devolveu o rastreio agora. O Vinki tenta de novo mais tarde.");
     const o = r.data?.[providerRef];
     if (!o) return [];
     const marks: [string, string, string][] = [["generated_at", "generated", TRACKING_LABEL.label_created], ["posted_at", "posted", "Objeto postado"],

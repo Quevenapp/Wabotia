@@ -282,6 +282,6 @@ final class DeviceViewModelTests: XCTestCase {
         XCTAssertTrue(vm.settingsNeedPin)
         await waitUntil { vm.revoked }
         vm.close()
-        XCTAssertFalse(vm.settingsNeedPin, "revogado no Wabotia: os ajustes abrem para desfazer e parear de novo")
+        XCTAssertFalse(vm.settingsNeedPin, "revogado no Vinki: os ajustes abrem para desfazer e parear de novo")
     }
 }

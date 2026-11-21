@@ -45,7 +45,7 @@ data class ServiceOrderReceiptData(
         /** Com o estabelecimento lido do servidor, o nome dele (o nome da área quando não há cadastro) vira o cabeçalho. */
         fun of(order: ServiceOrder, header: String, establishment: Establishment? = null, now: Long = System.currentTimeMillis()) =
             ServiceOrderReceiptData(
-                header = (establishment?.displayName ?: header).ifBlank { "Wabotia" },
+                header = (establishment?.displayName ?: header).ifBlank { "Vinki" },
                 number = order.number?.toString() ?: "—",
                 created = order.created,
                 customer = order.customerName,

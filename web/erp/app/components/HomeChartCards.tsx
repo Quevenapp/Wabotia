@@ -24,7 +24,7 @@ function PendingGuard({busy}:{busy:boolean}){useUnsavedChanges(true,busy);return
  * chart Brufap already had (`resumo`). Every change is one command (CAS by version, idempotent, audited); an uncertain answer
  * keeps the same command for "Conferir resultado". Without the charts list (before 189, or an error) only Valores por dia shows.
  * Origin "Atualizado em" of the charts: Valores por dia carries it; when that chart is hidden the header carries it instead. */
-// Wabotia: montado antes do resumo chegar (RealHome), para a lista de gráficos sair no salto 1; sem `period` não mostra nada.
+// Vinki: montado antes do resumo chegar (RealHome), para a lista de gráficos sair no salto 1; sem `period` não mostra nada.
 export function HomeChartCards({controller,role,period,hidden,resumo,asOf}:{controller:Port;role:string|undefined;period?:HomePeriod;hidden:boolean;resumo:ReactNode;asOf?:string}){
  const [view,setView]=useState<HomeChartsView|null>(null),[loadFailed,setLoadFailed]=useState(false),[top,setTop]=useState<TopProductsView|null>(null),[topFailed,setTopFailed]=useState(false);
  const [choosing,setChoosing]=useState(false),[draft,setDraft]=useState<HomeChart[]>([]),[menu,setMenu]=useState<HomeChart|null>(null),[dragging,setDragging]=useState<HomeChart|null>(null);

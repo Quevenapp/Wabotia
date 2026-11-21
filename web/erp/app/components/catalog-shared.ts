@@ -8,7 +8,7 @@ export const situation = (active: boolean) => active ? 'Ativo' : 'Inativo';
 
 export const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 export const CONFLICT_TEXT = 'Este cadastro foi alterado por outra operação. Reabra o registro antes de salvar; suas alterações ainda estão no formulário.';
-/** Wabotia: recusa por parte do ERP desligada (no painel ou 409 module_disabled do servidor); não é conflito nem falha. */
+/** Vinki: recusa por parte do ERP desligada (no painel ou 409 module_disabled do servidor); não é conflito nem falha. */
 export const partDisabled = (error: unknown) => error instanceof AccessError && error.status === 409 && error.code === 'module_disabled';
 export const PART_OFF_TEXT = 'Esta informação depende de um módulo desligado nesta área. Ligue em Gestão → Módulos.';
 export const errorText = (error: unknown) => error instanceof AccessError && error.detail ? error.detail : partDisabled(error) ? PART_OFF_TEXT : error instanceof AccessError ? error.status === 409

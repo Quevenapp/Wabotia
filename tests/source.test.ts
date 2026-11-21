@@ -1,5 +1,5 @@
 // AGPL-3.0, §13: o código-fonte do commit em execução fica ao alcance de quem
-// usa o Wabotia pela rede (health, capacidades, páginas do cliente).
+// usa o Vinki pela rede (health, capacidades, páginas do cliente).
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { buildInfo } from "../src/build-info.generated";
@@ -69,6 +69,6 @@ describe("código-fonte do commit em execução", () => {
     expect(page("t", "<p>x</p>", { app: "W", source: custom })).toContain(
       `href="${custom}"`,
     );
-    expect(statePage("expired", "Wabotia")).toContain(sourceInfo().url);
+    expect(statePage("expired", "Vinki")).toContain(sourceInfo().url);
   });
 });

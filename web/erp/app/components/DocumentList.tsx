@@ -74,7 +74,7 @@ import { blockEnabled, entityEnabled, targetEnabled, REENABLED_AUTOMATION_NOTICE
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 const known = (error: unknown) => error instanceof AccessError && [400, 403, 404, 409].includes(error.status);
-// Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
+// Vinki: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
 const failureText = (error: unknown) => error instanceof AccessError && error.code === 'MODULE_OWNED_BY_ORIGIN' ? DOCUMENT_MIRROR_READ_ONLY : error instanceof AccessError ? error.detail ? error.detail : error.status === 409 ? 'O documento mudou ou a situação atual não permite esta ação. Atualize a listagem e confira.'
   : error.status === 403 ? 'Seu perfil não permite esta operação.' : error.status === 400 ? 'O servidor recusou a operação. Confira a situação e o motivo.'
     : error.status === 404 ? 'Documento não encontrado. Atualize a listagem.' : 'Não foi possível concluir a operação. Tente novamente.' : 'Não foi possível concluir a operação. Tente novamente.';
@@ -464,7 +464,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
     // O vínculo fiscal antigo não pode esconder o acompanhamento comercial novo.
     if (commercial && !readonly && kind === 'sales_orders' && !actions.some(action => action.action === 'fiscal55') && ['admin', 'fiscal'].includes(role ?? ''))
       actions.push({ key: 'fiscal55', action: 'fiscal55', label: 'Acompanhar NF-e', enabled: true });
-    // Wabotia: sem botão sempre desligado. Com o emissor de notas, só a NF-e integral do pedido de venda sai daqui; a nota de
+    // Vinki: sem botão sempre desligado. Com o emissor de notas, só a NF-e integral do pedido de venda sai daqui; a nota de
     // entrada da compra abre /notas-entrada, que só aparece quando a rota responde (web/erp/motor.ts).
     const fiscalShown = (action: RowAction) => !['fiscal55', 'fiscal65', 'fiscal_partial'].includes(action.action) ||
       (commercial ? kind === 'sales_orders' && action.action === 'fiscal55' : kind !== 'purchase_orders' || targetEnabled('/notas-entrada'));

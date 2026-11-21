@@ -1,4 +1,4 @@
-// Tabelas só do motor: dado do Wabotia que o Fagoo não tem (ex.: a
+// Tabelas só do motor: dado do Vinki que o Fagoo não tem (ex.: a
 // classificação da reforma tributária). O esquema gerado do oráculo não as
 // conhece; elas entram aqui, em DDL do SQLite escrito à mão, e:
 // - vão no fim do ERP_DDL e mudam o ERP_DDL_HASH (schema/ddl.ts);

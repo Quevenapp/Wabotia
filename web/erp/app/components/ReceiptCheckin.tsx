@@ -14,7 +14,7 @@ import { Modal } from './Modal';
 import { Icon } from './Icon';
 // 259: Finalizar with "Lançar estoque ao finalizar Check-in".
 import { CheckinFinishModal } from './InvoiceStock';
-// Compra pela nota: as notas recebidas para dar entrada (tela local do Wabotia).
+// Compra pela nota: as notas recebidas para dar entrada (tela local do Vinki).
 import CheckinRecebidas from '../../CheckinRecebidas';
 import './stock.css';
 import './receipt-checkin.css';

@@ -17,7 +17,7 @@ export function BankWriteoffNotice({ writeoff }: { writeoff: BankWriteoff }) {
 }
 
 /**
- * Wabotia (junção): declarar que o boleto da remessa já foi baixado no banco para cancelar a conta (title_bank_writeoff). Um command_id
+ * Vinki (junção): declarar que o boleto da remessa já foi baixado no banco para cancelar a conta (title_bank_writeoff). Um command_id
  * por declaração; resultado incerto mantém o mesmo para “Conferir resultado”. Segundo fator exigido: abre o “Confirme que é você” e repete uma vez.
  */
 export default function FinanceBankWriteoff({ controller, title, initialReason = '', notice, onClose, onDone }: {

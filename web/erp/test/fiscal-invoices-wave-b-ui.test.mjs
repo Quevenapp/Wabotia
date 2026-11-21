@@ -37,7 +37,7 @@ function recordOf(input, over = {}) {
 const envelope = (record, extra = {}) => ({ invoice: record, writable: true, emission_enabled: false, production_enabled: false, operational_effects: false, data_mode: 'erp_native', ...extra });
 const originRow = (n, over = {}) => ({ origin: 'origin', id: String(9000 + n), version: null, number: 120 + n, series: 3, issue_date: '2026-10-15', entry_date: '2026-10-16', name: `Cliente Origin ${n}`, document: '12345678000190', state: 'MG',
   nature: 'Venda de mercadoria', status: 6, status_raw: '5', total: '100.10', total_known: true, environment: '1', issue_type: null, access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [], ...over });
-// Wabotia: Origin fora (motor 91213b8): a lista pede sempre origin=brufap e recebe registros do FAGOO.
+// Vinki: Origin fora (motor 91213b8): a lista pede sempre origin=brufap e recebe registros do FAGOO.
 const nativeListRow = (n, over = {}) => originRow(n, { origin: 'brufap', id: id(9000 + n), version: 1, status_raw: null, environment: '2', issue_type: 'N', ...over });
 
 function server({ role = 'admin', preferences = {}, natureRules, listPrefs = null, showTotals = true, post } = {}) {
@@ -379,7 +379,7 @@ test('an imported note opens read-only with "Conciliar produtos" and its XML is 
   } finally { view.unmount(); }
 });
 
-// Wabotia: Origin fora (motor 91213b8): o XML exportado é o importado no FAGOO (/v1/notas-fiscais/<id>/xml); saiu o acervo sincronizado do Origin.
+// Vinki: Origin fora (motor 91213b8): o XML exportado é o importado no FAGOO (/v1/notas-fiscais/<id>/xml); saiu o acervo sincronizado do Origin.
 test('Exportação de XML NFe: selected notes go into one ZIP after each XML is checked; unverifiable or missing XMLs are listed', async () => {
   const KEY = '35261012345678000195550010000001211123456781', good = `<nfeProc><NFe><infNFe Id="NFe${KEY}"/></NFe>nota sintética 121</nfeProc>`, goodHash = await sha(good);
   const srv = server(); const base = srv.controller.fiscalInvoices;
@@ -509,7 +509,7 @@ test('Formação de preços: unit cost from the entry note and the sale price of
   } finally { view.unmount(); }
 });
 
-// Wabotia: Origin fora (motor 91213b8): saiu a carta de correção coletada com a nota do Origin; a do FAGOO ainda não é transmitida.
+// Vinki: Origin fora (motor 91213b8): saiu a carta de correção coletada com a nota do Origin; a do FAGOO ainda não é transmitida.
 test('Outras opções › Baixar XML carta de correção stays disabled with the reason for a FAGOO note', async () => {
   const srv = server();
   const view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout'] });
@@ -542,7 +542,7 @@ test('Gerar devolução opens a finalidade 4 draft in the other direction, refer
   const srv = server(), view = await mountComponent('RealFiscalInvoices.tsx', { controller: srv.controller, screen: 'nfe' }, { location: '/historico-fiscal?modelo=55', expandChildren: ['NativeListLayout'] });
   try {
     const action = component(view, 'RowMenu').props.items.find(i => i.label === 'Gerar devolução');
-    // Wabotia: Origin fora (motor 91213b8): a nota do FAGOO sem chave de acesso não gera devolução.
+    // Vinki: Origin fora (motor 91213b8): a nota do FAGOO sem chave de acesso não gera devolução.
     assert.equal(action.disabled, true); assert.match(action.title, /devolução precisa da chave de acesso/);
   } finally { view.unmount(); }
 });

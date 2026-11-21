@@ -1,5 +1,5 @@
-// Emissor de notas do Wabotia (cofre NFapi; src/erp/emissor/README.md, "Rotas
-// para o painel"). No Wabotia o certificado A1 nunca fica no sistema: fica no
+// Emissor de notas do Vinki (cofre NFapi; src/erp/emissor/README.md, "Rotas
+// para o painel"). No Vinki o certificado A1 nunca fica no sistema: fica no
 // cofre. O ERP do Fagoo mostrava "Certificado inválido" a partir do próprio
 // cofre A1 (que aqui não existe, e o motor responde sempre 'missing'); o
 // painel passa a ler o estado do cofre em /api/v1/profiles/<área>/erp-emissor.
@@ -138,7 +138,7 @@ export function emissorBadge(
       tone: "warning",
       text: "Emissão não configurada",
       title:
-        "Nenhum emissor de notas está ligado a esta área: a NFC-e não é emitida. O certificado A1 fica no emissor, não no Wabotia.",
+        "Nenhum emissor de notas está ligado a esta área: a NFC-e não é emitida. O certificado A1 fica no emissor, não no Vinki.",
       action: configure,
     };
   const state = view.checked?.state;

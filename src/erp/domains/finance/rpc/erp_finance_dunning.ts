@@ -1,4 +1,4 @@
-// Régua de cobrança e recorrência automática (Wabotia, sem função no oráculo;
+// Régua de cobrança e recorrência automática (Vinki, sem função no oráculo;
 // structural.ts, "regua-cobranca"; regras em ../dunning.ts):
 // - erp_finance_dunning_overview: o que vai sair hoje, o que saiu e o que
 //   falhou, com os dias da régua (leitura; papel do Financeiro, inclusive Consulta);

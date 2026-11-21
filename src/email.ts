@@ -745,7 +745,7 @@ export function accountEmail(
   const when = brasilia(input.at ?? now());
   const content: Record<AccountEmailKind, [string, string[], string?]> = {
     reset: [
-      "Redefinir sua senha do Wabotia",
+      "Redefinir sua senha do Vinki",
       [
         hello,
         "Recebemos um pedido para redefinir a senha da sua conta. Use o link abaixo para criar uma senha nova. Ele vale uma vez só" +
@@ -755,7 +755,7 @@ export function accountEmail(
       "Criar senha nova",
     ],
     invite: [
-      "Convite para o Wabotia",
+      "Convite para o Vinki",
       [
         hello,
         "Você foi convidado para a equipe de atendimento. Use o link abaixo para criar sua senha e entrar. Ele vale uma vez só" +
@@ -764,7 +764,7 @@ export function accountEmail(
       "Criar minha senha",
     ],
     password_changed: [
-      "Sua senha do Wabotia foi trocada",
+      "Sua senha do Vinki foi trocada",
       [
         hello,
         `A senha da sua conta foi trocada em ${when} (horário de Brasília) e as sessões abertas foram encerradas.`,
@@ -780,7 +780,7 @@ export function accountEmail(
       ],
     ],
     test: [
-      "Teste de e-mail do Wabotia",
+      "Teste de e-mail do Vinki",
       [
         hello,
         "Este é um teste do envio de e-mail da sua instalação. Se chegou, os e-mails de senha, convite e alertas da conta também vão chegar.",
@@ -792,7 +792,7 @@ export function accountEmail(
   const text = [
     ...paragraphs,
     ...(link ? [`${action}: ${link}`] : []),
-    "— Wabotia",
+    "— Vinki",
   ].join("\n\n");
   const html =
     `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#1f2933;max-width:560px">` +
@@ -800,7 +800,7 @@ export function accountEmail(
     (link
       ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;background:#128c7e;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">${escapeHtml(action!)}</a></p><p style="font-size:13px;color:#52606d">Se o botão não abrir, copie o endereço: ${escapeHtml(link)}</p>`
       : "") +
-    `<p style="font-size:13px;color:#52606d">— Wabotia</p></div>`;
+    `<p style="font-size:13px;color:#52606d">— Vinki</p></div>`;
   return { subject, text, html };
 }
 

@@ -5,7 +5,7 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 
 ## Português
 
-> O Wabotia é usado por equipes de atendimento pelo WhatsApp. Sem servidor da empresa, toque em **Conhecer o app
+> O Vinki é usado por equipes de atendimento pelo WhatsApp. Sem servidor da empresa, toque em **Conhecer o app
 > (demonstração)** na primeira tela: abre uma instalação fictícia, sem conta e sem enviar nada. Em **Ajustes →
 > Atendimento → Guichê da fila de senhas**, o atendente escolhe um guichê, abre, chama a próxima senha, rechama,
 > conclui e transfere.
@@ -47,7 +47,7 @@ conta nem de servidor: a demonstração da primeira tela responde em memória e 
 
 ## English
 
-> Wabotia is used by customer-service teams on WhatsApp. Without a company server, tap **Conhecer o app
+> Vinki is used by customer-service teams on WhatsApp. Without a company server, tap **Conhecer o app
 > (demonstração)** on the first screen: it opens a fictitious installation with no account, and nothing is sent. Under
 > **Ajustes → Atendimento → Guichê da fila de senhas** the agent picks a service desk, opens it, calls the next ticket,
 > recalls, finishes and transfers it.

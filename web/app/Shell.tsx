@@ -224,7 +224,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <a
           {...linkProps({ area: "conversations" })}
           className="rail-brand"
-          aria-label="Wabotia"
+          aria-label="Vinki"
         >
           <BrandMark size={38} />
         </a>

@@ -129,7 +129,7 @@ export function botDoes(b: { kind: string; config?: unknown }) {
   const cfg = json(b.config as any);
   if (cfg.tools_unsupported_at)
     return "Só conversa: o provedor de IA recusou as ferramentas, então ele não consulta o sistema.";
-  return "Consulta o Wabotia e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.";
+  return "Consulta o Vinki e propõe ações em seu nome, com o seu acesso; nada muda antes de você tocar em Confirmar.";
 }
 export async function internalChat(
   env: Env,

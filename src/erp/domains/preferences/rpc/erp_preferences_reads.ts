@@ -5,7 +5,7 @@ import { queryAvailable } from "../business-rules.ts";
 // _import_jobs (acompanhamento da importação de planilhas), erp_history_backups
 // e erp_read_records (cópias e espelho do Origin: as tabelas existem e ficam
 // vazias com o Origin fora), erp_files_list_v2 (Arquivos: tudo o que foi
-// anexado) e erp_wabotia_state (o pareamento com o Wabotia, como no Fagoo).
+// anexado) e erp_wabotia_state (o pareamento com o Vinki, como no Fagoo).
 import { one, type SqlDriver } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";

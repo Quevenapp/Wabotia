@@ -5,7 +5,7 @@ import { FISCAL_REPORT_TITLES, type FiscalReportId } from './fiscal-reports-mode
 
 // Leva H (362): the Relatórios de Notas Fiscais over the real notes (imported XMLs and the Origin mirror).
 export type ReportId = 'vendas' | 'bairro' | 'curva-abc' | 'os' | 'ocorrencias' | 'romaneio' | FiscalReportId;
-export interface ReportCard { id: ReportId | null; title: string; description: string; reason?: string; /** Wabotia: o relatório está em outra tela do ERP. */ to?: string }
+export interface ReportCard { id: ReportId | null; title: string; description: string; reason?: string; /** Vinki: o relatório está em outra tela do ERP. */ to?: string }
 export interface ReportGroup { title: string; cards: ReportCard[] }
 /** Origin "Relatórios de vendas" (relatorios.php?id=3) and "Relatórios de serviço" (id=6), in the Origin order. */
 export const REPORT_CATALOG: Record<'sales_orders' | 'service_orders', ReportGroup[]> = {
@@ -61,7 +61,7 @@ export function toggleChoice(current: Choice | null, all: string[], id: string, 
 export const choiceAll = (checked: boolean): Choice | null => checked ? null : { ids: [], none: false };
 export const choiceHas = (choice: Choice | null, id: string, none = false) => choice === null || (none ? choice.none : choice.ids.includes(id));
 export const GROUP_LABELS: Record<Exclude<SalesGroup, 'district'>, string> = { contact: 'Cliente', product: 'Produto', seller: 'Vendedor' };
-/** Wabotia: o motor devolve "Vendedor Origin <id>" (texto conferido contra o oráculo); a tela mostra "Vendedor importado <id>". */
+/** Vinki: o motor devolve "Vendedor Origin <id>" (texto conferido contra o oráculo); a tela mostra "Vendedor importado <id>". */
 export const reportGroupLabel = (label: string) => label.replace(/^Vendedor Origin /, 'Vendedor importado ');
 export const SUBGROUP_LABELS: Record<SalesReportParams['subgroup'], string> = { contact: 'Cliente', none: 'Nenhum', product: 'Produto', seller: 'Vendedor' };
 export const ORDER_LABELS: Record<SalesReportParams['order'], string> = { name: 'Nome/Descrição', amount: 'Valor', items: 'Quantidade Itens', sales: 'Quantidade Vendas' };

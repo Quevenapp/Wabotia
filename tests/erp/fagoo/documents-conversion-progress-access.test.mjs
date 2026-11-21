@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {createHandler} from '../../../src/erp/fagoo/workers/erp-api/src/index.mjs';
 // Adaptado do Fagoo (workers/erp-api/test/conversion-progress-access.test.mjs; sessão L, pedido da O para o B3): o
 // Worker com fetch simulado, sem banco; o import aponta para a cópia do Fagoo em src/erp/fagoo. A rota
-// /v1/integracao-origin (erp_origin_progress) é do Origin: no Wabotia o portão dos blocos a responde 404 antes
+// /v1/integracao-origin (erp_origin_progress) é do Origin: no Vinki o portão dos blocos a responde 404 antes
 // do Worker (src/erp/blocks.ts, "externo"); aqui fica o comportamento do próprio Worker, como no original.
 const uid='a0000000-0000-4000-8000-000000000001',id='b0000000-0000-4000-8000-000000000001';
 const env={SUPABASE_URL:'https://exampleproject.supabase.co',SUPABASE_SERVICE_ROLE_KEY:'synthetic-service-key',ALLOWED_ORIGINS:'https://erp.example.test'};

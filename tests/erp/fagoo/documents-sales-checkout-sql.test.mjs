@@ -8,7 +8,7 @@
 // checkout_audit fica no Postgres. O pedido "importado e convertido" do
 // primeiro teste é uma linha de erp_documents.document com origin='origin' e
 // authority='brufap', inserida direto: não depende de espelho nem de
-// sincronização do Origin, só da coluna de proveniência (no Wabotia a linha
+// sincronização do Origin, só da coluna de proveniência (no Vinki a linha
 // nunca nasce assim; a regra da busca exata é nativa e fica).
 // Descartados, declarados:
 // - o teste 'privileges: the checkout RPCs run only for service_role…' inteiro
@@ -17,7 +17,7 @@
 //   PLANO-FAGOO-MOTOR.md, seção 2);
 // - a segunda metade do último teste ("the new API keeps a database before
 //   291"): abre um banco parado na migração 290; o oráculo tem todas as
-//   migrações e no Wabotia cada instalação começa com o esquema inteiro
+//   migrações e no Vinki cada instalação começa com o esquema inteiro
 //   (PLANO-FAGOO.md, decisão 2). A Página inicial e as situações ficam.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';

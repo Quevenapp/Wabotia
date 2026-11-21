@@ -52,7 +52,7 @@ export default function FinanceRecurring({ controller }: { controller: AccessCon
   const [toggle, setToggle] = useState<{ record: Recurrence; active: boolean; minimized: boolean; tried?: boolean } | null>(null), [notice, setNotice] = useState(''), [error, setError] = useState('');
   const [generate, setGenerate] = useState<Generate | null>(null), [pending, setPending] = useState<{ key: string; items: GenerateItem[] } | null>(null);
   const sent = useRef(new Map<string, Sent>());
-  // Wabotia: a recorrência gerada sozinha pelo alarme e, a receber, com a cobrança pela régua (web/erp/regua-api.ts).
+  // Vinki: a recorrência gerada sozinha pelo alarme e, a receber, com a cobrança pela régua (web/erp/regua-api.ts).
   const regua = erpPorts()?.regua, [autos, setAutos] = useState<{ key: string; items: Map<string, RecurrenceAuto> }>({ key: '', items: new Map() });
   const [autoChange, setAutoChange] = useState<{ record: Recurrence; automatica: boolean; enviar: boolean; busy: boolean; error: string } | null>(null);
   const command = useFinanceCommand(next => controller.finance(next.path, { method: 'POST', body: { command_id: next.id, data: structuredClone(next.data) } } as never), mayWrite, message);

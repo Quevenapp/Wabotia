@@ -1,7 +1,7 @@
 import Foundation
 
 /*
- A fila de senhas do Wabotia (docs/FILA-SENHAS.md, contrato v1). Os mesmos modelos servem ao modo aparelho (totem,
+ A fila de senhas do Vinki (docs/FILA-SENHAS.md, contrato v1). Os mesmos modelos servem ao modo aparelho (totem,
  painel e híbrido, com o token `wab_…` do pareamento) e ao guichê do app logado (token `wabu_…` da pessoa).
  Quase tudo é opcional: o servidor evolui e o JSON tolera campos novos ou ausentes. As chaves chegam em snake_case e
  o decodificador da fila (`QueueJSON.decoder`) as converte.

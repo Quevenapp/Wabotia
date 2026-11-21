@@ -1,7 +1,7 @@
 // Rotas /erp-emissor montadas no src/index.ts (src/erp/emissor/README.md,
 // "Rotas para o painel"): módulos erp e erp-fiscal ligados (409
 // module_disabled); leitura só para quem tem papel erp:* (o administrador do
-// Wabotia vale erp:admin); configuração (salvar, remover, testar) só do
+// Vinki vale erp:admin); configuração (salvar, remover, testar) só do
 // administrador, pelo portão do ERP: fora do horário ou, com a política de
 // segundo fator ligada, sessão sem aal2 recebe 403 com o código da erp-api.
 import { SELF, env, runInDurableObject } from "cloudflare:test";

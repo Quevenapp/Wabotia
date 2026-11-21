@@ -183,7 +183,7 @@ Mensalidade (o Suporte pago) importa direto deste arquivo e confere antes
   plano, início fora de hoje e fim da assinatura, autorizar telefone num
   pagador, trocar o documento e
   registrar o aceite de cobrança (com a evidência). `conversations:write` não
-  basta para uma aplicação; aparelhos pareados do Vinki e do Fagoo não
+  basta para uma aplicação; aparelhos pareados do Vinki V4 e do Fagoo não
   recebem `billing:write`.
 - **Aplicações** só recebem documento, e-mail e telefones com
   `contacts:read`, e observações com `notes:read`.

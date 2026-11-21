@@ -5,7 +5,7 @@ export { PDF_INFLATE_LIMITS } from "./pdf-reader";
 // O Worker chama o provedor com a chave guardada no cofre da conexão. Não há
 // arquivos nem memória: cada execução leva instruções, histórico e fontes,
 // e devolve o texto da resposta. Ferramentas
-// só pelo Wabotia (aiCompleteWithTools): as da pessoa na conversa interna e as
+// só pelo Vinki (aiCompleteWithTools): as da pessoa na conversa interna e as
 // da conversa no atendimento ao cliente (src/bot-actions).
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
@@ -43,7 +43,7 @@ export const AI_PROVIDERS: Record<
 };
 
 /**
- * Teto do PDF do cliente no Wabotia (o provedor aceita bem mais: 600
+ * Teto do PDF do cliente no Vinki (o provedor aceita bem mais: 600
  * páginas na Anthropic). Cada página custa de 1.500 a 3.000 tokens de texto
  * mais a página como imagem (docs da Anthropic, "PDF support", "Estimate
  * your costs"): com 10 páginas e o prompt de uma área cheia o pedido fica
@@ -286,7 +286,7 @@ const NOT_CHAT =
 
 /**
  * Modelos disponíveis na conta, para o painel sugerir. Na Anthropic, só os
- * modelos atuais que o Wabotia suporta e que a conta enxerga.
+ * modelos atuais que o Vinki suporta e que a conta enxerga.
  */
 export async function aiListModels(
   provider: AiProvider,

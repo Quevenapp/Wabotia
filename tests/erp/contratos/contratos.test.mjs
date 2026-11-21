@@ -1,4 +1,4 @@
-// Contratos de serviço (parte Contratos; Wabotia, sem função no oráculo): as
+// Contratos de serviço (parte Contratos; Vinki, sem função no oráculo): as
 // contas de período, vencimento e reajuste; o contrato em rascunho, ativo,
 // suspenso e encerrado; a cobrança que nasce desligada e, ligada, gera a
 // conta a receber de cada período uma vez só (o alarme que repete não

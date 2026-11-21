@@ -1,4 +1,4 @@
-// Instalador pelo navegador: instala o Wabotia na conta Cloudflare da pessoa
+// Instalador pelo navegador: instala o Vinki na conta Cloudflare da pessoa
 // sem Node.js nem terminal. A página gera as chaves, conduz os passos e guarda
 // o andamento só na memória; o servidor executa cada passo e não guarda nada.
 import React, { useEffect, useRef, useState } from "react";
@@ -14,7 +14,7 @@ const stages: [string, string][] = [
   ["bucket", "Criar o armazenamento de arquivos"],
   ["migrate", "Preparar o banco"],
   ["assets", "Enviar os arquivos do painel"],
-  ["publish", "Publicar o Wabotia"],
+  ["publish", "Publicar o Vinki"],
   ["finish", "Ligar o endereço"],
   ["verify", "Conferir se está no ar"],
 ];
@@ -26,7 +26,7 @@ const pause = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 export function WebInstall() {
   const [enabled, setEnabled] = useState<boolean | null>(null),
-    [form, setForm] = useState<Row>({ name: "wabotia-atendimento" }),
+    [form, setForm] = useState<Row>({ name: "vinki-atendimento" }),
     [agreed, setAgreed] = useState(false),
     [paidPlan, setPaidPlan] = useState(false),
     [phase, setPhase] = useState<
@@ -121,7 +121,7 @@ export function WebInstall() {
     const content = JSON.stringify(
       {
         aviso:
-          "Chaves privadas do Wabotia. Guarde em local seguro e não compartilhe. MASTER_KEY recupera as credenciais da instalação; não gere outra para a mesma instalação.",
+          "Chaves privadas do Vinki. Guarde em local seguro e não compartilhe. MASTER_KEY recupera as credenciais da instalação; não gere outra para a mesma instalação.",
         instalacao: form.name,
         account_id: form.account,
         installation_id: run.current.cursor.installation_id,
@@ -181,7 +181,7 @@ export function WebInstall() {
       <main className="web-install">
         <div className="eyebrow">INSTALAR PELO NAVEGADOR</div>
         <h1>
-          Instale o Wabotia <em>sem terminal.</em>
+          Instale o Vinki <em>sem terminal.</em>
         </h1>
         <p className="lead">
           Você informa a conta e um token da Cloudflare; esta página cria o
@@ -190,7 +190,7 @@ export function WebInstall() {
         </p>
         {enabled === false && (
           <Notice tone="warn">
-            O instalador pelo navegador só funciona no site oficial do Wabotia.
+            O instalador pelo navegador só funciona no site oficial do Vinki.
             Nesta instalação, use o{" "}
             <a href="/install#instalar">instalador pelo terminal</a>.
           </Notice>
@@ -208,7 +208,7 @@ export function WebInstall() {
                 >
                   página de planos do Workers ↗
                 </a>
-                . O Wabotia não roda no plano gratuito (
+                . O Vinki não roda no plano gratuito (
                 <a href="/install#requisitos">por quê</a>).
               </li>
               <li>
@@ -258,7 +258,7 @@ export function WebInstall() {
               required
             />
             <Notice tone="warn">
-              O token passa pelo servidor do Wabotia a cada passo, só para ser
+              O token passa pelo servidor do Vinki a cada passo, só para ser
               repassado à Cloudflare. Ele não é guardado nem registrado aqui.
               Como no instalador pelo terminal, ele fica salvo no seu próprio
               Worker para as atualizações pelo painel. Se preferir que o token
@@ -351,7 +351,7 @@ export function WebInstall() {
         )}
         {phase === "done" && (
           <section className="account-setup">
-            <h2>Pronto. O Wabotia está na sua conta.</h2>
+            <h2>Pronto. O Vinki está na sua conta.</h2>
             <p>
               Endereço: <strong>{run.current.url}</strong>
             </p>

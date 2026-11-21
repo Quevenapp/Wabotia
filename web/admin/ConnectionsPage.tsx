@@ -50,7 +50,7 @@ const zernioWebhook = (row: Row) =>
 
 /**
  * Conexões do Hermes pausadas pela atualização (migração
- * 0092_retira_hermes.sql): o Hermes saiu do Wabotia. Lista o que foi pausado
+ * 0092_retira_hermes.sql): o Hermes saiu do Vinki. Lista o que foi pausado
  * e o que a equipe precisa fazer; cada cartão abaixo mantém o botão Excluir.
  */
 export function RetiredHermes({
@@ -66,7 +66,7 @@ export function RetiredHermes({
   if (!retired.length && !resources.length) return null;
   return (
     <Notice tone="warn">
-      <strong>Hermes retirado.</strong> O Wabotia passou a trabalhar só com bots
+      <strong>Hermes retirado.</strong> O Vinki passou a trabalhar só com bots
       internos (provedor de IA direto).
       {retired.length > 0 && (
         <p>
@@ -79,7 +79,7 @@ export function RetiredHermes({
       {resources.length > 0 && (
         <>
           <p>
-            Os recursos que o Wabotia criou na sua conta Cloudflare não somem
+            Os recursos que o Vinki criou na sua conta Cloudflare não somem
             com a retirada. Revogue-os no painel da Cloudflare: aplicação
             Access, service token, túnel e registros DNS.
           </p>
@@ -339,7 +339,7 @@ export function ConnectionsPage() {
       {secret && <SecretDialog token={secret} onClose={() => setSecret("")} />}
       {removing && isPhoneConnection(removing) && (
         <Confirm
-          title={"Excluir o telefone " + removing.name + " do Wabotia?"}
+          title={"Excluir o telefone " + removing.name + " do Vinki?"}
           confirmLabel="Excluir telefone"
           danger
           busy={busy}
@@ -363,7 +363,7 @@ export function ConnectionsPage() {
       )}
       {removing && !isPhoneConnection(removing) && (
         <Confirm
-          title={"Excluir a conexão " + removing.name + " do Wabotia?"}
+          title={"Excluir a conexão " + removing.name + " do Vinki?"}
           confirmLabel="Excluir conexão"
           danger
           busy={busy}
@@ -384,7 +384,7 @@ export function ConnectionsPage() {
           ) : (
             <>
               <p>
-                Os bots desta conexão deixam de existir no Wabotia e a chave
+                Os bots desta conexão deixam de existir no Vinki e a chave
                 guardada é apagada. Conversas, mensagens e execuções anteriores
                 continuam no histórico.{" "}
                 A conta no provedor não é alterada.

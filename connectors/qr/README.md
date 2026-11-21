@@ -2,7 +2,7 @@
 
 Processo externo Node.js 22.13+ com Baileys. O painel, API e dados operacionais ficam na Cloudflare. Este conector não precisa do Hermes para enviar mensagens humanas; bots dependem das APIs Hermes.
 
-1. No Wabotia, crie uma conexão `qr`, informe o número com DDI e emita o token do conector. Ative-a após preparar o processo.
+1. No Vinki, crie uma conexão `qr`, informe o número com DDI e emita o token do conector. Ative-a após preparar o processo.
 2. Copie `.env.example` para `.env` e preencha URL HTTPS, ID da conexão e token. Guarde o arquivo em local privado.
 3. Execute `npm ci` e `npm start`, ou `docker compose up -d --build` nesta pasta.
 4. Veja o QR em **Conexões** no painel e leia pelo WhatsApp > Aparelhos conectados.

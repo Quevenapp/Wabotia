@@ -20,7 +20,7 @@ export default function CompanyExport({ controller }: { controller: Controller }
       .catch(e => { if (!request.signal.aborted && !aborted(e)) setError(statusOf(e) === 403 ? 'Somente o administrador exporta os dados da empresa.' : 'Não foi possível carregar as exportações.'); });
     return () => request.abort();
   }, [controller, admin, reload]);
-  // While a package is being built, look again every 5 seconds (Wabotia: the scheduler starts it within a second).
+  // While a package is being built, look again every 5 seconds (Vinki: the scheduler starts it within a second).
   useEffect(() => { if (!items?.some(e => e.status === 'queued' || e.status === 'running')) return; const t = setTimeout(() => setReload(n => n + 1), 5000); return () => clearTimeout(t); }, [items]);
   if (!admin) return <section className="real-state-panel"><h1>Backup não liberado</h1><p>Somente o administrador exporta os dados da empresa.</p></section>;
   const ask = async () => {

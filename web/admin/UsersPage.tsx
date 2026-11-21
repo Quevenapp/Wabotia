@@ -616,7 +616,7 @@ function MfaPolicy() {
           <p>
             Toda pessoa vai precisar do código do aplicativo autenticador para
             entrar; quem ainda não cadastrou só consegue cadastrar. Os
-            aplicativos Wabotia de celular sem o passo do código (versões
+            aplicativos Vinki de celular sem o passo do código (versões
             antigas) deixam de entrar até serem atualizados. Seu fator precisa
             estar cadastrado antes.
           </p>

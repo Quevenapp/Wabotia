@@ -240,7 +240,7 @@ const listResponse = (path, rows) => { const q = new URLSearchParams(path.split(
 const nativeNoteId = n => id(9000 + n);
 const nativeNoteRow = n => originRow(n, { origin: 'brufap', id: nativeNoteId(n), version: 1, environment: '2', issue_type: 'N', status: 1, status_raw: null, protocol_present: false });
 const tagSet = (invoice, version, tags) => ({ invoice_id: invoice, version, tag_ids: tags.map(tag => tag.id), tags: tags.map(tag => ({ id: tag.id, name: tag.name, group_id: null, group_name: null })) });
-// Wabotia: Origin fora (motor 91213b8): a lista é sempre a dos registros do FAGOO, também para a consulta.
+// Vinki: Origin fora (motor 91213b8): a lista é sempre a dos registros do FAGOO, também para a consulta.
 function notesServer({ role = 'fiscal', origin = 'brufap', patch } = {}) {
   const calls = [], urgent = tagItem(1, 'Urgente'), review = tagItem(2, 'Conferir');
   const key = n => origin === 'origin' ? String(9000 + n) : nativeNoteId(n);

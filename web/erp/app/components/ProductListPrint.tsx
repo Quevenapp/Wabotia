@@ -11,7 +11,7 @@ export const PRINT_LIMIT = 5000;
 const LABELS: Record<string, string> = { code: 'Código', unit: 'Unidade', price: 'Preço', stock: 'Estoque', ncm: 'NCM', brand: 'Marca', stock_min: 'Estoque mínimo', stock_max: 'Estoque máximo', cost_price: 'Preço de Custo', location: 'Localização' };
 const NUMERIC = new Set(['price', 'stock_min', 'stock_max', 'cost_price']);
 const quantity = (value: unknown) => typeof value === 'string' && /^-?\d+\.\d+$/.test(value) ? quantityText(value) : '';
-// Wabotia: Estoque imprime só o saldo nativo, como a listagem; a linha do Origin (202610220008) saiu: Origin fora (motor 91213b8).
+// Vinki: Estoque imprime só o saldo nativo, como a listagem; a linha do Origin (202610220008) saiu: Origin fora (motor 91213b8).
 export function printValue(item: CatalogListItem, column: string, byWarehouse = false) {
   if (column === 'price' || column === 'cost_price') return typeof item[column] === 'string' ? decimalMoney(item[column] as string) : '';
   if (column === 'stock') return stockCell(item.stock, byWarehouse).text;

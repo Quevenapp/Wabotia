@@ -192,7 +192,7 @@ avisos do pedido registrado: os avisos de estado saem pelo modelo de
 notificação mesmo depois de 24 horas (encomenda para outro dia). No balcão,
 com só o telefone, o administrador marca `whatsapp_notices` quando o cliente
 aceitar receber os avisos, com `notices_evidence` (como ele aceitou, por
-exemplo "ficha assinada no balcão"): o Wabotia abre a conversa na linha
+exemplo "ficha assinada no balcão"): o Vinki abre a conversa na linha
 oficial e grava o consentimento com essa evidência.
 
 Cancelar um pedido com o Pix ou o link ainda abertos cancela a cobrança. Se

@@ -68,7 +68,7 @@ data class DeviceState(
     val overview: QueueOverview? = null,
     /** WebSocket aberto: as chamadas chegam na hora. */
     val live: Boolean = false,
-    /** Sem resposta do Wabotia: o totem não emite. */
+    /** Sem resposta do Vinki: o totem não emite. */
     val offline: Boolean = false,
     val busy: Boolean = false,
     /** Fila tocada no totem, esperando Normal ou Preferencial. */
@@ -91,7 +91,7 @@ data class DeviceState(
 }
 
 /**
- * O aparelho diante do Wabotia (porta do `SenhaViewModel` do Senhapp, sem o guichê): pareamento, a fila ao vivo
+ * O aparelho diante do Vinki (porta do `SenhaViewModel` do Senhapp, sem o guichê): pareamento, a fila ao vivo
  * (WebSocket com volta automática e leitura a cada 5 s sem ele), a emissão com impressão e a voz das chamadas. A fila
  * nunca é decidida aqui: ordem, número e espera vêm do servidor.
  */
@@ -125,7 +125,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
 
     fun startPairing(url: String, name: String) {
         if (url.isBlank() || name.isBlank()) {
-            mutable.update { it.copy(pairing = PairingUi(error = "Informe o endereço do Wabotia e um nome para este aparelho.")) }
+            mutable.update { it.copy(pairing = PairingUi(error = "Informe o endereço do Vinki e um nome para este aparelho.")) }
             return
         }
         val base = normalizeBaseUrl(url)
@@ -136,7 +136,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
                 val start = services.pairing.start(base, name.trim())
                 mutable.update { it.copy(pairing = PairingUi(userCode = start.userCode, busy = true)) }
                 val until = System.currentTimeMillis() + start.expiresIn * 1000L
-                // RFC 8628: nunca abaixo do intervalo pedido (5 s no Wabotia); a demonstração responde mais rápido.
+                // RFC 8628: nunca abaixo do intervalo pedido (5 s no Vinki); a demonstração responde mais rápido.
                 var wait = start.interval.coerceAtLeast(if (services.demo) 1 else 5) * 1000L
                 while (System.currentTimeMillis() < until) {
                     delay(wait)
@@ -419,7 +419,7 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
 
     private suspend fun printIssued() {
         val ticket = mutable.value.issued ?: return
-        val header = mutable.value.config?.name.orEmpty().ifBlank { "Wabotia" }
+        val header = mutable.value.config?.name.orEmpty().ifBlank { "Vinki" }
         val result = services.printer.print(CouponData.of(ticket, header, establishment))
         mutable.update { it.copy(print = result) }
     }
@@ -510,12 +510,12 @@ class DeviceViewModel(private val services: DeviceServices) : ViewModel() {
     private fun pairingError(e: QueueException): String = when (e.code) {
         "access_denied" -> "O administrador recusou este aparelho. Gere outro código se foi engano."
         "expired_token" -> "O código expirou. Toque em Gerar código de novo."
-        QueueException.NETWORK -> "Sem conexão com o Wabotia. Confira a rede e o endereço."
+        QueueException.NETWORK -> "Sem conexão com o Vinki. Confira a rede e o endereço."
         else -> e.message ?: "Não foi possível parear."
     }
 
     companion object {
-        const val REVOKED_NOTICE = "Este aparelho foi desconectado no Wabotia. Desfaça o pareamento nos ajustes e conecte de novo."
+        const val REVOKED_NOTICE = "Este aparelho foi desconectado no Vinki. Desfaça o pareamento nos ajustes e conecte de novo."
         const val PIN_REQUIRED_NOTICE = "Crie o PIN de saída antes de escolher o papel: sem ele, qualquer pessoa diante da tela abre estes ajustes."
         const val OPERATE_NOTICE = "O administrador liberou também “Chamar e transferir senhas”, que o modo aparelho não usa. Para um totem mais seguro, revogue e aprove de novo só Ler e Emitir."
 

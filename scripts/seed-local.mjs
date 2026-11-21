@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Dados de demonstração para o Wabotia LOCAL (wrangler dev + D1 local).
+// Dados de demonstração para o Vinki LOCAL (wrangler dev + D1 local).
 //
 //   node scripts/seed-local.mjs               cria tudo (ou renova os relógios se já criou)
 //   node scripts/seed-local.mjs --reset       apaga o D1 local e cria tudo de novo
@@ -428,7 +428,7 @@ const people = () => ({
   ],
 });
 const categories = [
-  { id: "wabotia", name: "Wabotia", enabled: true },
+  { id: "wabotia", name: "Vinki", enabled: true },
   { id: "printher", name: "Printher", enabled: true },
   { id: "fagoo-erp", name: "ERP", enabled: true },
   { id: "pagamentos", name: "Pagamentos e notas", enabled: true },
@@ -602,7 +602,7 @@ const conversations = [
           location: {
             latitude: -23.556735,
             longitude: -46.662222,
-            name: "Wabotia Store · Consolação",
+            name: "Vinki Store · Consolação",
             address: "Rua da Consolação, 2302 - São Paulo - SP",
           },
         },
@@ -621,7 +621,7 @@ const conversations = [
         out: "",
         content: {
           type: "contacts",
-          contacts: [{ name: "Retiradas Wabotia Store", phone: "551140001234" }],
+          contacts: [{ name: "Retiradas Vinki Store", phone: "551140001234" }],
         },
         status: "delivered",
       },

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { BANK_WRITEOFF_PATH, BANK_WRITEOFF_TEXT, BANK_WRITEOFF_WARNING, bankWriteoffAvailable, bankWriteoffBlocked, bankWriteoffBody, bankWriteoffFailure, bankWriteoffReason, bankWriteoffWhen, bankWriteoffWho, cancelRefusalText, opensBankWriteoff, titleBankWriteoff } from '../app/lib/finance-bank-writeoff.ts';
 import { titleDetail } from '../app/lib/finance-title-drawer.ts';
 
-// Synthetic only. Wabotia: "Boleto já baixado no banco" (title_bank_writeoff) na tela do Financeiro.
+// Synthetic only. Vinki: "Boleto já baixado no banco" (title_bank_writeoff) na tela do Financeiro.
 const id = n => `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const title = extra => ({ id: id(1), kind: 'receivable', version: 3, group_id: id(2), installment: 1, installments: 1, contact_id: id(3), contact_name: 'Cliente', category_id: null, category_name: null, description: 'Conta', source_reference: null, issued_on: '2026-01-01', due_on: '2026-02-01', amount_cents: '1000', settled_cents: '0', balance_cents: '1000', cancelled: false, status: 'open', overdue: false, document_linked: false,
   competence_on: '2026-01-01', account_id: null, bank_number: null, interest_month_bp: 0, penalty_bp: 0, original_due_on: '2026-02-01', deleted_at: null, ...extra });

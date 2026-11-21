@@ -250,7 +250,7 @@ export function testMessage(device: Device): PushMessage {
   return {
     token: device.token,
     platform: device.platform,
-    title: "Wabotia",
+    title: "Vinki",
     body: "Notificação de teste recebida com sucesso.",
     data: { type: "test", server: device.origin || "" },
     priority: "normal",
@@ -574,7 +574,7 @@ export async function processPush(env: Env, profile: string) {
           resourceId: ev.resource_id ?? null, payload, created: ev.created }, now: now() });
         if (!review || !Number.isInteger(review.rating) || review.rating < 1 || review.rating > 5) return;
         queue("all", actor, "google_review", review.reviewId, String(ev.id), {
-          title: minimal ? "Wabotia" : `Google · nova avaliação de ${review.rating} estrelas`,
+          title: minimal ? "Vinki" : `Google · nova avaliação de ${review.rating} estrelas`,
           body: minimal ? "Nova avaliação" : "Confira a avaliação na área Avaliações.",
           data: { type: "web", profile_id: profile, review_id: review.reviewId,
             url: `/app?area=reviews&review=${encodeURIComponent(review.reviewId)}` },
@@ -596,7 +596,7 @@ export async function processPush(env: Env, profile: string) {
             ? "Anexo"
             : "Nova mensagem";
         queue(targets, actor, "message", c.id, String(ev.id), {
-          title: minimal ? "Wabotia" : label(c),
+          title: minimal ? "Vinki" : label(c),
           body: minimal ? "Nova mensagem" : body,
           data: {
             type: "message",
@@ -615,7 +615,7 @@ export async function processPush(env: Env, profile: string) {
         if (!c) return;
         if (payload.state === "waiting") {
           queue("all", actor, "queue", c.id, String(ev.id), {
-            title: minimal ? "Wabotia" : label(c),
+            title: minimal ? "Vinki" : label(c),
             body: minimal ? "Novo atendimento" : "Novo atendimento na fila",
             data: { type: "queue", profile_id: profile, conversation_id: c.id, channel: pushChannel(c) || "" },
             priority: "high",
@@ -630,7 +630,7 @@ export async function processPush(env: Env, profile: string) {
           payload.owner
         )
           queue([payload.owner], actor, "transfer", c.id, String(ev.id), {
-            title: minimal ? "Wabotia" : label(c),
+            title: minimal ? "Vinki" : label(c),
             body: "Atendimento transferido para você",
             data: {
               type: "transfer",
@@ -651,7 +651,7 @@ export async function processPush(env: Env, profile: string) {
           : [];
         if (!targets.length) return;
         queue(targets, null, "approval", ev.resource_id, String(ev.id), {
-          title: minimal ? "Wabotia" : "Pedido de aprovação",
+          title: minimal ? "Vinki" : "Pedido de aprovação",
           body: minimal ? "Novo pedido de aprovação" : truncate(String(payload.title || ""), 120),
           data: {
             type: "approval",
@@ -689,7 +689,7 @@ export async function processPush(env: Env, profile: string) {
             ticket.id,
             String(ev.id),
             {
-              title: minimal ? "Wabotia" : `Protocolo ${number} aberto`,
+              title: minimal ? "Vinki" : `Protocolo ${number} aberto`,
               body: minimal ? "Novo protocolo" : truncate(ticket.title, 120),
               data,
               priority: "normal",
@@ -717,7 +717,7 @@ export async function processPush(env: Env, profile: string) {
         if (payload.text_added) parts.push("Novo andamento registrado");
         if (!parts.length) return;
         queue([ticket.owner], actor, "ticket", ticket.id, String(ev.id), {
-          title: minimal ? "Wabotia" : `Protocolo ${number}`,
+          title: minimal ? "Vinki" : `Protocolo ${number}`,
           body: minimal ? "Protocolo atualizado" : parts.join(" · "),
           data,
           priority: "normal",
@@ -734,7 +734,7 @@ export async function processPush(env: Env, profile: string) {
         const callId = String(payload.call_id || ev.resource_id || "");
         const c = await conv(payload.conversation_id);
         queue("all", actor, "call", callId, String(ev.id), {
-          title: minimal ? "Wabotia" : "Ligação recebida",
+          title: minimal ? "Vinki" : "Ligação recebida",
           body: minimal ? "Ligação recebida" : label(c),
           data: {
             type: "call",
@@ -807,7 +807,7 @@ export async function processPush(env: Env, profile: string) {
           `ticket:${ticket.id}:${kind}`,
           {
             title: minimal
-              ? "Wabotia"
+              ? "Vinki"
               : overdue
                 ? `Protocolo ${ticket.number} atrasado`
                 : `Protocolo ${ticket.number} vence em ${minutes} min`,

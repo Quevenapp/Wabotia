@@ -221,7 +221,7 @@ function OperationNatureForm({ controller, id, writable, onBack, onSaved }: { co
     <button type="button" className="secondary-button" disabled={locked} onClick={() => setRule({ index: null, tax, value: { tax, destinations: [], product_scope: 'any', ncms: [], product_ids: [], data: {}, additional_info: null, fiscal_info: null, products: [] } })}><Icon name="plus" size={10} /> Adicionar regra</button>
   </>;
   const tabs: [string, string][] = [['dados', 'Dados gerais'], ['icms', 'ICMS'], ['ipi', 'IPI'], ['pis', 'PIS'], ['cofins', 'COFINS'], ...(draft.direction === '0' ? [['ii', 'II'] as [string, string]] : []), ['outros', 'Outros'], ['retencoes', 'Retenções'], ['informacoes', 'Informações adicionais'],
-    // Wabotia: reforma tributária (classificação de IBS/CBS), só na natureza já salva e com a parte Fiscal no painel da área.
+    // Vinki: reforma tributária (classificação de IBS/CBS), só na natureza já salva e com a parte Fiscal no painel da área.
     ...(record && reformAvailable() ? [['reforma', 'Reforma (IBS/CBS)'] as [string, string]] : [])];
   return <section className="fiscal-nature-form">
     <header className="real-heading"><div><h1>Natureza da operação{record ? ` - ${record.description}` : ''}</h1>{record && <p>{record.active ? 'Ativa' : 'Inativa'} · versão {record.version}</p>}</div>

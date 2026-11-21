@@ -12,8 +12,8 @@ const policyError = (error: unknown) => error instanceof AccessError ? (error.co
   : error.status === 503 ? 'A exigência foi registrada, mas a confirmação nas pessoas ficou pendente. Clique em salvar de novo para concluir.' : 'Não foi possível concluir. Tente novamente.') : 'Não foi possível concluir. Tente novamente.';
 
 /**
- * Minha conta › Segurança. Wabotia (decisão de 16/11): a senha e o aplicativo autenticador de cada pessoa ficam em "Minha conta" do
- * Wabotia; aqui fica a exigência do segundo fator no ERP (/v1/seguranca/politica), que só o administrador muda, numa sessão
+ * Minha conta › Segurança. Vinki (decisão de 16/11): a senha e o aplicativo autenticador de cada pessoa ficam em "Minha conta" do
+ * Vinki; aqui fica a exigência do segundo fator no ERP (/v1/seguranca/politica), que só o administrador muda, numa sessão
  * confirmada com o código ("Confirme que é você", web/erp/IdentityChallenge.tsx).
  */
 export default function AccountSecurity({ controller }: { controller: Pick<AccessController, 'security' | 'getSnapshot'> }) {
@@ -47,7 +47,7 @@ export default function AccountSecurity({ controller }: { controller: Pick<Acces
     <header className="real-heading"><div><h1>Segurança da conta</h1><p>Senha, aplicativo autenticador e a exigência do segundo fator no ERP.</p></div></header>
     <section className="real-editor company-settings-section" aria-labelledby="account-core-title">
       <h2 id="account-core-title">Senha e aplicativo autenticador</h2>
-      <p>A senha e o aplicativo autenticador são da sua conta no Wabotia e valem para o painel inteiro. Troque a senha e cadastre ou remova o aplicativo em <strong>Minha conta</strong>, no menu com o seu nome no painel.</p>
+      <p>A senha e o aplicativo autenticador são da sua conta no Vinki e valem para o painel inteiro. Troque a senha e cadastre ou remova o aplicativo em <strong>Minha conta</strong>, no menu com o seu nome no painel.</p>
       {ports?.openAccount && <div className="real-editor-actions"><button type="button" className="secondary-button" onClick={ports.openAccount}>Abrir Minha conta</button></div>}
     </section>
     {admin && <section className="real-editor company-settings-section" aria-labelledby="mfa-policy-title">

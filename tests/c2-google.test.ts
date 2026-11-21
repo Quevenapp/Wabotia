@@ -356,7 +356,7 @@ describe("c2-google: sugestão e aviso autorizado", { timeout: 30_000 }, () => {
     const response = await c2Request(`${root}?limit=1`, { headers });
     expect(response.status, await response.clone().text()).toBe(200);
     const page = await response.json() as { data: Array<{ id: string; can_reply: boolean }>; next_cursor: string; can_publish: boolean; reply_max_chars: number; reply_limit_source: string };
-    expect(page).toMatchObject({ can_publish: false, reply_max_chars: 4000, reply_limit_source: "Wabotia" });
+    expect(page).toMatchObject({ can_publish: false, reply_max_chars: 4000, reply_limit_source: "Vinki" });
     expect(page.data).toHaveLength(1);
     expect(page.data[0].can_reply).toBe(false);
     expect(page.next_cursor).toBeTruthy();
@@ -365,7 +365,7 @@ describe("c2-google: sugestão e aviso autorizado", { timeout: 30_000 }, () => {
     expect([page.data[0].id, following.data[0].id].sort()).toEqual([first.id, second.id].sort());
     expect(following.next_cursor).toBeNull();
     const detail = await c2Request(`${root}/${first.id}`, { headers });
-    expect(await detail.json()).toMatchObject({ id: first.id, account_label: "Conta sintética", can_reply: false, reply_limit_source: "Wabotia" });
+    expect(await detail.json()).toMatchObject({ id: first.id, account_label: "Conta sintética", can_reply: false, reply_limit_source: "Vinki" });
     const report = await googleReviewsExtension.report!({ env: env as Env, actor: f.member, profileId: f.profile, query: new URLSearchParams() });
     expect(await report.json()).toEqual({ channel: "googlebusiness", data: [{ rating: 4, state: "active", total: 2, replied: 0 }] });
     expect(JSON.stringify(page)).not.toMatch(/webhook_secret|api_key|chave-sintetica|connection_config/);
@@ -432,7 +432,7 @@ describe("c2-google: sugestão e aviso autorizado", { timeout: 30_000 }, () => {
     await processPush(env as Env, f.profile);
     expect(captured.map(item => item.token).sort()).toEqual([`device:${f.admin.id}`, `device:${f.member.id}`].sort());
     for (const message of captured) {
-      expect(message.title).toBe(minimal ? "Wabotia" : "Google · nova avaliação de 4 estrelas");
+      expect(message.title).toBe(minimal ? "Vinki" : "Google · nova avaliação de 4 estrelas");
       expect(message.data).toMatchObject({ type: "web", profile_id: f.profile, review_id: review.id });
       expect(message.data.url).toContain("area=reviews");
       expect(JSON.stringify(message)).not.toContain(source.review.authorName);

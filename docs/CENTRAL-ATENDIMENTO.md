@@ -1,6 +1,6 @@
 # Central de atendimento por modelo (versão 0.14.0)
 
-Este documento define o que o Wabotia 0.14.0 acrescenta para que uma instalação possa ser configurada como uma **central única de atendimento para vários aplicativos**: ajuda gratuita pelo bot, protocolo gratuito com prazo em dias úteis, serviços pagos apresentados no menu e acompanhamento por estados. É o contrato comum do servidor, do painel web e dos aplicativos móveis.
+Este documento define o que o Vinki 0.14.0 acrescenta para que uma instalação possa ser configurada como uma **central única de atendimento para vários aplicativos**: ajuda gratuita pelo bot, protocolo gratuito com prazo em dias úteis, serviços pagos apresentados no menu e acompanhamento por estados. É o contrato comum do servidor, do painel web e dos aplicativos móveis.
 
 Nada aqui muda o comportamento de quem não usa os recursos novos: todos os campos são opcionais e os padrões preservam o que a 0.13 fazia.
 
@@ -154,7 +154,7 @@ Modelos prontos que preenchem menus, setores, categorias, prazo e textos de uma 
 Central única para vários aplicativos, com quatro modalidades de atendimento: ajuda gratuita, suporte avulso, implantação e treinamento, plano mensal.
 
 - **Setores:** Suporte e protocolos; Clientes com contrato; Comercial e serviços; Compras e licenças.
-- **Categorias:** Pixel Goods; Quall Studio; NFS-e Leve; Printher; Wabotia; Fagoo ERP; Vinki; Servidor ou integração; Outro ou não sei.
+- **Categorias:** Pixel Goods; Quall Studio; NFS-e Leve; Printher; Vinki; Fagoo ERP; Vinki V4; Servidor ou integração; Outro ou não sei.
 - **Prazo:** 3 dias úteis, segunda a sexta, 09:00–18:00.
 - **Saudação** (`menu_greeting`): apresenta o assistente virtual, lembra que a pessoa pode escrever o nome do aplicativo e o que precisa, e que PROTOCOLO registra uma solicitação para a equipe.
 - **Menu principal:**

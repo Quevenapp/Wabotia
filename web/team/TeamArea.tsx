@@ -293,7 +293,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
                 title={
                   query ? "Nenhuma conversa encontrada" : "Nenhuma conversa interna"
                 }
-                description="Escolha alguém em Pessoas ou um bot em Bots para começar. As mensagens ficam dentro do Wabotia."
+                description="Escolha alguém em Pessoas ou um bot em Bots para começar. As mensagens ficam dentro do Vinki."
               />
             ) : null)}
           {segment === "pessoas" &&
@@ -500,7 +500,7 @@ export function TeamArea({ sub, id }: { sub?: string; id?: string }) {
             <h2>Sua equipe, em uma conversa</h2>
             <p>
               Selecione uma pessoa ou um bot para conversar internamente. Estas
-              mensagens ficam dentro do Wabotia e não são enviadas ao cliente.
+              mensagens ficam dentro do Vinki e não são enviadas ao cliente.
             </p>
             <p>
               O estado das pessoas acompanha a disponibilidade de cada uma. Para

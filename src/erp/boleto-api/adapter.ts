@@ -52,7 +52,7 @@ export interface BoletoPayer {
 export interface BoletoRequest {
   /** "Seu número" no banco (até 15 caracteres): o mesmo em cada nova tentativa. */
   seu_numero: string;
-  /** Nosso número escolhido pelo Wabotia, para os bancos que pedem (Banco do Brasil e Itaú). */
+  /** Nosso número escolhido pelo Vinki, para os bancos que pedem (Banco do Brasil e Itaú). */
   our_number: string | null;
   amount_cents: string;
   due_on: string;

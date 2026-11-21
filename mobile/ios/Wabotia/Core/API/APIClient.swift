@@ -26,7 +26,7 @@ struct APIError: LocalizedError, Equatable {
     }
 }
 
-/// Cliente HTTP para um servidor Wabotia. Acrescenta Authorization: Bearer e Idempotency-Key.
+/// Cliente HTTP para um servidor Vinki. Acrescenta Authorization: Bearer e Idempotency-Key.
 final class APIClient {
     let baseURL: URL
     private let tokenProvider: () -> String?

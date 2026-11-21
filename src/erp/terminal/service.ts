@@ -15,7 +15,7 @@
 //   chegado) é consultada no provedor antes de qualquer reenvio, e o reenvio
 //   só sai quando a cobrança não está lá e a pessoa confirma;
 // - o resultado vale só pela consulta autenticada ao provedor: o aviso
-//   (webhook) só faz o Wabotia consultar;
+//   (webhook) só faz o Vinki consultar;
 // - aprovado, a tela finaliza a venda pelo PDV de sempre (o mesmo comando do
 //   botão Finalizar) e avisa aqui; o pagamento entra na conciliação de
 //   cartões já casado com a venda (erp_reconciliation_card_terminal).
@@ -478,7 +478,7 @@ async function send(env: Env, row: TerminalPaymentRow, settings: SettingsRow, ki
   } catch (error) {
     if (!(error instanceof TerminalError)) {
       // Erro inesperado depois de a cobrança sair: tratada como incerta (consulta antes de qualquer reenvio).
-      await update(env, row, { status: "incerto", reason: "A resposta do Mercado Pago não chegou inteira. O Wabotia confere antes de enviar outra." });
+      await update(env, row, { status: "incerto", reason: "A resposta do Mercado Pago não chegou inteira. O Vinki confere antes de enviar outra." });
       throw error;
     }
     if (error.kind === "incerto") return update(env, row, { status: "incerto", reason: error.message, checked_at: now() });

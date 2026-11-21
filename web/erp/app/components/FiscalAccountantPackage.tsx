@@ -24,7 +24,7 @@ export default function FiscalAccountantPackage({ controller, writable, onClose 
   const life = useRef<AbortController | null>(null);
   useEffect(() => () => life.current?.abort(), []);
   // Every note of the period of one list: for administrador and fiscal, the XMLs imported in Brufap.
-  // Wabotia: Origin fora (motor 91213b8): saiu o espelho do Origin (acervo sincronizado e cartas de correção coletadas); a lista nativa
+  // Vinki: Origin fora (motor 91213b8): saiu o espelho do Origin (acervo sincronizado e cartas de correção coletadas); a lista nativa
   // continua só de administrador e fiscal, como antes.
   const gather = async (screen: FiscalScreen, range: { from: string; to: string }, signal: AbortSignal, beyond: string[]) => {
     const config = SCREENS[screen], rows: ListRow[] = [];

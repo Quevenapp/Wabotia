@@ -5,7 +5,7 @@ import {
   contactFieldsAvailable, contactFieldsCall, newOptionKey, type ContactField, type ContactFieldDraft, type ContactFieldList,
 } from '../lib/contact-fields';
 
-// Preferências › Cadastros › Configurações de clientes e fornecedores › Campos próprios de contato (Wabotia): os campos que a
+// Preferências › Cadastros › Configurações de clientes e fornecedores › Campos próprios de contato (Vinki): os campos que a
 // empresa cria para clientes, fornecedores, vendedores e transportadoras. Tipo, obrigatório, para quais tipos de contato, coluna e
 // filtro da lista e o campo sensível. Liberar um campo sensível mostra o aviso e fica registrado. Só o administrador altera.
 const when = (value?: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }).replace(',', '') : '';

@@ -35,7 +35,7 @@ final class PrivacyShield {
         window.isHidden = false
         windows[key] = window
         #if DEBUG
-        print("[Wabotia] privacidade: app coberto (fora de primeiro plano)")
+        print("[Vinki] privacidade: app coberto (fora de primeiro plano)")
         #endif
     }
 
@@ -53,7 +53,7 @@ private struct PrivacyCover: View {
             Theme.background.ignoresSafeArea()
             VStack(spacing: 14) {
                 BrandTile(size: 76)
-                Text("Wabotia").font(Theme.font(22, .bold)).foregroundStyle(Theme.brand)
+                Text("Vinki").font(Theme.font(22, .bold)).foregroundStyle(Theme.brand)
             }
         }
         .accessibilityHidden(true)

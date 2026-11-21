@@ -44,7 +44,7 @@ test('list pages merge only when every page describes the same filtered set', ()
   assert.throws(() => mergeListPages('sales_orders', [page(1, [], { total_count: LIST_READ_MAX_ROWS + 1 })]), error => error instanceof ListReadError && /Refine os filtros/.test(error.message));
 });
 
-// Wabotia: Origin fora (motor 91213b8): as colunas Origem, ID Origin, Observado em e Cobertura saíram do CSV.
+// Vinki: Origin fora (motor 91213b8): as colunas Origem, ID Origin, Observado em e Cobertura saíram do CSV.
 test('CSV keeps exact cents, Origin headers, a totals line and neutralizes formulas', () => {
   const snapshot = mergeListPages('sales_orders', [page(1, [row(1, { contact_name: '=HYPERLINK("x")', total: '1234567.89', expected_date: '2026-10-20' }), row(2, { status: 'cancelled', total: '0.01' }), row(3, { contact_name: 'Cliente "aspas"', total: '29.99' })], { total_amount: '1234597.89' })]);
   const csv = documentListCsv(snapshot), lines = csv.slice(1).split('\r\n');

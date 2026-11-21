@@ -440,7 +440,7 @@ test('Preferências > Finanças: ⋮ Imprimir duplicata prints the título de cr
   const view = await mount(source, '/financeiro-empresa?area=receivable', ['NativeListLayout', 'Field', 'ToolButton', 'RowMenu']);
   try {
     for (let i = 0; i < 3; i++) { await new Promise(resolve => setTimeout(resolve, 5)); await view.flush(); }
-    // Wabotia: as preferências de finanças não são lidas na abertura da lista, só quando a impressão (ou a baixa) abre.
+    // Vinki: as preferências de finanças não são lidas na abertura da lista, só quando a impressão (ou a baixa) abre.
     assert.deepEqual(reads, []);
     view.find(node => node.type === 'button' && node.props['aria-label'] === 'Ações de Conta 2').props.onClick({ stopPropagation() {}, currentTarget: { getBoundingClientRect: () => ({ top: 10, left: 10 }) } }); await view.flush();
     await view.click('Imprimir duplicata'); await view.flush(); let preview = child(view, 'FinancePrintPreview');
@@ -490,9 +490,9 @@ test('109 Listagem customizada keeps the chosen columns per user on the server, 
   } finally { view.unmount(); }
 });
 
-// Wabotia (latência, 9.6): a porta das preferências de lista liga quando as permissões chegam e a lista é lida uma vez só;
+// Vinki (latência, 9.6): a porta das preferências de lista liga quando as permissões chegam e a lista é lida uma vez só;
 // as preferências de finanças (financas-receber) ficam fora da abertura e são lidas quando a baixa abre, antes do drawer.
-test('Wabotia: contas a receber abre com uma leitura das preferências de lista e sem financas-receber; a baixa lê as preferências antes de abrir', async () => {
+test('Vinki: contas a receber abre com uma leitura das preferências de lista e sem financas-receber; a baixa lê as preferências antes de abrir', async () => {
   const { storedPreferencePage } = await import('../../../packages/erp-domain/src/preferences/catalog.mjs'), { storedFields } = await import('../../../packages/erp-domain/src/preferences/core.mjs');
   const lists = [], reads = [], source = server({ count: 2 });
   source.controller.listPreferences = async (path, options = {}) => { lists.push({ path, method: options.method }); return { scope: 'list_preferences', data_mode: 'erp_native', list_id: 'financeiro.contas_receber', version: 0, columns: null, filters: null, updated_at: null }; };

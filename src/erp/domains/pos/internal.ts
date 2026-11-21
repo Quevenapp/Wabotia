@@ -231,7 +231,7 @@ export function access(db: SqlDriver, user: string | null, write: boolean): Acce
 }
 
 /**
- * erp_pos.certificate_state(): no Fagoo lê erp_a1.head/credential. No Wabotia o
+ * erp_pos.certificate_state(): no Fagoo lê erp_a1.head/credential. No Vinki o
  * A1 fica no cofre da NFapi e o motor não o lê: 'missing' até o Worker levar o
  * estado do cofre num envelope (schema/structural.ts, "certificado-a1-cofre").
  */

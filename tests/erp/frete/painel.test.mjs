@@ -70,7 +70,7 @@ test("no pedido: cota, escolhe o serviço e contrata o envio com a etiqueta ofic
 test("no pedido: resposta incerta pede para confirmar com o provedor; o rastreio aparece na linha do tempo", async () => {
   const { port, calls } = fakePort({
     order: async () => freight({ choice, shipment: shipment({ status: "uncertain", status_label: "Confirmando com o provedor", tracking_code: null, label_ready: false,
-      error: "Os Correios não responderam. O envio pode ter sido feito lá: o Wabotia consulta antes de tentar de novo." }) }),
+      error: "Os Correios não responderam. O envio pode ter sido feito lá: o Vinki consulta antes de tentar de novo." }) }),
   });
   const view = await mount("FreteDoPedido", { port, order: ORDER, role: "admin" });
   try {

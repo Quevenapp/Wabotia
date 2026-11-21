@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Update only a recognized Wabotia ingress extension, with the gateway stopped."""
+"""Update only a recognized Vinki ingress extension, with the gateway stopped."""
 import argparse
 import hashlib
 import os
@@ -12,7 +12,7 @@ def source():
     return ('\n'.join(line[1:] for line in section.splitlines() if line.startswith('+')) + '\n').encode()
 
 def main():
-    parser = argparse.ArgumentParser(description='Atualiza somente a extensão Wabotia conhecida, preservando perfis e dados. Pare o gateway antes.')
+    parser = argparse.ArgumentParser(description='Atualiza somente a extensão Vinki conhecida, preservando perfis e dados. Pare o gateway antes.')
     parser.add_argument('--hermes-checkout', required=True, type=Path)
     args = parser.parse_args()
     target = args.hermes_checkout.expanduser().resolve() / 'gateway/exclusive_ingress.py'

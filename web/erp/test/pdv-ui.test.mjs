@@ -70,7 +70,7 @@ test(`PDV (${platform}): loja and caixa from the context, configured shortcuts, 
   try {
     await settle(view);
     const shown = view.text();
-    assert.match(shown, /Caixa loja sintética/); assert.match(shown, /Caixa aberto · Operadora Sintética/); assert.doesNotMatch(shown, /Certificado inválido/); // Wabotia: o selo vem do cofre de emissão (web/erp/emissor.test.mjs)
+    assert.match(shown, /Caixa loja sintética/); assert.match(shown, /Caixa aberto · Operadora Sintética/); assert.doesNotMatch(shown, /Certificado inválido/); // Vinki: o selo vem do cofre de emissão (web/erp/emissor.test.mjs)
     assert.ok(shown.includes(`Finalizar venda (${modifier}+F)`), 'the key of Preferências › Teclas de atalho');
     assert.ok(shown.includes(`Produto (${modifier}+Z)Cliente (${modifier}+C)Pagamento (${modifier}+B)`));
     await addProduct(view);
@@ -292,14 +292,14 @@ test('202610200282 PRD-149: the Lista de preço of the venda asks for the lists 
   } finally { view.unmount(); }
 });
 
-// Wabotia: latência do PDV. Abertura sem leituras repetidas, abas que não relêem ao voltar e bipe com preço da lista e saldo em paralelo.
+// Vinki: latência do PDV. Abertura sem leituras repetidas, abas que não relêem ao voltar e bipe com preço da lista e saldo em paralelo.
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const reads = (source, pattern) => source.calls.filter(call => call.method === 'GET' && pattern.test(call.path)).map(call => call.path);
 const stockPage = quantity => ({ scope: 'stock_positions', data_mode: 'erp_native', warehouse: { id: WAREHOUSE, name: 'Depósito sintético', active: true }, limit: 25, has_more: false, next_cursor: null,
   items: [{ product: { id: PRODUCT, version: 1, name: 'Caneta sintética', code: 'CAN-01', active: true, unit: 'UN', kind: 'P', format: 'S', gtin: null, brand: null, location: null, stock_min: null, stock_max: null },
     global: { state: 'recorded', quantity, recorded_warehouse_count: '1', scope: 'all_recorded_warehouses' }, selected_position: { warehouse_id: WAREHOUSE, state: 'recorded', quantity, version: 1 }, limit_state: 'not_configured' }] });
 
-test('Wabotia: ao abrir, a lista de vendas (com a loja e o caixa) e as listas de preço aplicáveis são lidas uma vez cada', async () => {
+test('Vinki: ao abrir, a lista de vendas (com a loja e o caixa) e as listas de preço aplicáveis são lidas uma vez cada', async () => {
   const SELLER = id(95), source = server({ ctx: context({ seller: { id: SELLER, name: 'Vendedora sintética' } }) }), view = await mount(source, ['DocumentPriceList']);
   try {
     await settle(view);
@@ -308,14 +308,14 @@ test('Wabotia: ao abrir, a lista de vendas (com a loja e o caixa) e as listas de
   } finally { view.unmount(); }
 });
 
-test('Wabotia: trocar de aba e voltar não relê listas, produtos, contatos, categorias nem vendedores; a aba inativa fica escondida', async () => {
+test('Vinki: trocar de aba e voltar não relê listas, produtos, contatos, categorias nem vendedores; a aba inativa fica escondida', async () => {
   const source = server();
   source.controller.documents = async path => { source.calls.push({ path, method: 'GET' }); throw new Error(`documents ${path}`); };
   const view = await mount(source, ['DocumentPriceList', 'CatalogPicker', 'DocumentCategoryPicker', 'DocumentSellerPicker']);
   const go = async label => { view.find(node => node.type === 'button' && node.props.role === 'tab' && text(node).startsWith(label)).props.onClick(); await settle(view); await wait(300); await settle(view); };
   try {
     await settle(view); await wait(300); await settle(view);
-    // Wabotia: os seletores só leem quando a pessoa os usa (DocumentCatalogPicker sob demanda): o foco na busca abre cada um uma vez.
+    // Vinki: os seletores só leem quando a pessoa os usa (DocumentCatalogPicker sob demanda): o foco na busca abre cada um uma vez.
     const focusPickers = async () => { for (const input of view.nodes().filter(node => node.type === 'input' && node.props.type === 'search' && node.props.onFocus)) input.props.onFocus(); await settle(view); await wait(300); await settle(view); };
     await focusPickers(); await go('Cliente'); await focusPickers(); await go('Pagamento'); await go('Produto'); await focusPickers();
     const first = source.calls.length;
@@ -329,7 +329,7 @@ test('Wabotia: trocar de aba e voltar não relê listas, produtos, contatos, cat
   } finally { view.unmount(); }
 });
 
-test('Wabotia: o bipe com lista de preço e regra de estoque lê o preço da lista e o saldo ao mesmo tempo; o item só entra depois dos dois', async () => {
+test('Vinki: o bipe com lista de preço e regra de estoque lê o preço da lista e o saldo ao mesmo tempo; o item só entra depois dos dois', async () => {
   const LIST = id(96), source = server({ ctx: context({}, { negative_stock: false }) }), gates = { price: [], stock: [] };
   const deferred = list => new Promise(resolve => list.push(resolve));
   source.controller.catalog = async path => { source.calls.push({ path, method: 'GET' }); if (path === `/v1/cadastros/products/${PRODUCT}/listas-precos`) return deferred(gates.price); throw new Error(`catalog ${path}`); };

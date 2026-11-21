@@ -15,7 +15,7 @@ type Progress = { done: number; total: number; files: number; skipped: string[] 
  * Gaveta "Exportação de XML NFe" (Origin): notas selecionadas ou de um período, Notas e/ou Cartas de correção, num ZIP gerado no
  * navegador. Cada XML é conferido (tamanho e SHA-256) antes de entrar no arquivo; notas sem XML ficam listadas como não exportadas.
  */
-// Wabotia: Origin fora (motor 91213b8): só os registros do FAGOO (XML importado); saíram a origem "Notas do Origin", o acervo
+// Vinki: Origin fora (motor 91213b8): só os registros do FAGOO (XML importado); saíram a origem "Notas do Origin", o acervo
 // sincronizado (/v1/xmls-sincronizados) e as cartas de correção coletadas do Origin.
 export default function FiscalXmlExportDialog({ controller, config, filters, order, selected, onClose }: {
   controller: AccessController; config: ScreenConfig; filters: FiscalFilters; order: FiscalOrder; selected: ListRow[]; onClose: () => void;

@@ -15,7 +15,7 @@ it("abre o formulário de token da Cloudflare com as três permissões da instal
     { key: "d1", type: "edit" },
     { key: "workers_r2", type: "edit" },
   ]);
-  expect(url.searchParams.get("name")).toBe("Wabotia instalação");
+  expect(url.searchParams.get("name")).toBe("Vinki instalação");
 });
 
 it("leva o código de instalação no fragmento e só aceita o formato do instalador", () => {

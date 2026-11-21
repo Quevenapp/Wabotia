@@ -1,4 +1,4 @@
-// Pagamento da equipe (Wabotia, sem função no oráculo; tabela do motor
+// Pagamento da equipe (Vinki, sem função no oráculo; tabela do motor
 // erp_finance__team_payment, versão 21):
 // - erp_finance_team_people: funcionários do cadastro e vendedores, com o
 //   contato que recebe a conta a pagar (o do vendedor; o do funcionário é o

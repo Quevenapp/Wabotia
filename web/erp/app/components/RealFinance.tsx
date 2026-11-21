@@ -58,7 +58,7 @@ const noFinanceSnapshot=()=>null;
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 function message(error: unknown) {
-  // Wabotia: recusas de causa conhecida do cancelamento (boleto em remessa, versão, permissão, segundo fator, parte desligada).
+  // Vinki: recusas de causa conhecida do cancelamento (boleto em remessa, versão, permissão, segundo fator, parte desligada).
   const known = cancelRefusalText(error); if (known) return known;
   if (error instanceof AccessError) return error.status === 409 ? 'O registro mudou ou esta operação já foi usada com outros valores. Volte à listagem e reabra o registro antes de confirmar novamente.' : error.status === 400 ? 'A operação não foi aceita. Confira os valores, as datas e os cadastros selecionados.' : error.status === 403 ? 'Seu acesso a esta operação foi alterado.' : error.status === 404 ? 'O registro não foi encontrado. Atualize a listagem.' : 'Não foi possível confirmar o resultado. Tente novamente com os mesmos dados; a operação não será duplicada.';
   return error instanceof Error ? error.message : 'Não foi possível concluir a operação.';
@@ -83,7 +83,7 @@ function OriginLink({ title }: { title: FinanceTitle }) {
   if (!title.origin) return null; const text = originText(title.origin);
   return <p className="finance-origin-line">{text.field}: <Link to={originPath(title.origin)} title={text.menu}>{originNumber(title.origin)}</Link></p>;
 }
-// Wabotia: a importação financeira do Origin saiu com ele (item 17) e o motor responde 404 em
+// Vinki: a importação financeira do Origin saiu com ele (item 17) e o motor responde 404 em
 // /v1/importacao-financeira-origin; nenhum título tem origem a conferir.
 const ORIGIN_FINANCE_IMPORT = false;
 function useTitleOrigin(controller: AccessController, title: FinanceTitle | null) {
@@ -211,7 +211,7 @@ function FinanceEditor({ controller, mode, record, kind, payment, partial = fals
     const request = new AbortController(); pending.current = request; setBusy(true); setError('');
     try { const result = await controller.finance(operation.path, { method: 'POST', body: { ...operation.body, command_id: operation.id }, signal: request.signal }); if (!request.signal.aborted) onSaved(review.settleAfter ? { settleId: savedTitleId(result, review.action, title?.kind || kind, title?.id) } : undefined); }
     catch (failure) { if (!request.signal.aborted && !aborted(failure)) {
-      // Wabotia: boleto numa remessa ao banco: a conta só cancela pela declaração de boleto baixado no banco.
+      // Vinki: boleto numa remessa ao banco: a conta só cancela pela declaração de boleto baixado no banco.
       if (!operation.uncertain && review.action === 'title_cancel' && title && opensBankWriteoff(failure)) { command.current = null; const off = bankWriteoffBlocked(blockEnabled); if (off) { setError(off); return; } setReview(null); setWriteoff(true); return; }
       const known = !operation.uncertain && failure instanceof AccessError && [400,403,404,409].includes(failure.status);
       if (!known) operation.uncertain = true;
@@ -342,7 +342,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const [share, setShare] = useState<WhatsappShare | null>(null);
   const whatsappLines = useWhatsappLines(); const [whatsappSend, setWhatsappSend] = useState<string | null>(null);
   const emailState = useEmailSituation(); const [emailSend, setEmailSend] = useState<string | null>(null);
-  // Wabotia: "Boleto já baixado no banco" (title_bank_writeoff) aberto pelo ⋮ da conta a receber em remessa.
+  // Vinki: "Boleto já baixado no banco" (title_bank_writeoff) aberto pelo ⋮ da conta a receber em remessa.
   const [writeoff, setWriteoff] = useState<{ scope: string; title: FinanceTitle } | null>(null);
   const [printJob, setPrintJob] = useState<{ scope: string; print: FinancePrint; prefs?: boolean } | null>(null), [printMenu, setPrintMenu] = useState(false), [printNotes, setPrintNotes] = useState(false);
   const [pending, setPending] = useState<{ scope: string; owner: string; action: TitleBatchAction; items: PendingItem[] } | null>(null);
@@ -353,7 +353,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   // Categoria filter (SQL 135): the tree of the tab, loaded on first use or when the URL already filters by one.
   const categoryOptions = useCategoryTree(categoryKey ? (path, options) => controller.finance(path, options) : null, kind, categoryKey);
   // Preferências > Finanças (applied): default of "Utilizar data de vencimento" in the baixa of contas a receber.
-  // Wabotia: lidas só quando a impressão ou a baixa abre (os únicos usos), fora da abertura da lista.
+  // Vinki: lidas só quando a impressão ou a baixa abre (os únicos usos), fora da abertura da lista.
   const [financePrefsWanted, setFinancePrefsWanted] = useState(false);
   const financePreferences = useFinancePreferences(controller, entity === 'titles' && permissions && financePrefsWanted ? `${authScope}:${kind}` : '', kind);
   // Opening the filter again after a failed load really retries it, as the error message says.
@@ -567,10 +567,10 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
     if (mail) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, { label: 'Enviar por e-mail', icon: 'paper-plane', disabled: mail.disabled, title: mail.title, onClick: () => setEmailSend(title.id) }); }
     // Leva H (FIN-052): the boleto entries by the real situation of the conta and of its cobrança.
-    // Wabotia: boletos e remessas são do bloco Cobrança bancária (web/erp/blocks.ts); desligado, os itens somem.
+    // Vinki: boletos e remessas são do bloco Cobrança bancária (web/erp/blocks.ts); desligado, os itens somem.
     if (blockEnabled('erp-cobranca')) { const boleto = boletoMenu(title as FinanceTitleRow, Boolean(permissions?.write) && financePermitted(permissions, 'financas.remessas.ie')); if (boleto.length) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, ...boleto); } }
-    // Wabotia: a conta em remessa ao banco só cancela declarando o boleto baixado no banco (Financeiro e Cobrança bancária ligados).
+    // Vinki: a conta em remessa ao banco só cancela declarando o boleto baixado no banco (Financeiro e Cobrança bancária ligados).
     if (permissionScope.current === authScope && bankWriteoffAvailable(title as FinanceTitleRow, permissions, blockEnabled)) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, { label: BANK_WRITEOFF_LABEL, icon: 'ban', onClick: () => { setRowMenu(null); if (mayWrite()) setWriteoff({ scope: routeKey, title }); } }); }
     // Origin order: the print item comes after the baixas and Cancelar, before Clonar and Excluir.
@@ -612,7 +612,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const printVisible = printJob && printJob.scope === routeKey ? printJob : null;
   const settleDrawer = entity === 'titles' && !route.error ? editor?.mode === 'settle' && record ? { titles: [record as FinanceTitle], partial: Boolean(editor.partial), selection: false }
     : settleSelection && settleSelection.scope === routeKey && !editor && !record ? { titles: settleSelection.titles, partial: false, selection: true } : null : null;
-  // Wabotia: a impressão (cabeçalho do recibo, modelos da duplicata) e a baixa a receber (data de vencimento como padrão) esperam
+  // Vinki: a impressão (cabeçalho do recibo, modelos da duplicata) e a baixa a receber (data de vencimento como padrão) esperam
   // as preferências de finanças; a duplicata recebe os modelos quando elas chegam.
   const settleNeedsPrefs = Boolean(settleDrawer) && kind === 'receivable';
   if (!financePrefsWanted && (printVisible || settleNeedsPrefs)) setFinancePrefsWanted(true);

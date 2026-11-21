@@ -590,7 +590,7 @@ volta (envio ainda não confirmado conta como referência).
 ## Outros dados do Bling (fatia D, versão 24)
 
 Aba **Outros dados** da mesma tela. Traz o que o coletor não lia e que agora
-tem destino no Wabotia: listas de preços, naturezas de operação, campos
+tem destino no Vinki: listas de preços, naturezas de operação, campos
 customizados (definições e valores), fornecedores e lotes de produto,
 contratos e notas de serviço (NFS-e). Código em `src/erp/bling/extras.ts`
 (adoção), `extras-two-way.ts` (mão dupla), `extras-worker.ts` (contrato, no

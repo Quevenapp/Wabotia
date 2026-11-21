@@ -18,7 +18,7 @@ export const installTokenUrl =
   "https://dash.cloudflare.com/profile/api-tokens?permissionGroupKeys=" +
   encodeURIComponent(JSON.stringify(installTokenPermissions)) +
   "&accountId=*&zoneId=all&name=" +
-  encodeURIComponent("Wabotia instalação");
+  encodeURIComponent("Vinki instalação");
 
 const setupPrefix = "#setup=";
 const setupShape = /^[a-f0-9]{64}$/;

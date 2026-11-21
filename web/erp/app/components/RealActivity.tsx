@@ -3,7 +3,7 @@ import {AccessError,type AccessState} from '../lib/real-access';
 import {activityPath,activityDetailPath} from '../lib/activity-request';
 import {ACTIVITY_DETAIL_SOURCES,parseActivityDetail,captureActivityDetailQuery,type ActivityDetail,type ActivityEntry} from '../../../../packages/erp-domain/src/activity.mjs';
 import {Modal} from './Modal';
-// Wabotia: as pessoas vêm do núcleo (Gestão › Pessoas e acessos), não de /v1/usuarios (501 no motor).
+// Vinki: as pessoas vêm do núcleo (Gestão › Pessoas e acessos), não de /v1/usuarios (501 no motor).
 import {erpPorts} from '../../ports';
 import type {ErpPerson} from '../../people';
 import {parseActivity,captureActivityQuery,ACTIVITY_MODULES,ACTIVITY_OPERATIONS,MODULE_TEXT,OPERATION_TEXT,PERIOD_TEXT,periodRange,todaySP,moment,
@@ -14,7 +14,7 @@ import './real-activity.css';
 
 const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const admin=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';
-/** Wabotia: o motor descreve com o nome do sincronizador antigo (texto igual ao oráculo); a tela usa "sistema de origem". */
+/** Vinki: o motor descreve com o nome do sincronizador antigo (texto igual ao oráculo); a tela usa "sistema de origem". */
 const describe=(text:string|null)=>text&&text.replace(/\bdo Origin\b/g,'do sistema de origem').replace(/ \(Origin\)/g,' (importada)');
 /** Antes e depois by top-level field; nested values are shown as compact JSON. */
 export function detailRows(detail:ActivityDetail){
@@ -57,7 +57,7 @@ export default function RealActivity({controller,mode='activity'}:{controller:Sy
  const may=()=>{const s=controller.getSnapshot();return alive.current&&admin(s)&&s.membership?.user_id===actor.current;};
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;request.current?.abort();};},[controller]);
  useEffect(()=>{if(allowed)return;request.current?.abort();request.current=null;setLoading(false);setPage(null);},[allowed]);
- // The user filter lists the people with a role in the ERP (Wabotia core); without them the filter stays on "Todos".
+ // The user filter lists the people with a role in the ERP (Vinki core); without them the filter stays on "Todos".
  useEffect(()=>{const people=erpPorts()?.people;if(deletions||!allowed||!people||!may())return;const p=new AbortController();void(async()=>{try{
   const list=await people(p.signal);if(may()&&!p.signal.aborted)setUsers(list);
  }catch{/* Optional list. */}})();return()=>p.abort();},[controller,allowed,deletions]);

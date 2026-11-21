@@ -1,7 +1,7 @@
 // Documentos (escrito pela G para o domínio 11; dono: Documentos): erp_documents.os_permitted, require_role, require_access
 // e contact_usable, e erp_document_mirror.visible, require_visible e report_coverage (documents/reads-g.ts) contra o oráculo.
 // O espelho do Origin saiu: os documentos aqui são nativos (authority 'brufap', origin_mirror vazia), o único caso que a
-// instalação do Wabotia tem; o ramo do espelho não é portado.
+// instalação do Vinki tem; o ramo do espelho não é portado.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";

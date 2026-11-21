@@ -78,8 +78,8 @@ export function notify(
   }
 }
 
-const baseTitle = "Wabotia — Atendimento conectado";
+const baseTitle = "Vinki — Atendimento conectado";
 /** Título da aba com o total de não lidas. */
 export function setTitleCount(count: number) {
-  document.title = count > 0 ? `(${count > 99 ? "99+" : count}) Wabotia` : baseTitle;
+  document.title = count > 0 ? `(${count > 99 ? "99+" : count}) Vinki` : baseTitle;
 }

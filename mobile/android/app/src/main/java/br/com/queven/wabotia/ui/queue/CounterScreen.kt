@@ -182,7 +182,7 @@ private fun CounterPicker(overview: QueueOverview, selected: String?, onChoose: 
         EmptyState(
             Icons.Filled.Desk,
             "Nenhum guichê criado",
-            subtitle = "Um administrador cria os guichês no painel do Wabotia, em Fila de senhas. Depois eles aparecem aqui.",
+            subtitle = "Um administrador cria os guichês no painel do Vinki, em Fila de senhas. Depois eles aparecem aqui.",
         )
         return
     }

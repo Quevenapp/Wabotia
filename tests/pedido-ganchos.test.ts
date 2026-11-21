@@ -180,7 +180,7 @@ describe("pedido: ganchos para outros módulos", () => {
           title: `ENTREGA · Pedido nº ${request.order.number}`,
           qr: "https://test/c/CODIGO-DE-TESTE",
           lines: [
-            "Abra o app Wabotia e toque em Escanear pedido.",
+            "Abra o app Vinki e toque em Escanear pedido.",
             "Vale até 21:30.",
           ],
           expires_at: 1_800_000_000_000,

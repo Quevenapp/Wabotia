@@ -49,7 +49,7 @@ data class CounterUiState(
  * no servidor; aqui só se pede.
  *
  * Idempotência (mobile/README.md): cada intenção ganha uma `Idempotency-Key`; se a resposta não chegar (rede, 5xx), a
- * chave fica guardada e tocar de novo na mesma ação repete com ela — o Wabotia devolve a mesma resposta em vez de chamar
+ * chave fica guardada e tocar de novo na mesma ação repete com ela — o Vinki devolve a mesma resposta em vez de chamar
  * outra senha. Erro definitivo ou sucesso liberam a chave.
  */
 class CounterViewModel(private val container: AppContainer) : ViewModel() {

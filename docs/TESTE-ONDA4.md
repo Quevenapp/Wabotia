@@ -57,7 +57,7 @@ O passo a passo está em [EMAIL.md](EMAIL.md). Sem isso, "Esqueci a senha" mostr
 1. Em Gestão → Sistema → E-mail, clique em **Enviar teste**. O e-mail chega no endereço da sua conta.
 2. Na entrada, clique em **Esqueci a senha** e informe o e-mail de uma pessoa de teste que receba e-mail de verdade.
 3. A tela responde igual para um e-mail que não existe.
-4. O link vale 1 hora e uma vez só. Ao criar a senha nova, chega o aviso "Sua senha do Wabotia foi trocada".
+4. O link vale 1 hora e uma vez só. Ao criar a senha nova, chega o aviso "Sua senha do Vinki foi trocada".
 5. Convide uma pessoa com o e-mail ligado: o convite chega por e-mail.
 6. Os últimos envios aparecem em Gestão → Sistema → E-mail.
 

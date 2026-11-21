@@ -1,20 +1,20 @@
 import { readErpPartsSnapshot, type ErpParts, type ErpPartsControl } from "../parts.ts";
 import { readModuleEvidence, type ModuleExecutionEvidence } from "./module-origin.ts";
 // Porta de identidade: o que no Fagoo vinha de auth.* (Supabase Auth) e no
-// Wabotia vem do núcleo (Pessoas, login, MFA). O Worker preenche o envelope
+// Vinki vem do núcleo (Pessoas, login, MFA). O Worker preenche o envelope
 // antes da transação; o motor nunca consulta o D1. Fase 3: o lado do Worker
 // (ler o papel erp:<papel> do acesso por pessoa, a sessão e o fator).
 //
 // Envelope (cabeçalho x-erp-identity, JSON em base64url):
-//   actor  — quem chama: user_id (users.id do Wabotia), name, email,
+//   actor  — quem chama: user_id (users.id do Vinki), name, email,
 //            erp_role (admin|consulta|vendas|financeiro|estoque|fiscal ou
-//            null; o administrador do Wabotia vale erp:admin), session_id,
+//            null; o administrador do Vinki vale erp:admin), session_id,
 //            aal (aal1|aal2), verified_factor, is_agent;
 //   people — as pessoas da área com o módulo ERP (mesmos campos, sem sessão),
 //            ou null quando o Worker não as enviou (o motor usa então o que já
 //            está em erp_access.membership e profile).
 // Com `people`, o Acesso mantém erp_access.membership e profile como
-// projeção do Wabotia (src/erp/domains/access/identity.ts): nenhum RPC grava
+// projeção do Vinki (src/erp/domains/access/identity.ts): nenhum RPC grava
 // papel; quem perde o erp:<papel> fica inativo.
 
 export type ErpRole = "admin" | "consulta" | "vendas" | "financeiro" | "estoque" | "fiscal";

@@ -27,7 +27,7 @@ Feito uma vez por área, pelo administrador, com as partes **Financeiro** e
    conta bancária do banco → *Emissão de Boleto* → *Como esta conta emite
    boleto* → **Pela API do banco**. Digite as credenciais, o certificado e os
    dados do convênio (abaixo, por banco) e use **Salvar e conferir no banco**:
-   o Wabotia entra na API (sem registrar nada) e, nos bancos que aceitam,
+   o Vinki entra na API (sem registrar nada) e, nos bancos que aceitam,
    cadastra o endereço do aviso de pagamento.
 3. **Teste na homologação**: registre o boleto de uma conta a receber, use
    *Consultar no banco*, *Alterar vencimento* e *Baixar no banco*.
@@ -77,7 +77,7 @@ openssl pkcs12 -in certificado.pfx -nocerts -nodes -out chave.key
 | Certificado | sempre (também no sandbox) | em produção | em produção | sempre |
 | Credenciais | Client ID e Secret | Client ID (sandbox: token do portal) | Client ID, Secret e chave do desenvolvedor | Client ID e Secret |
 | Dados da conta | conta corrente (opcional) | número do cliente, conta corrente, modalidade | convênio, carteira, variação | id do beneficiário (12), carteira |
-| Nosso número | o banco escolhe | o banco escolhe | o Wabotia: `000` + convênio + sequência de 10 | o Wabotia: sequência de 8 |
+| Nosso número | o banco escolhe | o banco escolhe | o Vinki: `000` + convênio + sequência de 10 | o Vinki: sequência de 8 |
 | Pix no boleto | sempre | opcional (`codigoCadastrarPIX`) | opcional (`indicadorPix`) | opcional (`boletos_pix`) |
 | Aviso de pagamento | webhook, cadastrado pela API ao conferir | consulta periódica | webhook (cadastre no portal do BB com o endereço da tela) | webhook (cadastre no portal do Itaú com o endereço da tela) |
 | Homologação | `cdpj-sandbox.partners.uatinter.co` | `sandbox.sicoob.com.br` | `api.hm.bb.com.br` | `sandbox.devportal.itau.com.br` (registro como `simulacao`) |
@@ -108,7 +108,7 @@ Onde pegar as credenciais:
 - **Alterar vencimento** e **Baixar no banco**: só no banco; a conta no
   Financeiro não muda. A linha digitável nova vem da consulta.
 - **Pago no banco** (aviso ou consulta): o corpo do aviso só diz quais
-  boletos consultar; o pagamento vale depois de o Wabotia consultar o banco.
+  boletos consultar; o pagamento vale depois de o Vinki consultar o banco.
   Com **Baixar sozinho as contas pagas por Pix ou link** desligada (o padrão,
   Preferências → Contas a receber), vira **sugestão de baixa**, confirmada
   com um clique; ligada, o alarme da área baixa em nome do administrador que
@@ -177,4 +177,4 @@ precisam ser conferidos na homologação de cada banco antes da produção:
 - Itaú: o endereço da consulta (`boletoscash`), o `PATCH` de vencimento e de
   baixa, o corpo do `boletos_pix` e o formato da notificação.
 - Em todos: o vínculo mTLS do certificado no Worker e a expiração do token
-  (o Wabotia pede um token novo a cada rodada, sem guardar).
+  (o Vinki pede um token novo a cada rodada, sem guardar).

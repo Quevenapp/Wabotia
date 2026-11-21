@@ -10,7 +10,7 @@ export const ERP_SCHEMA_VERSION = ERP_DDL_VERSION;
 
 /**
  * Estado das rotinas do agendador (src/erp/scheduler/, docs/ERP-AGENDADOR.md):
- * estrutura do Wabotia fora do DDL gerado (structural.ts, "agendador"), criada
+ * estrutura do Vinki fora do DDL gerado (structural.ts, "agendador"), criada
  * aqui como a erp_meta, para valer também em instância que já existe. Fora do
  * backup (engine/dump.ts leva ERP_TABLES): numa restauração as rotinas vencem
  * e rodam uma vez, sem efeito repetido.

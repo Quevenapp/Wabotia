@@ -1,23 +1,23 @@
-# Plugin Wabotia para o Hermes Agent
+# Plugin Vinki para o Hermes Agent
 
-Liga os bots de um Hermes Agent ao Wabotia sem túnel Cloudflare, Access, DNS ou porta aberta. O modo por URL ([HERMES-CLOUDFLARE.md](HERMES-CLOUDFLARE.md)) continua existindo e as conexões já criadas não mudam.
+Liga os bots de um Hermes Agent ao Vinki sem túnel Cloudflare, Access, DNS ou porta aberta. O modo por URL ([HERMES-CLOUDFLARE.md](HERMES-CLOUDFLARE.md)) continua existindo e as conexões já criadas não mudam.
 
 Estado: o lado do servidor e o painel estão implementados e cobertos por `tests/hermes-link.test.ts`. O plugin (`public/hermes-plugin/`) e o instalador foram validados em um Hermes em Docker, até o bot responder mensagens reais de WhatsApp; parada, aprovação e artefatos ainda não. Veja a seção 8.
 
 ## 1. Decisão
 
-O plugin é um **conector de saída**: roda dentro do gateway do Hermes, abre a conexão do Hermes para o Wabotia e executa, na API local do Hermes (`127.0.0.1:8642`), as mesmas operações que o Worker faz pela internet no modo URL.
+O plugin é um **conector de saída**: roda dentro do gateway do Hermes, abre a conexão do Hermes para o Vinki e executa, na API local do Hermes (`127.0.0.1:8642`), as mesmas operações que o Worker faz pela internet no modo URL.
 
 Ele é registrado como plugin de plataforma (`kind: platform`, `ctx.register_platform`) para ganhar ciclo de vida no gateway (`connect`/`disconnect`) e linha no `hermes status`. Ele **não** é um canal de chat: não usa `handle_message` e `send` recusa.
 
-Motivo: o motor do Wabotia não troca mensagens soltas com o bot. Cada execução (`bot_runs`) envia `input` + `instructions` que mudam por fase (`attendant`, `answer`, `specialist`) e espera um JSON estruturado; depende de `Idempotency-Key` durável, `stop`, `waiting_for_approval` e download de artefatos (`src/engine.ts`, `src/integrations.ts`). Um canal de chat perderia tudo isso. Transportar o contrato `/v1/runs` existente mantém o motor intacto: muda só o caminho da requisição.
+Motivo: o motor do Vinki não troca mensagens soltas com o bot. Cada execução (`bot_runs`) envia `input` + `instructions` que mudam por fase (`attendant`, `answer`, `specialist`) e espera um JSON estruturado; depende de `Idempotency-Key` durável, `stop`, `waiting_for_approval` e download de artefatos (`src/engine.ts`, `src/integrations.ts`). Um canal de chat perderia tudo isso. Transportar o contrato `/v1/runs` existente mantém o motor intacto: muda só o caminho da requisição.
 
 | | Modo URL | Modo plugin |
 | --- | --- | --- |
 | Quem inicia a conexão | Worker → Hermes | Hermes → Worker |
 | Infra no cliente | túnel, Access, 2 subdomínios, backend admin `:9119` | nenhuma |
-| Chaves do Hermes | guardadas no Wabotia | ficam na máquina do Hermes |
-| Credencial no Wabotia | 2 chaves Hermes + par Access | hash de 1 token de vínculo |
+| Chaves do Hermes | guardadas no Vinki | ficam na máquina do Hermes |
+| Credencial no Vinki | 2 chaves Hermes + par Access | hash de 1 token de vínculo |
 | Semântica de execução | `/v1/runs` | `/v1/runs` (igual) |
 
 ## 2. Instalação
@@ -43,13 +43,13 @@ Motivo: o motor do Wabotia não troca mensagens soltas com o bot. Cada execuçã
 
 Só perfis com `API_SERVER_KEY` viram bots executáveis. Para incluir outros perfis, repita o comando com um código novo e os nomes ao final. Ainda não há instalador para Hermes nativo no Windows.
 
-Para o agente também usar as ferramentas do Wabotia, configure o MCP ([API.md](API.md#mcp-para-o-hermes-agent)); são recursos independentes.
+Para o agente também usar as ferramentas do Vinki, configure o MCP ([API.md](API.md#mcp-para-o-hermes-agent)); são recursos independentes.
 
 ### 2.1 Atualizar o plugin
 
-O plugin não se atualiza sozinho. Uma versão nova do Wabotia pode trazer um plugin novo (a tabela abaixo diz quando); para instalá-lo, rode o instalador de novo na máquina do Hermes. A conexão, os bots e as regras de atendimento não mudam, e as chaves do Hermes são preservadas.
+O plugin não se atualiza sozinho. Uma versão nova do Vinki pode trazer um plugin novo (a tabela abaixo diz quando); para instalá-lo, rode o instalador de novo na máquina do Hermes. A conexão, os bots e as regras de atendimento não mudam, e as chaves do Hermes são preservadas.
 
-1. Atualize o Wabotia primeiro: **Sistema e atualizações → Verificar atualização → Atualizar Wabotia** e depois **Reabrir painel atualizado**. O instalador baixa o plugin da sua própria instalação, então ela precisa estar na versão nova.
+1. Atualize o Vinki primeiro: **Sistema e atualizações → Verificar atualização → Atualizar Vinki** e depois **Reabrir painel atualizado**. O instalador baixa o plugin da sua própria instalação, então ela precisa estar na versão nova.
 2. No painel, em **Conexões**, no cartão da conexão Hermes, clique em **Parear novamente**. O painel mostra um comando novo, com um código de uso único que vale 15 minutos. O plugin atual continua funcionando até o comando ser executado.
 3. Na máquina do Hermes, com o usuário do Hermes, execute o comando copiado. Se a instalação original incluiu outros perfis, repita os nomes ao final:
 
@@ -75,12 +75,12 @@ O plugin não se atualiza sozinho. Uma versão nova do Wabotia pode trazer um pl
 
 Entre o passo 3 e o fim do reinício do passo 4 os bots não respondem; as mensagens de clientes que chegarem nesse intervalo seguem as regras de quando o Hermes está fora do ar. Prefira um horário de pouco movimento.
 
-| Plugin | Chega com o Wabotia | O que muda |
+| Plugin | Chega com o Vinki | O que muda |
 | --- | --- | --- |
 | 1.0.0 | 0.16.0 | Primeira versão. |
 | 1.1.0 | 0.16.4 | Repassa a chave de sessão por conversa (`X-Hermes-Session-Key`): o bot deixa de misturar a memória de clientes, conversas internas e pessoas diferentes. A memória que o Hermes já guardou na sessão anterior não é apagada. |
 
-Um plugin antigo continua funcionando com um Wabotia mais novo, sem os recursos da versão nova.
+Um plugin antigo continua funcionando com um Vinki mais novo, sem os recursos da versão nova.
 
 ## 3. Pareamento
 
@@ -130,7 +130,7 @@ Long-poll por HTTPS com `Authorization: Bearer wabl_…`.
 }
 ```
 
-A chave `session_key` separa a memória do Hermes por conversa: uma por conversa de cliente (`…:conv:<id>`), uma por conversa interna (`…:internal:<id>`), uma por pessoa que pergunta direto ao bot (`…:user:<id>`) e uma por execução avulsa. O plugin a repassa como `X-Hermes-Session-Key` a partir da versão 1.1.0; versões anteriores ignoram o campo e tudo continua funcionando, sem a separação. No caminho por URLs o Wabotia envia o cabeçalho diretamente. O histórico de cada conversa continua indo no `input`; o Wabotia não usa `session_id`, para o Hermes não acumular transcrições repetidas. Para atualizar o plugin, siga a seção 2.1.
+A chave `session_key` separa a memória do Hermes por conversa: uma por conversa de cliente (`…:conv:<id>`), uma por conversa interna (`…:internal:<id>`), uma por pessoa que pergunta direto ao bot (`…:user:<id>`) e uma por execução avulsa. O plugin a repassa como `X-Hermes-Session-Key` a partir da versão 1.1.0; versões anteriores ignoram o campo e tudo continua funcionando, sem a separação. No caminho por URLs o Vinki envia o cabeçalho diretamente. O histórico de cada conversa continua indo no `input`; o Vinki não usa `session_id`, para o Hermes não acumular transcrições repetidas. Para atualizar o plugin, siga a seção 2.1.
 
 ### 4.2 Operações (lista fechada)
 
@@ -145,7 +145,7 @@ O plugin nunca recebe caminho ou URL. Para perfil diferente de `default` o prefi
 | `runs.stop` | `profile`, `run_id` | `POST /v1/runs/{run_id}/stop` |
 | `artifacts.download` | `profile`, `artifact_id` | `GET /v1/artifacts/download/{artifact_id}` |
 
-`profiles.list` responde `{"profiles":[{"name","display_name","api_enabled"}]}`. A `API_SERVER_KEY` de cada perfil é lida do `.env` local a cada chamada e nunca é enviada ao Wabotia. Em **Descobrir bots**, todos os perfis viram bots cadastrados e os com `api_enabled` têm as capacidades verificadas (limite de 20).
+`profiles.list` responde `{"profiles":[{"name","display_name","api_enabled"}]}`. A `API_SERVER_KEY` de cada perfil é lida do `.env` local a cada chamada e nunca é enviada ao Vinki. Em **Descobrir bots**, todos os perfis viram bots cadastrados e os com `api_enabled` têm as capacidades verificadas (limite de 20).
 
 ### 4.3 Devolver resultado
 
@@ -172,7 +172,7 @@ Artefatos: `PUT /api/hermes-link/artifacts/{job_id}` com o corpo binário, `Cont
 
 - O plugin só fala com `127.0.0.1` (API do Hermes) e com `WABOTIA_URL`, que precisa ser `https` sem caminho; não segue redirecionamentos.
 - `profile` é validado contra os perfis locais; `run_id` contra `^[A-Za-z0-9_.:-]{1,200}$` e `artifact_id` contra `^[A-Za-z0-9_-]{8,200}$`.
-- Vazamento do `wabl_` permite se passar pelo Hermes daquela conexão (responder execuções), mas não ler a API do Wabotia. Mitigação: **Revogar plugin**.
+- Vazamento do `wabl_` permite se passar pelo Hermes daquela conexão (responder execuções), mas não ler a API do Vinki. Mitigação: **Revogar plugin**.
 - O instalador é servido pela própria instalação e não contém segredo; o código de pareamento vai como argumento.
 - A conexão por plugin recusa receber chaves do Hermes (`connection.save` com `secrets`).
 - Aprovações de ferramentas continuam sob as políticas do Hermes.
@@ -189,16 +189,16 @@ Servido em `/hermes-plugin/` a partir de `public/hermes-plugin/`:
 ## 7. Servidor
 
 - `src/hermes-link.ts`: códigos, token, autenticação e o estado do vínculo (`HermesLinkHub`).
-- `src/coordinator.ts`: caminhos `/link-*` atendidos por uma **instância própria da classe `Coordinator`** (`idFromName("hermes-link:" + connection_id)`), que não grava perfil nem agenda alarme. É outra instância porque a do perfil dispara as execuções e não pode esperar por si mesma. **Não criar classe nova de Durable Object**: `src/release.ts` recusa pacotes cujo `durable_migrations` difere de `v1/Coordinator`, o que tiraria a versão do botão **Atualizar Wabotia**.
+- `src/coordinator.ts`: caminhos `/link-*` atendidos por uma **instância própria da classe `Coordinator`** (`idFromName("hermes-link:" + connection_id)`), que não grava perfil nem agenda alarme. É outra instância porque a do perfil dispara as execuções e não pode esperar por si mesma. **Não criar classe nova de Durable Object**: `src/release.ts` recusa pacotes cujo `durable_migrations` difere de `v1/Coordinator`, o que tiraria a versão do botão **Atualizar Vinki**.
 - `src/integrations.ts`: `hermesRequest`, `hermesArtifact` e `discover` desviam para o vínculo quando `config.transport === "link"`.
 - `src/index.ts`: rotas `/api/hermes-link/{pair,poll,results,artifacts/:job}`.
 - Painel: `web/admin/ConnectionDialog.tsx` e `web/admin/ConnectionsPage.tsx`.
 
-Distribuição: chega como uma versão nova do Wabotia, instalada por **Sistema e atualizações → Atualizar Wabotia**. Não há migração de banco, mudança de Durable Object, bindings ou secrets novos. O plugin é instalado só na máquina do Hermes.
+Distribuição: chega como uma versão nova do Vinki, instalada por **Sistema e atualizações → Atualizar Vinki**. Não há migração de banco, mudança de Durable Object, bindings ou secrets novos. O plugin é instalado só na máquina do Hermes.
 
 ## 8. Validação
 
-Validado em 13/11/2026 contra um Hermes Agent v0.22.6 em Docker (imagem `ghcr.io/hostinger/hvps-hermes-agent`, dados em `/opt/data`, somente o perfil `default`) e uma instalação de teste do Wabotia:
+Validado em 13/11/2026 contra um Hermes Agent v0.22.6 em Docker (imagem `ghcr.io/hostinger/hvps-hermes-agent`, dados em `/opt/data`, somente o perfil `default`) e uma instalação de teste do Vinki:
 
 - Testes Python de `link.py`: 10 passando (Python 3 no host da VPS).
 - Instalador executado de dentro do contêiner com `su … hermes`, pareamento, carregamento do plugin após reiniciar o contêiner, **Testar conexão**, **Descobrir bots** (perfil `default`, com idempotência durável anunciada) e **Ativar**.
@@ -217,5 +217,5 @@ Ainda não validado:
 
 - Instalador para Windows nativo e atualização automática do plugin.
 - WebSocket no lugar do long-poll.
-- Wabotia como canal de chat do Hermes (`send_message`, entrega de cron em uma conversa).
+- Vinki como canal de chat do Hermes (`send_message`, entrega de cron em uma conversa).
 - Configurar o MCP no mesmo comando de instalação.

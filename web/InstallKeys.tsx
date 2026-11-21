@@ -72,7 +72,7 @@ export function InstallKeys() {
   function download() {
     if (!keys) return;
     const contents = [
-      "Wabotia — chaves de uma NOVA instalação",
+      "Vinki — chaves de uma NOVA instalação",
       "Guarde este arquivo em local privado. Ele contém suas duas chaves.",
       "Preencha abaixo a URL do Worker para identificar a instalação:",
       "URL: ",
@@ -92,7 +92,7 @@ export function InstallKeys() {
     );
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "wabotia-chaves-nova-instalacao.txt";
+    anchor.download = "vinki-chaves-nova-instalacao.txt";
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setMessage(
@@ -196,7 +196,7 @@ export function InstallKeys() {
         <p>
           <strong>Guarde as duas.</strong> Use um gerenciador de senhas ou baixe
           o arquivo e mantenha-o em local privado. As chaves são geradas só no
-          seu navegador; o Wabotia não recebe nem guarda esses valores. Elas
+          seu navegador; o Vinki não recebe nem guarda esses valores. Elas
           somem desta página ao atualizar ou fechar a aba.
         </p>
         <p>

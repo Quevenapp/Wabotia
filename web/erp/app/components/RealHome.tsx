@@ -70,7 +70,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
   }:undefined,[summary,partsGeneration,financeOn,salesOn]);
   const money=(cents:string)=>hidden?'R$ ••••':financeMoney(cents);
   const role=access?.role??summary?.role;
-  // Wabotia: a contagem de novas NF-es sai no salto 1; o cartão continua dentro do detalhamento do período.
+  // Vinki: a contagem de novas NF-es sai no salto 1; o cartão continua dentro do detalhamento do período.
   const newInvoicesOn=Boolean(role&&blockEnabled('erp-fiscal')&&['admin','consulta','fiscal'].includes(role));
   const newInvoices=useNewInvoices(controller as unknown as Partial<PlatformPort>,newInvoicesOn);
   // Quick actions come from the destinations this access already has in the menu; nothing new is granted here.
@@ -88,7 +88,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
       setSummary({generation:partsGeneration,value:result});setLoading(false);
     }).catch(failure=>{
       if(request.signal.aborted||partsGeneration!==summaryGeneration())return;
-      // Wabotia: recusa por parte desligada não é falha; os blocos daquela parte simplesmente não aparecem.
+      // Vinki: recusa por parte desligada não é falha; os blocos daquela parte simplesmente não aparecem.
       setLoading(false);setError(failure instanceof AccessError&&failure.status===409&&failure.code==='module_disabled'?'':failure instanceof AccessError&&failure.status===403?'Seu acesso ao painel precisa ser verificado.':'Não foi possível carregar o resumo. Tente novamente.');
     });return()=>request.abort();
   },[controller,reload,routeKey,partsGeneration]);
@@ -116,7 +116,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
     <div className="home-main">
 
       <p className="home-alert"><Icon name="circle-info" size={16}/><span>{nativeIndicatorCoverageText(summary) ?? 'Este resumo considera os registros da sua empresa no ERP. Os indicadores serão preenchidos conforme os cadastros e movimentações forem registrados.'}</span></p>
-      {/* Wabotia: só a base ligada: um estado vazio amigável no lugar dos indicadores das partes desligadas. */}
+      {/* Vinki: só a base ligada: um estado vazio amigável no lugar dos indicadores das partes desligadas. */}
       {!(['erp-produtos','erp-vendas','erp-compras','erp-estoque','erp-financeiro','erp-fiscal'] as const).some(blockEnabled)&&<p className="home-alert" role="note"><Icon name="circle-info" size={16}/><span>Com só {ERP_BLOCK_LABELS.erp} ligado, este painel mostra os atalhos e os cadastros. Os indicadores de vendas, estoque, financeiro e notas aparecem aqui quando esses módulos forem ligados em Gestão → Módulos.</span></p>}
       <HomeExpiring controller={controller as Parameters<typeof HomeExpiring>[0]['controller']} role={role}/>
       <HomeValidityAlert role={role}/>
@@ -134,7 +134,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
         </div>
         {(periodError||route.error)&&<p className="real-alert" role="alert">{periodError||route.error}</p>}
         {error&&<p className="real-alert" role="alert">{error}</p>}{loading&&<p className="real-result-status" role="status">Carregando resumo da empresa…</p>}
-        {/* Wabotia: os gráficos e as novas NF-es não dependem do resumo; montados fora do `period&&`, as leituras deles saem
+        {/* Vinki: os gráficos e as novas NF-es não dependem do resumo; montados fora do `period&&`, as leituras deles saem
             junto com o /v1/inicio (salto 1), e o cartão aparece quando o período chega. */}
         {period&&<div className="fagoo-metrics" aria-label="Indicadores do período">
           {blockEnabled('erp-vendas')&&period.sales&&<article className="fagoo-metric fagoo-metric-sales"><span><Icon name="chart-line" size={20}/>Vendas no período</span><strong>{money(homeSalesLines(period.sales)[0]?.total_cents??'0')}</strong><small>{count(homeSalesLines(period.sales)[0]?.count??0)} pedido(s), sem os cancelados</small></article>}

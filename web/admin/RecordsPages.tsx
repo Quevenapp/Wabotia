@@ -75,7 +75,7 @@ function ConversationReportsPage() {
                   const blob = await response.blob();
                   const link = document.createElement("a");
                   link.href = URL.createObjectURL(blob);
-                  link.download = "wabotia-" + section + ".jsonl";
+                  link.download = "vinki-" + section + ".jsonl";
                   link.click();
                   URL.revokeObjectURL(link.href);
                 },

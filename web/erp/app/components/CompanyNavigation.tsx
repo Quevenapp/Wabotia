@@ -57,7 +57,7 @@ export default function CompanyNavigation({ host, state, onLogout, controller, e
   const person = chrome.profile?.name ?? chrome.profile?.email ?? null;
   const user = { name: ready && role ? person ?? ROLE_LABELS[role] : authenticated ? 'Verificando acesso' : 'Visitante', company: chrome.profile?.company?.legal_name ?? 'ERP', detail: ready ? person && role ? `Perfil: ${ROLE_LABELS[role]}` : 'Área da empresa' : undefined };
   const system = ready && typeof controller?.system === 'function' ? controller as SystemController : null;
-  // Wabotia: o botão de sincronizar com o Origin saiu; a capacidade originIntegration nunca vem (Origin fora, motor 91213b8).
+  // Vinki: o botão de sincronizar com o Origin saiu; a capacidade originIntegration nunca vem (Origin fora, motor 91213b8).
   // The trail names the same module the sidebar shows (Comercial, Catálogo…), so both read alike.
   const moduleName = useMemo(() => current?.to ? (embedded ? erpDestinationPlacement(current.to)?.group : undefined) ?? workspaceMenu(groups, role).find(group => group.columns.some(column => column.items.some(item => item.to === current.to)))?.name ?? active?.name : active?.name, [groups, role, current?.to, active?.name, embedded]);
   const trail = ready ? location.pathname === '/acesso' ? <nav aria-label="Localização"><span aria-current="page">Visão geral</span></nav> : <nav aria-label="Localização"><Link to="/acesso">Início</Link>

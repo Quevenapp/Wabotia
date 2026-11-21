@@ -149,7 +149,7 @@ object WorkOrderRules {
     const val ORDER_CLOSED = "A ordem está encerrada: não muda mais."
     const val NO_CONVERSATION = "Esta ordem não está ligada a uma conversa do WhatsApp. Envie pelo painel."
     const val PHOTO_TOO_BIG = "A foto ficou grande demais. Tire de novo, de mais longe ou com menos zoom."
-    const val CAMERA_DENIED = "Este item pede foto pela câmera. Libere a câmera para o Wabotia nas configurações do aparelho."
+    const val CAMERA_DENIED = "Este item pede foto pela câmera. Libere a câmera para o Vinki nas configurações do aparelho."
     const val CUSTOMER_REQUIRED = "Confirme o cadastro do cliente antes de escolher o objeto."
     const val OBJECT_CHANGED = "O cadastro do objeto mudou. Escolha o objeto de novo."
     const val NO_CONTACTS = "Nenhum cliente com esse nome ou telefone. Cadastre o cliente na conversa ou no painel e busque de novo."

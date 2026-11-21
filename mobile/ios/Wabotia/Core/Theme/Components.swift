@@ -3,33 +3,38 @@ import UIKit
 
 // MARK: - Marca
 
-/// Símbolo do ícone do app: balão de conversa com um "W". Desenhado em um quadrado de 1024.
-struct BrandBubbleShape: Shape {
+/// Símbolo do app: o coração do Vinki (brand/vinki/icone.svg), a 56% da largura de um quadrado de 1024.
+struct BrandHeartShape: Shape {
     func path(in rect: CGRect) -> Path {
         let s = min(rect.width, rect.height) / 1024
         let ox = rect.midX - 512 * s, oy = rect.midY - 512 * s
         func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * s, y: oy + y * s) }
         var path = Path()
-        path.addEllipse(in: CGRect(x: ox + 192 * s, y: oy + 192 * s, width: 640 * s, height: 560 * s))
-        path.move(to: p(292, 664))
-        path.addLine(to: p(250, 860))
-        path.addLine(to: p(450, 738))
+        path.move(to: p(225.28, 404.05))
+        path.addCurve(to: p(268.96, 513.61), control1: p(225.28, 449.22), control2: p(246.04, 479.47))
+        path.addCurve(to: p(366.31, 646.82), control1: p(296.7, 554.94), control2: p(335.73, 606.86))
+        path.addLine(to: p(400.55, 689.88))
+        path.addCurve(to: p(442.31, 725.42), control1: p(413.24, 703.58), control2: p(425.98, 715.97))
+        path.addCurve(to: p(562.97, 733.6), control1: p(476.28, 745.09), control2: p(526.91, 749.75))
+        path.addCurve(to: p(596.57, 712.95), control1: p(576.13, 727.71), control2: p(585.85, 721.72))
+        path.addCurve(to: p(623.22, 686.71), control1: p(606.51, 704.81), control2: p(615.21, 696.97))
+        path.addLine(to: p(635.27, 671.64))
+        path.addCurve(to: p(647.24, 656.49), control1: p(639.64, 666.29), control2: p(643.04, 661.74))
+        path.addLine(to: p(693.94, 596.05))
+        path.addCurve(to: p(782.23, 470.05), control1: p(715.81, 566.81), control2: p(767.73, 499.25))
+        path.addCurve(to: p(795.91, 430.81), control1: p(789.02, 456.37), control2: p(792.68, 447.13))
+        path.addCurve(to: p(682.32, 280.63), control1: p(812.35, 347.79), control2: p(754.25, 280.63))
+        path.addCurve(to: p(576.73, 334.88), control1: p(632.9, 280.63), control2: p(598.04, 305.62))
+        path.addLine(to: p(575.57, 336.44))
+        path.addCurve(to: p(510.08, 420.32), control1: p(564.66, 350.69), control2: p(516.17, 416.24))
+        path.addCurve(to: p(494.11, 398.31), control1: p(509.11, 416.71), control2: p(497.22, 402.05))
+        path.addCurve(to: p(434.48, 322.33), control1: p(478.87, 379.92), control2: p(449.65, 337.33))
+        path.addCurve(to: p(424.97, 312.85), control1: p(431.09, 318.98), control2: p(428.46, 315.95))
+        path.addCurve(to: p(289.58, 292.05), control1: p(388.12, 280.1), control2: p(335.49, 271.48))
+        path.addCurve(to: p(250.08, 324.42), control1: p(273.38, 299.31), control2: p(260.58, 312.1))
+        path.addCurve(to: p(233.96, 353.06), control1: p(244.46, 331), control2: p(236.99, 344.96))
+        path.addCurve(to: p(225.28, 404.05), control1: p(228.82, 366.87), control2: p(225.28, 385.83))
         path.closeSubpath()
-        return path
-    }
-}
-
-struct BrandWShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        let s = min(rect.width, rect.height) / 1024
-        let ox = rect.midX - 512 * s, oy = rect.midY - 512 * s
-        func p(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: ox + x * s, y: oy + y * s) }
-        var path = Path()
-        path.move(to: p(340, 358))
-        path.addLine(to: p(408, 602))
-        path.addLine(to: p(512, 424))
-        path.addLine(to: p(616, 602))
-        path.addLine(to: p(684, 358))
         return path
     }
 }
@@ -41,8 +46,7 @@ struct BrandTile: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.225, style: .continuous).fill(Theme.brand)
-            BrandBubbleShape().fill(Color.white)
-            BrandWShape().stroke(Theme.brand, style: StrokeStyle(lineWidth: size * 0.052, lineCap: .round, lineJoin: .round))
+            BrandHeartShape().fill(Color.white)
         }
         .frame(width: size, height: size)
         .shadow(color: Theme.shadow, radius: 10, y: 4)

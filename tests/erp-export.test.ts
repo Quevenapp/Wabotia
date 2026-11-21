@@ -133,7 +133,7 @@ describe("exportação da empresa em fatias", () => {
       exportStorage,
       attachments: fagoo.attachments,
     });
-    // Wabotia: em fatias, direto no R2.
+    // Vinki: em fatias, direto no R2.
     const ours = company(ids);
     const result = await runExportStreamed(env, profile, ours.task, "lease-1", {
       rpc: ours.rpc,

@@ -81,7 +81,7 @@ test('textos do painel, QA e Preferências não exibem o nome antigo', () => {
   assert.deepEqual(paths.flatMap(path => findings(path, read(path))), []);
 });
 
-// Também as telas do Wabotia em web/erp (fora da cópia em web/erp/app), o painel de gestão e o que o servidor do ERP
+// Também as telas do Vinki em web/erp (fora da cópia em web/erp/app), o painel de gestão e o que o servidor do ERP
 // devolve para a tela (src/erp). Fora: testes e simulados, declarações de tipo, src/erp/schema (documentação técnica do
 // porte) e src/erp/fagoo, a cópia conferida do sistema de origem (seus nomes técnicos ficam como estão).
 const screenFile = path => /\.(?:tsx?|mts|mjs|html)$/.test(path) && !/\.d\.m?ts$/.test(path) &&

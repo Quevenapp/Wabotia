@@ -7,7 +7,7 @@ import {
 import { importRows, modelCsv } from '../app/lib/contact-import-model.ts';
 import { setErpPorts } from '../ports.ts';
 
-// Campos próprios de contato no painel (Wabotia, esquema do ERP versão 20): a mesma regra de valores do motor, o texto de cada
+// Campos próprios de contato no painel (Vinki, esquema do ERP versão 20): a mesma regra de valores do motor, o texto de cada
 // valor, filtros, exportação e importação pela coluna com o nome do campo, e o rascunho da definição. Dados sintéticos.
 const field = (id, name, field_type, extra = {}) => ({ id, name, field_type, required: false, roles: ['customer'], options: [], sensitive: false, exposed: false,
   list_column: false, list_filter: false, active: true, version: 1, ...extra });

@@ -1,6 +1,6 @@
 // Frete: os adaptadores dos Correios e do Melhor Envio contra provedores
 // simulados (nenhuma rede): cotação com preço e prazo, contratação com a
-// referência do Wabotia, resposta incerta marcada como incerta (nunca repetida
+// referência do Vinki, resposta incerta marcada como incerta (nunca repetida
 // às cegas), consulta do envio, etiqueta em PDF, cancelamento e rastreio
 // normalizado; credenciais nunca aparecem nas mensagens. E o contrato das
 // rotas: cotar e consultar são leitura; contratar e cancelar, sensíveis.

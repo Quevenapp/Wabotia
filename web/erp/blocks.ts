@@ -14,9 +14,9 @@ import { erpFieldRequirement, erpEntityRequirement, erpOperationRequirement, typ
 export const ERP_BLOCK_LABELS: Readonly<Record<ErpBlock, string>> = ERP_PART_NAMES;
 
 /**
- * Telas do Fagoo que o Wabotia já faz pelo núcleo e que ficam escondidas:
+ * Telas do Fagoo que o Vinki já faz pelo núcleo e que ficam escondidas:
  * a atualização da instalação (o painel atualiza) e o pareamento com o
- * próprio Wabotia.
+ * próprio Vinki.
  */
 export const hiddenInWabotia = hiddenPortedTarget;
 

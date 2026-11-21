@@ -1,5 +1,5 @@
 // Rotinas do agendador do ERP (docs/ERP-AGENDADOR.md): o registro em código e
-// a tabela wb_routine, estrutura do Wabotia fora do oráculo (declarada em
+// a tabela wb_routine, estrutura do Vinki fora do oráculo (declarada em
 // src/erp/schema/structural.ts, "agendador"). Só sintaxe TypeScript apagável:
 // os testes do Node importam este arquivo direto.
 import type { SqlDriver } from "../engine/driver.ts";

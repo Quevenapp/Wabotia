@@ -133,7 +133,7 @@ export const BOT_TOOLS: BotTool[] = [
   {
     name: "buscar_operacoes",
     description:
-      "Procura, entre as operações do Wabotia que a pessoa pode usar agora, as que servem ao pedido. Devolve até 10, com o nome da operação, se é consulta ou ação, o resumo e os parâmetros. Use antes de consultar ou propor.",
+      "Procura, entre as operações do Vinki que a pessoa pode usar agora, as que servem ao pedido. Devolve até 10, com o nome da operação, se é consulta ou ação, o resumo e os parâmetros. Use antes de consultar ou propor.",
     schema: {
       type: "object",
       properties: {

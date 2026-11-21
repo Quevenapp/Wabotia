@@ -162,7 +162,7 @@ test('a typed client without cadastro shows “Contato não cadastrado” and op
   const created = [];
   const view = await mountComponent('DocumentCatalogPicker.tsx', { controller: { getSnapshot: () => ({ membership: { user_id: actor } }), async catalog() { return { entity: 'contacts', items: [], has_more: false }; } }, entity: 'contacts', label: 'Cliente *', onSelect() {}, onCreate: query => created.push(query) }, { componentName: 'CatalogPicker' });
   try {
-    // Wabotia: sem pré-carga na montagem, o aviso vem da busca digitada (250 ms depois de renderizar), não de uma lista vazia lida antes.
+    // Vinki: sem pré-carga na montagem, o aviso vem da busca digitada (250 ms depois de renderizar), não de uma lista vazia lida antes.
     view.find(n => n.type === 'input' && n.props.type === 'search').props.onChange({ target: { value: '  Cliente sem cadastro ' } });
     await view.flush(); await new Promise(resolve => setTimeout(resolve, 300)); await view.flush();
     assert.match(view.text(), /Contato não cadastrado — Para completar os dados clique aqui/);

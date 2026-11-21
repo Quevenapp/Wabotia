@@ -1,8 +1,8 @@
-// ERP › Fiscal › Emissor de notas (rota /certificado-a1 do Fagoo). No Wabotia
+// ERP › Fiscal › Emissor de notas (rota /certificado-a1 do Fagoo). No Vinki
 // o certificado A1 e a emissão ficam no cofre NFapi da empresa; aqui só se
 // informa o endereço do cofre e a chave de API, e se testa a conexão
 // (src/erp/emissor/README.md, "Rotas para o painel"). Ler: quem tem papel no
-// ERP. Gravar, testar e remover: o administrador do Wabotia, pelo portão do
+// ERP. Gravar, testar e remover: o administrador do Vinki, pelo portão do
 // ERP (horário e segundo fator).
 import { NfceSettingsPanel } from "./NfceBalcao";
 import { NfseSettingsPanel } from "./NfseSettings";
@@ -133,10 +133,10 @@ function EmissorSettingsArea() {
         <div>
           <h1>Emissor de notas</h1>
           <p>
-            No Wabotia, o certificado digital A1 e a emissão de NF-e
+            No Vinki, o certificado digital A1 e a emissão de NF-e
             ficam no emissor de notas da empresa (um cofre à parte). Aqui você informa o
             endereço do cofre e a chave de API; o certificado nunca passa pelo
-            Wabotia. Configure certificado e senha diretamente no cofre.
+            Vinki. Configure certificado e senha diretamente no cofre.
           </p>
         </div>
       </header>
@@ -286,7 +286,7 @@ function EmissorSettingsArea() {
           <p className="real-help">
             {ports?.demo
               ? "Na demonstração nada é gravado."
-              : "Somente o administrador do Wabotia configura o emissor."}
+              : "Somente o administrador do Vinki configura o emissor."}
           </p>
         ))}
       <CommercialNfeSettings port={ports?.commercialNfe} connection={view} confirmIdentity={ports?.confirmIdentity} />

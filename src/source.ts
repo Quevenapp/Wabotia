@@ -1,14 +1,14 @@
-// Código-fonte do commit em execução (AGPL-3.0, §13): quem usa o Wabotia pela
+// Código-fonte do commit em execução (AGPL-3.0, §13): quem usa o Vinki pela
 // rede recebe o endereço do código exato que está rodando. Vai em
 // /api/health, /api/v1/capabilities, no rodapé do painel e do login e nas
 // páginas que o cliente final abre (passo web, carrinho, acompanhamento).
 //
-// Quem modificar o Wabotia aponta o próprio repositório em WABOTIA_SOURCE_URL:
+// Quem modificar o Vinki aponta o próprio repositório em WABOTIA_SOURCE_URL:
 // um endereço HTTPS; com "{commit}" no texto, ele é trocado pelo commit; sem,
 // acrescenta-se "/tree/<commit>" (formato do GitHub e do GitLab).
 import { buildInfo } from "./build-info.generated";
 
-export const OFFICIAL_SOURCE = "https://github.com/Quevenapp/Wabotia";
+export const OFFICIAL_SOURCE = "https://github.com/Quevenapp/Vinki";
 /** Licença do servidor e do painel (o sufixo -only/-or-later fica no package.json). */
 export const LICENSE_NAME = "AGPL-3.0";
 

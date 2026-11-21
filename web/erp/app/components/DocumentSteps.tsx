@@ -3,7 +3,7 @@ import {isSaveShortcut,stepIndexForKey,type DocumentStep} from '../lib/document-
 
 const modalOpen=()=>Boolean(globalThis.document?.querySelector?.('dialog[open], [aria-modal="true"]'));
 const reducedMotion=()=>Boolean(globalThis.window?.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
-// Wabotia: dentro do painel quem rola é a área do ERP, não a janela. Devolve o ancestral que rola de fato (null = a janela).
+// Vinki: dentro do painel quem rola é a área do ERP, não a janela. Devolve o ancestral que rola de fato (null = a janela).
 const scrollerOf=(element:Element|null):HTMLElement|null=>{
  const win=globalThis.window;if(!win?.getComputedStyle)return null;
  for(let node=element?.parentElement??null;node;node=node.parentElement){
@@ -49,7 +49,7 @@ export function useDocumentSteps(steps:readonly DocumentStep[],{canSave,focusFir
   const section=header.parentElement;let frame=0;
   const measure=()=>section?.style.setProperty('--document-header-height',`${Math.ceil(header.getBoundingClientRect().height)}px`);
   const spy=()=>{
-   // Wabotia: o cabeçalho pode não estar fixo (rola com a tela): a referência é ele ou o topo da área que rola, o que estiver mais abaixo.
+   // Vinki: o cabeçalho pode não estar fixo (rola com a tela): a referência é ele ou o topo da área que rola, o que estiver mais abaixo.
    const scroller=scrollerOf(header);
    frame=0;const limit=Math.max(header.getBoundingClientRect().bottom,scroller?.getBoundingClientRect().top??0)+40,list=live.current.visible;let current=list[0]?.id??'';
    for(const step of list){const element=doc.getElementById(step.id);if(element&&element.getBoundingClientRect().top<=limit)current=step.id;}

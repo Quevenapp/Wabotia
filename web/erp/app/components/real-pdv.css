@@ -13,7 +13,7 @@
 .real-pdv .pdv-ops-menu button:disabled { color: var(--subtle); cursor: not-allowed; }
 .real-pdv .pdv-form { border: 0; margin: 0; padding: 0; min-width: 0; }
 .real-pdv .pdv-form[disabled] { opacity: .75; }
-/* Wabotia: abas montadas; a inativa fica escondida. A aba Produto repete a grade do formulário (os itens eram filhos diretos dele). */
+/* Vinki: abas montadas; a inativa fica escondida. A aba Produto repete a grade do formulário (os itens eram filhos diretos dele). */
 .real-pdv .pdv-tab-produto { display: grid; align-content: start; gap: 10px; min-width: 0; }
 .real-pdv .pdv-form [role="tabpanel"][hidden] { display: none !important; }
 .real-pdv .pdv-favorite-tools, .real-pdv .pdv-client-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

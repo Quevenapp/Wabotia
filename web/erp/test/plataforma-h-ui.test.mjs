@@ -24,7 +24,7 @@ test('PRF-255: the release notes kept in the repository are ordered, dated and a
 });
 
 test('PRF-287, NFE-187, NFE-222: the Central de ajuda is an internal route with the main flows, coexistence and fiscal guidance',async()=>{
- // Wabotia: o tópico 'convivencia' saiu (item 17); a convivência com o Bling terá a ajuda do componente externo.
+ // Vinki: o tópico 'convivencia' saiu (item 17); a convivência com o Bling terá a ajuda do componente externo.
  assert.deepEqual(HELP_TOPICS.map(t=>t.slug),['primeiros-passos','notas-fiscais','naturezas-operacao','exportacao']);
  assert.ok(isHelpPath('/ajuda')&&isHelpPath('/ajuda/notas-fiscais')&&!isHelpPath('/ajudas'));
  for(const topic of HELP_TOPICS)for(const section of topic.sections)for(const link of section.links??[]){
@@ -36,7 +36,7 @@ test('PRF-287, NFE-187, NFE-222: the Central de ajuda is an internal route with 
  const index=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda'});
  assert.match(index.text(),/Central de ajuda do ERP/);assert.match(index.text(),/Manual de notas fiscais/);assert.match(index.text(),/Novidades/);
  const notes=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/notas-fiscais'});
- /* Wabotia: o manual fala das notas do ERP e do emissor externo, sem o Origin (item 17). */assert.match(notes.text(),/emissor externo/);assert.doesNotMatch(notes.text(),/Origin/);assert.match(notes.text(),/Portal Nacional da NF-e/);
+ /* Vinki: o manual fala das notas do ERP e do emissor externo, sem o Origin (item 17). */assert.match(notes.text(),/emissor externo/);assert.doesNotMatch(notes.text(),/Origin/);assert.match(notes.text(),/Portal Nacional da NF-e/);
  const natures=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/naturezas-operacao'});assert.match(natures.text(),/Manual de operações fiscais/);
  const news=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/novidades',expandChildren:['ReleaseNotesList']});assert.match(news.text(),new RegExp(`Versão ${LATEST_RELEASE.version.replace(/\./g,'\\.')}`));
  const missing=await mountComponent('HelpCenter.tsx',{},{location:'/ajuda/inexistente'});assert.match(missing.text(),/Tema não encontrado/);
@@ -84,7 +84,7 @@ test('PRF-029: Backup asks for one export, shows the in-progress refusal and is 
  const other=await mountComponent('CompanyExport.tsx',{controller:{...controller,getSnapshot:()=>snapshot('financeiro')}});assert.match(other.text(),/Backup não liberado/);
  assert.throws(()=>parseExportLink({scope:'platform_export_link',expires_in:120,url:'https://evil.example/x',filename:'brufap-exportacao-2026-10-21-1300.zip'}));
  assert.equal(parseExportLink({scope:'platform_export_link',expires_in:120,url:'https://abcdefghijklmnopqrst.supabase.co/storage/v1/object/sign/brufap-exports/exports/x?token=t',filename:'brufap-exportacao-2026-10-21-1300.zip'}).filename,'brufap-exportacao-2026-10-21-1300.zip');
- // Wabotia: o motor nomeia wabotia-exportacao-… e assina pela rota pública do Worker, na origem do painel.
+ // Vinki: o motor nomeia wabotia-exportacao-… e assina pela rota pública do Worker, na origem do painel.
  const wabotiaLink=(origin,path=`/api/public/erp-storage/area-1/exportacoes/exports/${'a'.repeat(8)}-aaaa-4aaa-8aaa-${'a'.repeat(12)}/${'b'.repeat(64)}.zip`)=>({scope:'platform_export_link',expires_in:120,url:`${origin}${path}?token=1.x&download=wabotia-exportacao-2026-11-17-1300.zip`,filename:'wabotia-exportacao-2026-11-17-1300.zip'});
  assert.equal(parseExportLink(wabotiaLink('https://painel.example'),'https://painel.example').filename,'wabotia-exportacao-2026-11-17-1300.zip');
  assert.throws(()=>parseExportLink(wabotiaLink('https://outro.example'),'https://painel.example'),'another origin');

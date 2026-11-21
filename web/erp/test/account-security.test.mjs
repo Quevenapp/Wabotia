@@ -1,8 +1,8 @@
 import test from'node:test';import assert from'node:assert/strict';
 import{parseSecurityPolicy,parseSecurityPolicyAnswer,parseMfaResetAnswer}from'../../../packages/erp-domain/src/access-security.mjs';
 
-// Wabotia: os testes da senha e do aplicativo autenticador próprios saíram com app/lib/account-security.ts; esses passos são de
-// Minha conta do Wabotia (núcleo). Fica o contrato da exigência do segundo fator, que continua no ERP.
+// Vinki: os testes da senha e do aplicativo autenticador próprios saíram com app/lib/account-security.ts; esses passos são de
+// Minha conta do Vinki (núcleo). Fica o contrato da exigência do segundo fator, que continua no ERP.
 
 test('policy and reset answers are checked exactly; the browser never receives factor ids or gates',()=>{
  const U='10000000-0000-4000-8000-000000000310',C='30000000-0000-4000-8000-000000000310',S='2026-10-21T12:00:00-03:00';

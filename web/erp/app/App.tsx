@@ -8,9 +8,9 @@ const RealAccess = lazy(() => import('./components/RealAccess'));
 export default function App() {
   const { pathname, search, hash } = useLocation();
   if (pathname === '/acesso') return <Navigate to={'/visao-geral' + search + hash} replace />;
-  // Wabotia: a atualização da instalação é do painel (Gestão › Sistema); /atualizacao volta ao início.
+  // Vinki: a atualização da instalação é do painel (Gestão › Sistema); /atualizacao volta ao início.
   if (pathname === '/') return <Navigate to="/visao-geral" replace />;
-  // Wabotia: endereço antigo com uma tela que funciona no lugar (web/erp/moved-routes.ts).
+  // Vinki: endereço antigo com uma tela que funciona no lugar (web/erp/moved-routes.ts).
   const moved = movedTarget(pathname);
   if (moved) return <Navigate to={moved} replace />;
   return ['/acesso', '/preferencias', '/cadastros-reais', '/historico-fiscal', '/documentos-empresa', '/estoque-empresa', '/financeiro-empresa', '/cobranca-empresa', '/cobranca-operacional', '/retornos-operacionais', '/notas-recebidas', '/numeracao-fiscal', '/certificado-a1', '/conexao-sefaz', '/empresa-configuracoes','/estoque-abertura','/emissor-fiscal','/relatorio-vencimentos','/painel-produtos-empresa','/conferencia-estoque-empresa','/checkin-recebimentos','/relatorios-estoque','/relatorios-graficos','/manutencao-efeitos',

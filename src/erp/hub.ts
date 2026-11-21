@@ -1,4 +1,4 @@
-// ERP (Fagoo) dentro do Wabotia: a instância "erp:<área>" da classe
+// ERP (Fagoo) dentro do Vinki: a instância "erp:<área>" da classe
 // Coordinator (sem classe nova de Durable Object, como as antigas instâncias
 // do vínculo externo). Os dados do ERP ficam no SQLite do
 // objeto (ctx.storage.sql). Fase 0: docs/ERP-FASE0.md.

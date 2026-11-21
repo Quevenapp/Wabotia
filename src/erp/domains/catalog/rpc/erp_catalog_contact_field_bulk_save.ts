@@ -1,4 +1,4 @@
-// erp_catalog_contact_field_bulk_save (Wabotia, campos próprios de contato;
+// erp_catalog_contact_field_bulk_save (Vinki, campos próprios de contato;
 // esquema do ERP versão 20): valores da importação de contatos, até 50
 // contatos por comando; cada linha passa ou fica de fora sozinha. Regras em
 // ../contact-fields.ts.

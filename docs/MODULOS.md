@@ -1,4 +1,4 @@
-# Módulos do Wabotia
+# Módulos do Vinki
 
 Contrato para escrever uma vertical (Agenda, Pedido, Ordem de Serviço,
 Reserva, Mensalidade…) **sem ler o motor**. Um módulo roda no mesmo Worker e
@@ -808,7 +808,7 @@ mensagem, passo web nem protocolo.
   valor ou desconto, importar assinaturas): aplicação precisa de
   `billing:write` (`ctx.access(actor, "billing:write")`), além do papel que a
   pessoa precisaria. `billing:write` não pode ser concedida a aparelhos
-  pareados do Vinki nem do Fagoo (`409 scope_not_allowed`); uma chave de
+  pareados do Vinki V4 nem do Fagoo (`409 scope_not_allowed`); uma chave de
   mensagens nunca vira chave financeira.
 - **Identidade por telefone**: compare, vincule ou revincule registros por
   telefone só com `ctx.verifiedPhone(c)`. Em conversa de integração ele é
@@ -1061,7 +1061,7 @@ const { step, url, created } = await ctx.openWebStep(c, {
   vai para a equipe com o resumo como pedido, e uma conversa com atendente só
   guarda a mensagem. O resumo em texto nunca abre o menu.
 - Flows com endpoint próprio (`data_exchange`) não são hospedados pelo
-  Wabotia; use Flows de navegação.
+  Vinki; use Flows de navegação.
 - Links já enviados guardam uma cópia dos campos: editar o formulário depois
   não muda o que o cliente vê nesse link.
 

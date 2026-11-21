@@ -104,14 +104,14 @@ struct PedidoView: View {
                 let items = (vm.menu?.categories ?? []).flatMap { $0.items ?? [] }
                 if let item = items.first(where: { $0.id == arg || ($0.name ?? "").lowercased() == arg.lowercased() }) {
                     vm.setItem(item, available: parts[0] == "on")
-                } else { print("[Wabotia] pedido: item \(arg) não está no cardápio") }
+                } else { print("[Vinki] pedido: item \(arg) não está no cardápio") }
             default: break
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
             for _ in 0..<80 where !vm.busy.isEmpty { try? await Task.sleep(nanoseconds: 100_000_000) }
             try? await Task.sleep(nanoseconds: 800_000_000)
             let items = (vm.menu?.categories ?? []).flatMap { $0.items ?? [] }.map { "\($0.name ?? $0.id)=\($0.available == false ? "esgotado" : "ok")" }
-            print("[Wabotia] pedido: \(step) → \(vm.notice ?? vm.done ?? "-") · \(PedidoRules.storeText(vm.store))\(items.isEmpty ? "" : " · " + items.joined(separator: ", "))")
+            print("[Vinki] pedido: \(step) → \(vm.notice ?? vm.done ?? "-") · \(PedidoRules.storeText(vm.store))\(items.isEmpty ? "" : " · " + items.joined(separator: ", "))")
         }
     }
     #endif
@@ -439,7 +439,7 @@ struct PedidoOrderView: View {
     /// pagamento e impressão, com o resultado no console. Nada é avisado ao cliente.
     private func runScript(_ script: String) async {
         let lines = (vm.order?.lines ?? []).map { "\($0.quantity ?? 1)x \($0.name ?? "")[\($0.slot ?? 0)] \(PedidoRules.optionsText($0) ?? "")" }
-        Swift.print("[Wabotia] pedido \(vm.order?.numberText ?? "?"): \(vm.order?.label ?? "?"), linhas: \(lines.joined(separator: " | ")), próximos: \((vm.order?.nextStatuses ?? []).joined(separator: ","))")
+        Swift.print("[Vinki] pedido \(vm.order?.numberText ?? "?"): \(vm.order?.label ?? "?"), linhas: \(lines.joined(separator: " | ")), próximos: \((vm.order?.nextStatuses ?? []).joined(separator: ","))")
         for step in script.split(separator: ",").map(String.init) {
             try? await Task.sleep(nanoseconds: 6_000_000_000)
             let parts = step.split(separator: ":", maxSplits: 1).map(String.init)
@@ -455,7 +455,7 @@ struct PedidoOrderView: View {
             for _ in 0..<80 where vm.busy != nil || printState == .printing { try? await Task.sleep(nanoseconds: 100_000_000) }
             try? await Task.sleep(nanoseconds: 800_000_000)
             let o = vm.order
-            Swift.print("[Wabotia] pedido \(o?.numberText ?? "?"): \(step) → aviso: \(vm.notice ?? "-"); estado \(o?.label ?? "?"), pagamento \(o?.payment?.statusLabel ?? "?"), impressão: \(printMessage ?? "-")")
+            Swift.print("[Vinki] pedido \(o?.numberText ?? "?"): \(step) → aviso: \(vm.notice ?? "-"); estado \(o?.label ?? "?"), pagamento \(o?.payment?.statusLabel ?? "?"), impressão: \(printMessage ?? "-")")
         }
     }
     #endif

@@ -6,7 +6,7 @@ struct StartView: View {
     @EnvironmentObject private var container: AppContainer
 
     var body: some View {
-        AuthScaffold(title: "Wabotia", subtitle: container.session.serverURL?.host ?? "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
+        AuthScaffold(title: "Vinki", subtitle: container.session.serverURL?.host ?? "Atendimento pelo WhatsApp com a sua equipe e os seus bots.") {
             PrimaryButton(title: "Entrar", icon: "person.crop.circle") { container.loginChosen = true }
                 .accessibilityIdentifier("start.login")
             Text("Para quem atende: conversas, protocolos, equipe e o guichê da fila de senhas.")

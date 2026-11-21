@@ -9,7 +9,7 @@
 // - a metade de grants/security definer do primeiro teste (não existem no
 //   motor; PLANO-FAGOO-MOTOR.md, seção 2); as conferências de papel ficam;
 // - a primeira metade de "108 fills competência…": a conta criada antes da
-//   108 testa o preenchimento feito pela migração; no Wabotia cada instalação
+//   108 testa o preenchimento feito pela migração; no Vinki cada instalação
 //   começa vazia (PLANO-FAGOO.md, decisão 2). O escritor 010 depois da 108 fica.
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';

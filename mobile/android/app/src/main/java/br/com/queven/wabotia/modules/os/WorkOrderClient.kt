@@ -71,7 +71,7 @@ class WorkOrderClient(val api: ProfileApi) {
      */
     suspend fun upload(reservation: DocumentReservation, bytes: ByteArray, mimeType: String, key: String = QueueClient.newKey()): DocumentUploadResult {
         val target = WorkOrderRules.uploadTarget(api.serverRoot, reservation.uploadUrl)
-            ?: throw QueueException(400, "unsafe_upload_url", "O endereço de envio da foto não é deste Wabotia. Nada foi enviado.")
+            ?: throw QueueException(400, "unsafe_upload_url", "O endereço de envio da foto não é deste Vinki. Nada foi enviado.")
         return api.putBytes(
             target, bytes, mimeType,
             mapOf("Content-Type" to mimeType, "Idempotency-Key" to key, "Upload-Version" to reservation.version.toString()),

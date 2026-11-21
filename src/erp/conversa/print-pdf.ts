@@ -140,5 +140,5 @@ export function printModelPdf(model: Model, extra: { status: string | null; logo
     item.text(M, 290, `${heading} · versão ${model.version} · Documento comercial sem validade fiscal.`, { size: 7, gray: 0.4 });
     item.text(M + W, 290, `Página ${index + 1} de ${pages.length}`, { size: 7, align: "right", gray: 0.4 });
   });
-  return pdfDocumentWithImage(pages, extra.logo, { title: heading, producer: "Wabotia" });
+  return pdfDocumentWithImage(pages, extra.logo, { title: heading, producer: "Vinki" });
 }

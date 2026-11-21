@@ -1,4 +1,4 @@
-// Multiempresa (Wabotia, sem função no oráculo): copiar cadastros entre duas
+// Multiempresa (Vinki, sem função no oráculo): copiar cadastros entre duas
 // empresas (dois ERPs) pelas funções de domínio de cada uma — exportar de uma,
 // importar na outra pela importação existente —, com prévia e sem duplicar
 // (produto pelo código, contato pelo CPF/CNPJ, os demais pelo nome); e o

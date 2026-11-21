@@ -1,4 +1,4 @@
-# Wabotia iOS: modo aparelho, guichê e verticais
+# Vinki iOS: modo aparelho, guichê e verticais
 
 O que o app iOS ganhou desde a 0.18.0 (branch `feat/ios-aparelho`), como cada parte fala com o servidor, como testar e
 como montar a demonstração. O panorama dos dois apps continua em [`../README.md`](../README.md); o contrato do
@@ -34,7 +34,7 @@ servidor está em `docs/API.md`, `docs/MODULOS.md` e nos guias de cada módulo.
 - Cinco erros travam por 30 s, e cada nova trava dobra a espera, até 15 min. Fechar e abrir o app não zera.
 - Os ajustes destravados voltam sozinhos à tela do papel depois de 2 min sem toque ou quando o app vai para
   segundo plano.
-- **Esqueci o PIN:** um administrador revoga o aparelho no Wabotia (Integrações). Com a credencial revogada, a
+- **Esqueci o PIN:** um administrador revoga o aparelho no Vinki (Integrações). Com a credencial revogada, a
   engrenagem abre sem PIN para **Desfazer pareamento**, e o aparelho pareia de novo. Apagar e instalar o app também
   zera tudo, porque a primeira abertura de uma instalação nova apaga o Keychain que o iOS deixou.
 
@@ -129,7 +129,7 @@ Só no build de depuração (`#if DEBUG`); o release não os tem. Passe como var
   `status:<estado>`, `paid`, `method:cash|card`, `print`), `WABOTIA_ACTION=charge` (parcela) e
   `WABOTIA_CONVERSA=<passos>` (`claim`, `forms`, `form:<id>`, `charge:<pix|link>:<centavos>:<descrição>`,
   `sheet:charge|forms`, `close`, `resolve`; também com `WABOTIA_DEMO=chat`). Cada passo registra no console
-  (`[Wabotia] …`) o aviso que a tela mostrou.
+  (`[Vinki] …`) o aviso que a tela mostrou.
 
 ## Testes em aparelho
 

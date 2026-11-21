@@ -58,7 +58,7 @@ const PARAM: Record<CustomFilter, string> = { nature: 'nature', carrier: 'carrie
 const MAX: Record<CustomFilter, number> = { nature: 120, carrier: 120, trade_name: 120, person_type: 1, document: 30, email: 120, phone: 40, series: 3, contact_code: 100, order_number: 20 };
 
 /** Query for GET /v1/notas-fiscais; throws a user-facing message for invalid filters. */
-// Wabotia: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap), sem o espelho do Origin.
+// Vinki: Origin fora (motor 91213b8): a lista pede sempre os registros nativos (origin=brufap), sem o espelho do Origin.
 export function fiscalListQuery(config: ScreenConfig, filters: FiscalFilters, { page = 1, order = 'date_desc' as FiscalOrder } = {}): URLSearchParams {
   if (filters.query.length > 120 || CONTROL.test(filters.query)) throw new Error('A pesquisa deve ter até 120 caracteres, sem quebras de linha.');
   for (const value of [filters.from, filters.to]) if (value && !validDate(value)) throw new Error('Informe datas válidas entre 1900 e 2099.');
@@ -145,7 +145,7 @@ const SEND_OFF = 'O envio à SEFAZ desta nota ainda não está ligado no ERP; us
 // During coexistence, the DANFE is available only for the authorized XML of a Brufap record.
 const DANFE_NATIVE_OFF = 'A nota do ERP ainda não tem XML autorizado (o envio à SEFAZ não está ligado). Use Imprimir espelho NF.';
 /** The note has a checked XML to print the DANFE from. */
-// Wabotia: Origin fora (motor 91213b8): o xml_id era só do acervo do Origin (nulo nos registros do FAGOO); fica o XML importado.
+// Vinki: Origin fora (motor 91213b8): o xml_id era só do acervo do Origin (nulo nos registros do FAGOO); fica o XML importado.
 export const danfeReady = (row: Pick<ListRow, 'issue_type'>) => isImported(row);
 /**
  * ⋮ menu in Origin order with Brufap availability. Origin hides "Enviar nota fiscal" and "Cancelar NF-e" in situations 3, 4, 9, 10 and 11 and
@@ -154,7 +154,7 @@ export const danfeReady = (row: Pick<ListRow, 'issue_type'>) => isImported(row);
 /** Estoque lane (259): the letter E of a Brufap note (S by the note, R by the reference) and whether the user posts stock. */
 export interface RowStock { flag: 'S' | 'R' | null; reference: string | null; manage: boolean }
 export function rowActions(config: ScreenConfig, row: ListRow, { writable, checkin, labels, finance = null, stock }: { writable: boolean; checkin?: boolean; labels?: boolean; finance?: InvoiceFinanceState; stock?: RowStock | null }): RowAction[] {
-  // Wabotia: Origin fora (motor 91213b8): toda linha é registro do FAGOO; saíram os ramos da nota do Origin em consulta.
+  // Vinki: Origin fora (motor 91213b8): toda linha é registro do FAGOO; saíram os ramos da nota do Origin em consulta.
   const status = row.status ?? 0, authorized = status === 6 || status === 7, waiting = [3, 4, 9, 10, 11].includes(status);
   const off = (reason: string) => ({ enabled: false, reason });
   const actions: RowAction[] = [];
@@ -291,7 +291,7 @@ export function keyParts(key: string | null): { number: string; series: string; 
   if (!key || !/^\d{44}$/.test(key)) return null;
   return { model: key.slice(20, 22), series: String(Number(key.slice(22, 25))), number: key.slice(25, 34).replace(/^0+(?=\d{6})/, ''), issuer: formatDocument(key.slice(6, 20)) };
 }
-// Wabotia: Origin fora (motor 91213b8): toda nota é do FAGOO, então só a forma de emissão (S/X) marca a importada.
+// Vinki: Origin fora (motor 91213b8): toda nota é do FAGOO, então só a forma de emissão (S/X) marca a importada.
 export const isImported = (row: Pick<ListRow, 'issue_type'>) => row.issue_type === 'S' || row.issue_type === 'X';
 /** Notas lane (wave F): why the native XML of a row ("Validar", "Gerar XML (suporte)") cannot be built; null when it can. */
 export function nativeXmlBlock(row: Pick<ListRow, 'issue_type'>, writable: boolean): string | null {

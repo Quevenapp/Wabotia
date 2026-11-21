@@ -46,7 +46,7 @@ export function NodeInstall({
       <p>
         Só é necessário para quem vai instalar pelo terminal; o{" "}
         <a href="#navegador">instalador pelo navegador</a> dispensa esta etapa.
-        O Node.js executa o instalador do Wabotia. O npm vem junto e baixa as
+        O Node.js executa o instalador do Vinki. O npm vem junto e baixa as
         ferramentas necessárias. Você pode fazer isso no computador ou na VPS; o
         painel será publicado na Cloudflare. Se escolher a VPS, a pasta com as
         chaves ficará nela.
@@ -82,7 +82,7 @@ export function NodeInstall({
             <p>
               No Ubuntu, abra <strong>Terminal</strong>. No Windows com WSL2,
               abra o aplicativo <strong>Ubuntu</strong> pelo menu Iniciar. Use
-              esta mesma janela para instalar o Node.js e o Wabotia.
+              esta mesma janela para instalar o Node.js e o Vinki.
             </p>
           )}
           <p>
@@ -133,7 +133,7 @@ export function NodeInstall({
           />
           <p>
             <code>--lts</code> escolhe a versão com suporte prolongado. Não
-            coloque sudo antes de nvm, node ou do instalador Wabotia. O Node.js
+            coloque sudo antes de nvm, node ou do instalador Vinki. O Node.js
             instalado assim fica disponível para este usuário.
           </p>
         </div>
@@ -187,18 +187,18 @@ export function NodeInstall({
       <p>
         Os dois comandos precisam mostrar números de versão, sem erro. Exemplo:
         <code> v26.13.0</code> e <code>11.20.0</code>. Os números podem ser mais
-        novos. O Wabotia exige Node.js <strong>22.13 ou superior</strong> e npm.
+        novos. O Vinki exige Node.js <strong>22.13 ou superior</strong> e npm.
       </p>
 
       <details id="nodejs-erros">
-        <summary>Deu erro? Corrija aqui antes de instalar o Wabotia</summary>
+        <summary>Deu erro? Corrija aqui antes de instalar o Vinki</summary>
         <div className="guide-detail">
           <h3>libatomic.so.1: cannot open shared object file</h3>
           <p>
             O Node.js já foi instalado, mas falta uma biblioteca do Ubuntu.
             Selecione acima o usuário correto e repita a etapa 2 (preparação do
             Ubuntu). Depois execute node -v e npm -v. Não é necessário apagar o
-            Node.js ou o Wabotia.
+            Node.js ou o Vinki.
           </p>
           <h3>nvm: command not found ou node: command not found</h3>
           <p>

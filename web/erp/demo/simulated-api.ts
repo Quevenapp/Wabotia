@@ -29,7 +29,7 @@ export function createSimulatedApi(options: {
   return async (path: string, init: Init): Promise<Response> => {
     const url = new URL(path, "https://erp.invalid");
     // Rotas de usuários que o motor não porta (308e227): pessoas, convite,
-    // sessões e fator são do núcleo do Wabotia.
+    // sessões e fator são do núcleo do Vinki.
     if (NOT_PORTED.some((route) => route.test(url.pathname)))
       return refuse(501, "ERP_NOT_PORTED");
     if (init.method !== "GET") {

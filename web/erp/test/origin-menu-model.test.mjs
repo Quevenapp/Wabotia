@@ -60,7 +60,7 @@ test('preferences expose FAGOO-only pages by role, with the configured integrati
   assert.deepEqual(resolvePreferences({}), []);
   const admin = resolvePreferences({ role: 'admin', capabilities: { originHistory: true } }).flatMap(category => category.entries.map(entry => entry.to));
   for (const to of ['/empresa-configuracoes', '/certificado-a1', '/conexao-sefaz', '/numeracao-fiscal', '/emissor-fiscal?modelo=55', '/emissor-fiscal?modelo=65', '/cobranca-empresa', '/retornos-operacionais', '/relatorio-vencimentos']) assert.ok(admin.includes(to), to);
-  // Wabotia: as telas do Origin saíram (PLANO-FAGOO.md, item 17), mesmo com a capacidade do histórico.
+  // Vinki: as telas do Origin saíram (PLANO-FAGOO.md, item 17), mesmo com a capacidade do histórico.
   for (const to of ['/dados-origin', '/importar-cadastros', '/importar-orcamentos', '/conferir-compras-origin', '/conferir-vendas-origin', '/preparacao-virada', '/integracao-origin', '/historico-vendas-origin', '/xmls-sincronizados', '/cobrancas-legadas-itau']) assert.ok(!admin.includes(to), to);
   const sales = resolvePreferences({ role: 'vendas', capabilities: { originHistory: true } });
   // A role sees a category only when it can read one of its pages or tools.

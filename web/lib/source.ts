@@ -8,7 +8,7 @@ export interface SourceLink {
   license: string;
 }
 const fallback: SourceLink = {
-  url: "https://github.com/Quevenapp/Wabotia",
+  url: "https://github.com/Quevenapp/Vinki",
   license: "AGPL-3.0",
 };
 let pending: Promise<SourceLink> | null = null;

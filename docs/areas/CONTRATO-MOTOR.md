@@ -1,4 +1,4 @@
-# Contrato do motor de trabalhos do Wabotia
+# Contrato do motor de trabalhos do Vinki
 
 **Base:** commit `efc7e54`, versão `0.21.1`. A versão consta em `package.json:3`.
 
@@ -1413,7 +1413,7 @@ A aprovação exige ausência do valor em todos esses caminhos. Conferir somente
 
 ### Limite conhecido na base local
 
-A documentação do repositório informa que o Wabotia exige Workers Paid. Ela registra limite de **1.000 consultas D1 por invocação**, contra 50 no plano gratuito. Fontes: `docs/LIMITES.md:5`; `docs/LIMITES.md:14`.
+A documentação do repositório informa que o Vinki exige Workers Paid. Ela registra limite de **1.000 consultas D1 por invocação**, contra 50 no plano gratuito. Fontes: `docs/LIMITES.md:5`; `docs/LIMITES.md:14`.
 
 A vigência externa desses limites em 18/11/2026 está **a conferir**. Não houve consulta à rede.
 

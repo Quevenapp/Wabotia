@@ -222,7 +222,7 @@ async function publishBody(
         name: "COORDINATOR",
         class_name: "Coordinator",
       },
-      text("APP_NAME", "Wabotia"),
+      text("APP_NAME", "Vinki"),
       text("WABOTIA_ACCOUNT_ID", input.account),
       text("WABOTIA_WORKER_NAME", input.name),
       text("WABOTIA_INSTALLATION_ID", input.installationId),
@@ -238,7 +238,7 @@ async function publishBody(
     assets: { jwt: input.assetsToken, config: pkg.assets_config },
     observability: { enabled: true },
     annotations: {
-      "workers/message": `Wabotia ${pkg.version} · ${pkg.commit.slice(0, 12)}`,
+      "workers/message": `Vinki ${pkg.version} · ${pkg.commit.slice(0, 12)}`,
     },
   };
   const body = new FormData();
@@ -291,7 +291,7 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
     // token. O administrador confirma que a conta tem o Workers Paid.
     if (body?.paid_plan !== true)
       throw invalid(
-        "O Wabotia exige o plano pago Workers Paid na conta. Assine na página de planos do Workers da Cloudflare e confirme na página antes de instalar.",
+        "O Vinki exige o plano pago Workers Paid na conta. Assine na página de planos do Workers da Cloudflare e confirme na página antes de instalar.",
       );
     if (await call(`/workers/scripts/${name}/settings`, "GET", undefined, true))
       throw invalid(
@@ -584,6 +584,6 @@ export async function installStep(env: Env, body: any): Promise<InstallResult> {
   return {
     next: "finish",
     cursor: rest,
-    message: `Wabotia ${pkg.version} publicado na sua conta.`,
+    message: `Vinki ${pkg.version} publicado na sua conta.`,
   };
 }

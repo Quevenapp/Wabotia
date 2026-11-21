@@ -1,4 +1,4 @@
-// Copia o painel do ERP Fagoo para dentro do Wabotia (PLANO-FAGOO-PAINEL.md, B).
+// Copia o painel do ERP Fagoo para dentro do Vinki (PLANO-FAGOO-PAINEL.md, B).
 //
 //   node scripts/erp-import.mjs <raiz do Fagoo>
 //
@@ -11,7 +11,7 @@
 // Caminhos relativos que mudam de lugar são reescritos e anotados. Ao fim
 // grava web/erp/ORIGEM.json com a origem e o SHA-256 de cada arquivo.
 //
-// Arquivos que o Wabotia alterou ou removeu depois da cópia (ORIGEM.json,
+// Arquivos que o Vinki alterou ou removeu depois da cópia (ORIGEM.json,
 // `local`, com o motivo) não são sobrescritos nem recriados. Ao trazer uma
 // versão nova do Fagoo, compare o sha256 de origem para ver o que mudou lá.
 import { createHash } from "node:crypto";
@@ -55,7 +55,7 @@ const excludedTests = new Set([
 const posixPath = (path) => path.replaceAll("\\", "/");
 const rel = (path) => posixPath(relative(fagoo, path));
 
-/** Destino no Wabotia de um arquivo do Fagoo (caminho relativo à raiz), ou null. */
+/** Destino no Vinki de um arquivo do Fagoo (caminho relativo à raiz), ou null. */
 function target(source) {
   const r = rel(source);
   if (r.startsWith("apps/erp/src/")) return "web/erp/app/" + r.slice(13);
@@ -240,7 +240,7 @@ for (const [source, to] of [...files].sort((a, b) =>
   }
   const destination = join(root, to);
   const upstream = sha(bytes);
-  // Alterado ou removido no Wabotia (ORIGEM.json, `local`): fica como está.
+  // Alterado ou removido no Vinki (ORIGEM.json, `local`): fica como está.
   const local = manifest.local[to];
   if (local) {
     kept++;

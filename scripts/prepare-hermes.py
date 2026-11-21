@@ -87,7 +87,7 @@ def prepare(args):
         if not args.create_profile:
             raise RuntimeError("Perfil não encontrado. Use --create-profile para criar um perfil vazio, sem copiar canais.")
         cli(executable, "default", "profile", "create", args.profile, "--no-alias",
-            "--description", "Atendente conectado ao Wabotia pelas APIs nativas do Hermes.")
+            "--description", "Atendente conectado ao Vinki pelas APIs nativas do Hermes.")
         profile_config = config_path(executable, args.profile, "path")
     if (profile_config.parent / "gateway.parked").exists():
         raise RuntimeError("O perfil está pausado no Hermes. Inicie-o conscientemente pelo Hermes antes de preparar a conexão.")
@@ -123,10 +123,10 @@ def prepare(args):
                   + f"Nome do perfil Hermes: {args.profile}\nToken administrativo Hermes: {admin_key}\n"
                   + f"API_SERVER_KEY desse perfil: {profile_key}\n\n"
                   + "O Client ID e o Client Secret serão criados no Cloudflare Access.\n"
-                  + "Estas chaves não são MASTER_KEY nem SETUP_TOKEN do Wabotia.\n")
+                  + "Estas chaves não são MASTER_KEY nem SETUP_TOKEN do Vinki.\n")
     # A dedicated backend leaves the Desktop's dynamic-port backend untouched.
     unit = "\n".join([
-        "[Unit]", "Description=Hermes backend para descoberta Wabotia", "After=network-online.target", "",
+        "[Unit]", "Description=Hermes backend para descoberta Vinki", "After=network-online.target", "",
         "[Service]", "Type=simple", f'EnvironmentFile={str(admin_env).replace(chr(37), chr(37) * 2)}',
         f'WorkingDirectory={str(profile_config.parent).replace(chr(37), chr(37) * 2)}',
         f'ExecStart="{executable}" -p {args.profile} serve --isolated --host 127.0.0.1 --port {args.admin_port} --skip-build',

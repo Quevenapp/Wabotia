@@ -1,4 +1,4 @@
-// Gateway de push do Wabotia: recebe notificações de qualquer servidor Wabotia
+// Gateway de push do Vinki: recebe notificações de qualquer servidor Vinki
 // e as repassa ao Firebase Cloud Messaging com a conta de serviço do aplicativo
 // publicado nas lojas. Não guarda nem registra o conteúdo das mensagens.
 import { Hono } from "hono";

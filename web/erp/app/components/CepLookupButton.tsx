@@ -8,7 +8,7 @@ const statusOf = (e: unknown) => typeof (e as { status?: unknown })?.status === 
 
 /** Leva H (NFE-103): "Buscar CEP" (the lupa of the Origin), a convenience over the public lookup. It only fills the
  * empty fields the caller chooses to fill; when the lookup fails or the CEP does not exist, the address is typed by hand.
- * No painel da área a consulta vai pela rota erp-cep do Wabotia (ViaCEP e BrasilAPI pelo servidor); fora dele, pela
+ * No painel da área a consulta vai pela rota erp-cep do Vinki (ViaCEP e BrasilAPI pelo servidor); fora dele, pela
  * porta da plataforma do ERP, como antes. */
 export default function CepLookupButton({ controller, cep, disabled, onFound, id }: { controller?: Partial<PlatformPort>; cep: string | null | undefined; disabled?: boolean; onFound: (address: CepAddress) => void; id: string }) {
   const [busy, setBusy] = useState(false), [message, setMessage] = useState('');

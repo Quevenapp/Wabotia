@@ -1,10 +1,10 @@
-# Gateway de push do Wabotia
+# Gateway de push do Vinki
 
-Worker Cloudflare que recebe notificações de **qualquer servidor Wabotia** e as repassa ao Firebase Cloud Messaging (FCM), que entrega aos aparelhos Android e iOS (via APNs). Ele guarda a conta de serviço do projeto Firebase do aplicativo publicado nas lojas, para que os servidores não precisem dela.
+Worker Cloudflare que recebe notificações de **qualquer servidor Vinki** e as repassa ao Firebase Cloud Messaging (FCM), que entrega aos aparelhos Android e iOS (via APNs). Ele guarda a conta de serviço do projeto Firebase do aplicativo publicado nas lojas, para que os servidores não precisem dela.
 
 ## Por que existe
 
-O aplicativo Wabotia nas lojas pertence a um único projeto Firebase, mas cada empresa opera o próprio servidor (`wabotia.queven.com.br`, `wabotia.fagoo.com.br` etc.). Enviar notificações exige a chave privada desse projeto, que não pode ser distribuída a todas as instalações. O gateway resolve isso: o servidor envia a notificação pronta (token do aparelho, título, corpo e dados de navegação) para `POST /v1/push`, e o gateway assina e entrega ao FCM. A Queven opera uma instância pública em `https://push.wabotia.queven.app`, usada por padrão. Quem compila o próprio aplicativo pode publicar o próprio gateway ou configurar o servidor no modo `fcm` (conta de serviço própria, sem gateway).
+O aplicativo Vinki nas lojas pertence a um único projeto Firebase, mas cada empresa opera o próprio servidor (`wabotia.queven.com.br`, `wabotia.fagoo.com.br` etc.). Enviar notificações exige a chave privada desse projeto, que não pode ser distribuída a todas as instalações. O gateway resolve isso: o servidor envia a notificação pronta (token do aparelho, título, corpo e dados de navegação) para `POST /v1/push`, e o gateway assina e entrega ao FCM. A Queven opera uma instância pública em `https://push.wabotia.queven.app`, usada por padrão. Quem compila o próprio aplicativo pode publicar o próprio gateway ou configurar o servidor no modo `fcm` (conta de serviço própria, sem gateway).
 
 ## Rotas
 
@@ -29,7 +29,7 @@ Erros vêm como `{error:{code,message,index?}}`: `400` (`invalid_json`, `invalid
 
 ### Limite por IP
 
-Cada IP pode enviar 600 mensagens por minuto. O contador fica **na memória de cada isolado** do Cloudflare: não é compartilhado entre regiões nem entre isolados, portanto o limite efetivo é aproximado e serve para conter abuso grosseiro, não como cota exata. Um servidor Wabotia envia bem menos que isso.
+Cada IP pode enviar 600 mensagens por minuto. O contador fica **na memória de cada isolado** do Cloudflare: não é compartilhado entre regiões nem entre isolados, portanto o limite efetivo é aproximado e serve para conter abuso grosseiro, não como cota exata. Um servidor Vinki envia bem menos que isso.
 
 ## Publicar o próprio gateway
 
@@ -52,7 +52,7 @@ O arquivo `.npmrc` desta pasta ativa `legacy-peer-deps`, porque o npm 10.9 falha
 
 Para desenvolver localmente: crie `.dev.vars` com `FCM_SERVICE_ACCOUNT='{...}'` e rode `npm run dev` (porta 8787). `npm test` executa os testes dentro do `workerd` com o FCM simulado; `npm run check` roda o TypeScript.
 
-## Apontar um servidor Wabotia para o gateway
+## Apontar um servidor Vinki para o gateway
 
 No painel do servidor, em **Sistema e atualizações → Notificações dos aplicativos**:
 
@@ -76,4 +76,4 @@ O gateway é um repassador: processa a mensagem na memória, envia ao FCM e desc
 
 ## Licença
 
-MIT ([LICENSE](LICENSE)), como os apps (`mobile/`) e os conectores: é um programa separado do servidor Wabotia (AGPL-3.0), que só atende aos apps. Veja o [NOTICE](../NOTICE).
+MIT ([LICENSE](LICENSE)), como os apps (`mobile/`) e os conectores: é um programa separado do servidor Vinki (AGPL-3.0), que só atende aos apps. Veja o [NOTICE](../NOTICE).

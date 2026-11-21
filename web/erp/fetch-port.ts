@@ -28,7 +28,7 @@ export function panelRequestAllowed(path: string, method: string, body: unknown,
 }
 // fetch do ERP: o controlador do Fagoo (app/lib/real-access.ts) chama
 // fetcher(`${apiUrl}${path}`, { headers: { Authorization: "Bearer …" },
-// credentials: "omit" }). Aqui a sessão é o cookie do Wabotia: o Bearer sai,
+// credentials: "omit" }). Aqui a sessão é o cookie do Vinki: o Bearer sai,
 // o cookie entra, e toda escrita leva Idempotency-Key (web/lib/api.ts).
 // Só a API desta área é alcançável; qualquer outro destino (gateway A1,
 // Storage do Supabase) é recusado antes de sair do navegador.
@@ -142,7 +142,7 @@ export type FetchPortOptions = {
     path: string,
     init: RequestInit & { method: string },
   ) => Promise<Response | null> | Response | null;
-  /** 401 da API: a sessão do Wabotia terminou (a casca volta para a entrada). */
+  /** 401 da API: a sessão do Vinki terminou (a casca volta para a entrada). */
   onUnauthorized?: () => void;
   fetchImpl?: typeof fetch;
 };

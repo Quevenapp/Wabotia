@@ -6,7 +6,7 @@
 // API ou CNAB (erp_boleto_api_accounts; sem escolha, CNAB).
 //
 // Liquidação: o aviso do banco (webhook) ou a consulta periódica (alarme da
-// área) só marcam o que falta fazer; o pagamento vale só depois de o Wabotia
+// área) só marcam o que falta fazer; o pagamento vale só depois de o Vinki
 // consultar o banco (o corpo do aviso nunca basta). Pago no banco:
 //   - baixa automática ligada (a mesma opção do Pix e do link, desligada por
 //     padrão): o alarme baixa em nome do administrador que ligou a opção, na
@@ -378,7 +378,7 @@ function payerOf(contact: Record<string, any>, title: Record<string, any>) {
   return { payer, missing };
 }
 
-/** Nosso número escolhido pelo Wabotia (Banco do Brasil e Itaú): a próxima da sequência da conta. */
+/** Nosso número escolhido pelo Vinki (Banco do Brasil e Itaú): a próxima da sequência da conta. */
 async function nextOurNumber(env: Env, profile: string, account: string, bank: BoletoBank, settings: Record<string, string>): Promise<string | null> {
   if (bank !== "bb" && bank !== "itau") return null;
   const row = await one<{ next_number: number }>(env, "UPDATE erp_boleto_api_accounts SET next_number=next_number+1 WHERE profile_id=? AND account_id=? RETURNING next_number", profile, account);

@@ -73,7 +73,7 @@ export function PdvMoveDialog({ controller, session, move, sendFinance, mayWrite
 
 /** Operações › Fechar caixa: Total registrado pelas vendas da frente de caixa por forma, o valor informado (contado) e as diferenças. */
 export function PdvCloseDialog({ controller, context, session, sendFinance, mayWrite, onDone, onClose, extra }: { controller: Controller; context: PdvContext; session: PdvSession; sendFinance: Send; mayWrite: () => boolean;
-  onDone: () => void; onClose: () => void; /** Wabotia: resumo dos cupons fiscais do turno (só com Fiscal e PDV ligados). */ extra?: import("react").ReactNode }) {
+  onDone: () => void; onClose: () => void; /** Vinki: resumo dos cupons fiscais do turno (só com Fiscal e PDV ligados). */ extra?: import("react").ReactNode }) {
   const [record, setRecord] = useState<SessionRecord | null>(null), [summary, setSummary] = useState<PdvSummary | null>(null), [error, setError] = useState('');
   const [informed, setInformed] = useState<Record<string, string>>({});
   const command = useFinanceCommand(sendFinance, mayWrite, pdvFailure), guard = useUnsavedForm(informed, command.locked);

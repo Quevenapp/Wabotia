@@ -11,7 +11,7 @@ enum ModuleFailure {
         }
     }
 
-    static let disabledMessage = "Este módulo está desligado neste Wabotia. Um administrador liga em Gestão → Módulos."
+    static let disabledMessage = "Este módulo está desligado neste Vinki. Um administrador liga em Gestão → Módulos."
 
     static func message(_ error: Error) -> String {
         if let e = error as? QueueError, e.moduleDisabled { return disabledMessage }

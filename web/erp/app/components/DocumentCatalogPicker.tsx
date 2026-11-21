@@ -41,7 +41,7 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
   /** 202610200268: the Origin text of the search (default "Pesquise por código, descrição ou GTIN"). */
   placeholder?: string;
 }) {
-  // Wabotia: as opções são lidas quando o usuário abre o seletor (foco na busca ou na lista) ou digita, não na montagem;
+  // Vinki: as opções são lidas quando o usuário abre o seletor (foco na busca ou na lista) ou digita, não na montagem;
   // `shown` guarda a consulta cujas linhas estão na tela, para não repetir a mesma leitura (Enter do leitor, reabilitar o campo).
   const [wanted, setWanted] = useState(false); const [fetched, setFetched] = useState(false); const shown = useRef<{ controller: Controller; key: string } | null>(null);
   const [query, setQuery] = useState(''); const [rows, setRows] = useState<CatalogRecord[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
@@ -56,11 +56,11 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
     if (disabled || (!wanted && !query.trim())) return;
     const params = new URLSearchParams({ limit: '25', active: 'true' }); if (query.trim()) params.set('q', query.trim()); if (entity === 'products' && productKind) params.set('kind', productKind);
     const catalogPath = entity === 'contacts' ? contactOptionsPath({ q: query, role: contactTools?.role }) : `/v1/cadastros/${entity}?${params}`, key = `${catalogPath}|${stockKey}`;
-    // Wabotia: a mesma consulta já está na tela (ex.: o Enter do leitor limpa a busca e a lista padrão já foi lida): nada a reler.
+    // Vinki: a mesma consulta já está na tela (ex.: o Enter do leitor limpa a busca e a lista padrão já foi lida): nada a reler.
     if (shown.current?.controller === controller && shown.current.key === key) { setLoading(false); return; }
     const request = new AbortController(), settled = { rows: false, stock: !stockKey };
     const done = (part: 'rows' | 'stock') => { settled[part] = true; if (settled.rows && settled.stock && !request.signal.aborted) shown.current = { controller, key }; };
-    // Wabotia: a primeira abertura lê na hora; a digitação continua com a espera de 250 ms.
+    // Vinki: a primeira abertura lê na hora; a digitação continua com a espera de 250 ms.
     const timer = setTimeout(() => {
       setLoading(true); setError('');
       void controller.catalog(catalogPath, { signal: request.signal }).then(value => { if (!request.signal.aborted) { setRows((value as CatalogPage).items); setLoading(false); setFetched(true); done('rows'); } }).catch(failure => { if (!aborted(failure) && !request.signal.aborted) { setError(failureText(failure)); setLoading(false); } });
@@ -113,7 +113,7 @@ export function CatalogPicker({ controller, entity, label, selected, disabled, o
   return <div className="document-picker">
     <div className="document-picker-label"><label htmlFor={inputId}>{label}</label>{onCreate && <button type="button" className="document-picker-add" aria-label="Adicionar novo" title="Adicionar novo" disabled={disabled} onClick={() => { if (!disabled) onCreate(query.trim()); }}><Icon name="plus" size={12} /></button>}</div>
     <input id={inputId} type="search" maxLength={120} placeholder={placeholder ?? (entity === 'products' ? PRODUCT_SEARCH_PLACEHOLDER : 'Pesquisar cadastro ativo')} value={query} disabled={disabled} aria-busy={codeBusy || undefined} aria-invalid={invalid || undefined} onFocus={want} onChange={event => { setQuery(event.target.value); want(); }} onKeyDown={keyDown} />
-    {/* Wabotia: a lista fica liberada na primeira leitura (aberta pelo próprio foco); depois volta a travar enquanto pesquisa. */}
+    {/* Vinki: a lista fica liberada na primeira leitura (aberta pelo próprio foco); depois volta a travar enquanto pesquisa. */}
     <select aria-label={`Selecionar ${label.toLowerCase()}`} aria-invalid={invalid || undefined} disabled={disabled || (loading && fetched)} onFocus={want} onPointerDown={want} value={selected?.id || ''} onChange={event => { const found = rows.find(row => row.id === event.target.value); if (found) onSelect(found); else if (!event.target.value) onSelect(null); }}><option value="">{loading ? 'Pesquisando…' : 'Selecione um cadastro'}</option>{selected && !rows.some(row => row.id === selected.id) && <option value={selected.id}>{selected.name}</option>}{rows.map(row => <option key={row.id} value={row.id}>{option(row)}</option>)}</select>
     {entity === 'contacts' && contactTools && <ContactPickerTools controller={controller} contact={selected} tools={contactTools} disabled={disabled} searchOpen={advanced} searchText={query} onSearch={() => setAdvanced(true)} onSearchClose={() => setAdvanced(false)} onSelect={onSelect} />}
     {error && <small role="alert">{error}</small>}

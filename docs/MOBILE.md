@@ -1,6 +1,6 @@
 # Aplicativos Android e iOS
 
-Os aplicativos nativos **Wabotia** para Android (Kotlin/Jetpack Compose) e iOS (Swift/SwiftUI) ficam em [`mobile/android`](../mobile/android) e [`mobile/ios`](../mobile/ios). Eles são clientes da mesma API REST do painel e funcionam com **qualquer instalação Wabotia**: na primeira tela a pessoa digita o endereço do seu servidor (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`), depois entra com o e-mail e a senha de atendente cadastrados em **Pessoas**.
+Os aplicativos nativos **Vinki** para Android (Kotlin/Jetpack Compose) e iOS (Swift/SwiftUI) ficam em [`mobile/android`](../mobile/android) e [`mobile/ios`](../mobile/ios). Eles são clientes da mesma API REST do painel e funcionam com **qualquer instalação Vinki**: na primeira tela a pessoa digita o endereço do seu servidor (por exemplo `wabotia.queven.com.br` ou `wabotia.fagoo.com.br`), depois entra com o e-mail e a senha de atendente cadastrados em **Pessoas**.
 
 Quem ainda não tem um servidor pode tocar em **Conhecer o app (demonstração)** na mesma tela: o app abre uma instalação fictícia, em memória, com dados de exemplo (fila, conversas, protocolos, equipe, ligações). Nenhuma chamada sai do aparelho, nenhuma conta é criada, o aparelho não é registrado para notificações e uma faixa no topo de todas as telas avisa que é demonstração, com **Sair** para voltar à primeira tela. É também o caminho para a revisão das lojas sem depender de uma conta no servidor de produção. Regras em [`mobile/README.md`](../mobile/README.md).
 
@@ -19,7 +19,7 @@ Este guia descreve a parte do servidor (autenticação móvel, dispositivos e pu
 
 ## 1. Atualize o servidor
 
-Os aplicativos exigem a versão **0.8.0** ou superior do Wabotia. Atualize em **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. A migração `0008_mobile.sql` é aditiva: cria as tabelas de dispositivos, cursores de push e alertas de protocolo e acrescenta colunas à tabela de sessões. Conversas, agenda, credenciais e histórico são preservados.
+Os aplicativos exigem a versão **0.8.0** ou superior do Vinki. Atualize em **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. A migração `0008_mobile.sql` é aditiva: cria as tabelas de dispositivos, cursores de push e alertas de protocolo e acrescenta colunas à tabela de sessões. Conversas, agenda, credenciais e histórico são preservados.
 
 ## 2. Autenticação móvel
 
@@ -27,7 +27,7 @@ O painel web usa cookie de sessão com verificação de origem. Os aplicativos u
 
 | Método e rota | Uso |
 |---|---|
-| `GET /api/health` | Confirma que o endereço é um servidor Wabotia (`service: "wabotia"`, versão). |
+| `GET /api/health` | Confirma que o endereço é um servidor Vinki (`service: "wabotia"`, versão). |
 | `GET /api/auth/status` | `initialized` e `configured`; um servidor sem administrador orienta a concluir a instalação pelo navegador. |
 | `POST /api/auth/mobile/login` | Corpo `{email, password, device:{platform:"android"\|"ios", name, app_version}}`. Retorna `{token, expires, user:{id,name,email,role,profiles}}`. Limite de 10 tentativas por IP a cada 10 minutos. |
 | `POST /api/v1/auth/mobile/refresh` | Troca o token atual por um novo (o antigo é revogado) e estende a validade por 30 dias. Use quando faltar menos de 7 dias. |
@@ -137,7 +137,7 @@ Requisitos: macOS com Xcode 16 ou superior e [XcodeGen](https://github.com/yonas
 ```sh
 cd mobile/ios
 xcodegen generate
-xcodebuild -scheme Wabotia -destination "generic/platform=iOS" -derivedDataPath build build
+xcodebuild -scheme Vinki -destination "generic/platform=iOS" -derivedDataPath build build
 ```
 
 Coloque o `GoogleService-Info.plist` em `mobile/ios/Wabotia/Resources/`. O `project.yml` usa assinatura automática com a equipe configurada em `DEVELOPMENT_TEAM`. Ative no App ID as capacidades **Push Notifications** e **Background Modes → Remote notifications**.

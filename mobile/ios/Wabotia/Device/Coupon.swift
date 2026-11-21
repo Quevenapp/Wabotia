@@ -144,7 +144,7 @@ final class WabotiaPrinting: CouponPrinting {
         return TicketPrint.of(await configuration.coordinator.print(SenhaTicketReceipt(data)))
     }
 
-    /// A superfície do kit com as cores do Wabotia (mobile/DESIGN.md), claras e escuras.
+    /// A superfície do kit com as cores do Vinki (mobile/DESIGN.md), claras e escuras.
     static let theme = ThermalPrinterTheme(
         primary: Theme.brand,
         primarySurface: Color(light: 0xE7F5F1, dark: 0x103A33),
@@ -158,7 +158,7 @@ final class WabotiaPrinting: CouponPrinting {
     )
 }
 
-/// A tela de impressora do kit (Bluetooth LE e Wi-Fi local no iOS), com o tema do Wabotia e um topo para voltar.
+/// A tela de impressora do kit (Bluetooth LE e Wi-Fi local no iOS), com o tema do Vinki e um topo para voltar.
 struct PrinterScreen: View {
     let onClose: () -> Void
     @ObservedObject private var printer = WabotiaPrinting.shared.configuration

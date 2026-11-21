@@ -1,4 +1,4 @@
-// Campos próprios de contato (Wabotia, esquema do ERP versão 20; structural.ts,
+// Campos próprios de contato (Vinki, esquema do ERP versão 20; structural.ts,
 // "campos-contato"): a definição em Preferências › Cadastros, o valor de cada
 // contato, coluna e filtro da lista, exportação e importação, a ficha do
 // atendimento e as operações dos bots.

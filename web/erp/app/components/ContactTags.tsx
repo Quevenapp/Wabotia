@@ -18,7 +18,7 @@ import './product-registry.css';
 export type ContactTag = { id: string; name: string; group_id: string | null; group_name: string | null };
 export type ContactTagSet = { contact_id: string; version: number; tag_ids: string[]; tags: ContactTag[] };
 export type PriceListOption = { id: string; name: string };
-/** Wabotia: 'off' = listas de preços são de Produtos e serviços, desligado nesta área; o filtro some, sem aviso de erro. */
+/** Vinki: 'off' = listas de preços são de Produtos e serviços, desligado nesta área; o filtro some, sem aviso de erro. */
 export interface ContactTagOptions { tags: TaxonomyItem[]; groups: TaxonomyItem[]; loaded: boolean; failed: boolean; lists: PriceListOption[] | null; listsState: 'loading' | 'ready' | 'forbidden' | 'failed' | 'off' }
 const BASE = '/v1/cadastros/contatos';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

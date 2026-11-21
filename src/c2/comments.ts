@@ -21,7 +21,7 @@ import {
 } from "./comments-provider";
 
 export const COMMENT_PRIVATE_WINDOW_MS = 168 * 60 * 60 * 1000;
-/** Limite local do Wabotia, aplicado também depois da assinatura. */
+/** Limite local do Vinki, aplicado também depois da assinatura. */
 export const COMMENT_TEXT_LIMIT = 10000;
 type CommentChannel = "instagram" | "facebook";
 type PrivateState = "available" | "reserved" | "sent" | "failed" | "unknown";

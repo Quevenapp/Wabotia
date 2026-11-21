@@ -12,14 +12,14 @@ export function MaintenanceGuide() {
         O instalador já autoriza a atualização direta na sua Cloudflare. Em
         <strong> Sistema e atualizações</strong>, clique{" "}
         <strong>Verificar atualização</strong>. Quando houver uma versão oficial
-        publicada, clique <strong>Atualizar Wabotia</strong>. Aguarde
+        publicada, clique <strong>Atualizar Vinki</strong>. Aguarde
         “Atualização publicada e verificada” e reabra o painel.
       </p>
       <details>
         <summary>O que é preservado e como funciona?</summary>
         <div className="guide-detail">
           <p>
-            O Wabotia baixa o pacote oficial, confere sua integridade, prepara
+            O Vinki baixa o pacote oficial, confere sua integridade, prepara
             os arquivos, aplica migrações com recibo e publica na sua conta.
             Banco, mídias, domínios e credenciais são mantidos. Não precisa
             sincronizar GitHub ou configurar Deploy Hook.
@@ -65,7 +65,7 @@ export function MaintenanceGuide() {
             revisão manual.
           </p>
           <a
-            href="https://github.com/Quevenapp/Wabotia/blob/main/docs/ATUALIZACOES.md"
+            href="https://github.com/Quevenapp/Vinki/blob/main/docs/ATUALIZACOES.md"
             target="_blank"
             rel="noreferrer"
           >

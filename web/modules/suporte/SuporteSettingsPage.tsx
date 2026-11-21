@@ -99,7 +99,7 @@ export function SuporteSettingsPage() {
     <>
       <Card
         title="Como funciona"
-        description="No menu, o cliente escolhe Atendimento humano (pago). O Wabotia reconhece o pagador pelo telefone autorizado ou pede o CPF/CNPJ, confere a mensalidade e passa para a equipe quem está em dia. Em atraso, o cliente paga a parcela ali mesmo; sem assinatura, compra suporte avulso ou contrata um plano mensal. Só o pagamento confirmado pelo Mercado Pago libera."
+        description="No menu, o cliente escolhe Atendimento humano (pago). O Vinki reconhece o pagador pelo telefone autorizado ou pede o CPF/CNPJ, confere a mensalidade e passa para a equipe quem está em dia. Em atraso, o cliente paga a parcela ali mesmo; sem assinatura, compra suporte avulso ou contrata um plano mensal. Só o pagamento confirmado pelo Mercado Pago libera."
       />
       <Card
         title="Menu do WhatsApp"

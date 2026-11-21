@@ -2,7 +2,7 @@
 
 Para quem vende suporte técnico: o atendimento humano só depois de conferir
 o pagamento. O cliente escolhe **Atendimento humano (pago)** no menu do
-WhatsApp; o Wabotia reconhece quem paga, confere a mensalidade e passa para a
+WhatsApp; o Vinki reconhece quem paga, confere a mensalidade e passa para a
 equipe quem está em dia. Quem não está pode pagar ali mesmo, comprar suporte
 avulso ou contratar um plano mensal. A IA continua grátis. API em
 [API.md](API.md#suporte-pago-módulo-suporte).

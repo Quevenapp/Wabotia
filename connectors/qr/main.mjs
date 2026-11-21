@@ -77,7 +77,7 @@ async function api(route, body, method = body === undefined ? "GET" : "POST") {
           : JSON.stringify(body),
     signal: AbortSignal.timeout(20000),
   });
-  if (!r.ok) throw Error("Wabotia HTTP " + r.status);
+  if (!r.ok) throw Error("Vinki HTTP " + r.status);
   return r;
 }
 const logger = pino({ level: "silent" });
@@ -130,7 +130,7 @@ async function connect() {
   socket.ev.on("connection.update", async (update) => {
     try {
       if (update.qr) {
-        console.log("QR disponível em Conexões no painel Wabotia.");
+        console.log("QR disponível em Conexões no painel Vinki.");
         await heartbeat("awaiting_qr", {
           qr: await QRCode.toDataURL(update.qr, { width: 300 }),
         });
@@ -157,7 +157,7 @@ async function connect() {
           );
       }
     } catch {
-      console.error("Não foi possível atualizar estado no Wabotia.");
+      console.error("Não foi possível atualizar estado no Vinki.");
     }
   });
   socket.ev.on("groups.update", async (groups) => {

@@ -1,4 +1,4 @@
-// Relatórios em gráfico de Vendas (Wabotia, sem função no oráculo):
+// Relatórios em gráfico de Vendas (Vinki, sem função no oráculo):
 // erp_report_sales_chart com p_args.report
 // - period: pedidos de venda e valor por dia, semana ou mês;
 // - seller: valor e pedidos por vendedor (o do pedido; o do Bling pelo nome);

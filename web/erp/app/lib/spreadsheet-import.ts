@@ -63,7 +63,7 @@ const entity=(v:string)=>v.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,
  :({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"} as Record<string,string>)[code.toLowerCase()]!);
 const runs=(xml:string)=>[...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m=>entity(m[1]!)).join('');
 const columnIndex=(ref:string)=>{let n=0;for(const c of ref.replace(/\d+$/,''))n=n*26+c.charCodeAt(0)-64;return n-1;};
-/** Wabotia: the import models put the instructions on a first sheet named "Instruções"; the data is the next sheet of the workbook. */
+/** Vinki: the import models put the instructions on a first sheet named "Instruções"; the data is the next sheet of the workbook. */
 function dataSheet(files:Map<string,string>){
  const sheets=[...(files.get('xl/workbook.xml')??'').matchAll(/<sheet\b[^>]*>/g)].map(m=>({name:entity(/\bname="([^"]*)"/.exec(m[0])?.[1]??''),id:/\br:id="([^"]*)"/.exec(m[0])?.[1]}));
  if(sheets.length<2||foldHeader(sheets[0]!.name)!=='instrucoes')return null;
@@ -126,7 +126,7 @@ const declarative=(kind:ImportKind):ScreenTemplate=>{
  return{kind,slug:IMPORT_SLUGS[kind],title:t.title,noun:t.noun,rule:t.rule,readOnly:t.readOnly,
   columns:t.columns!.map(c=>({label:c.label,key:c.key,required:Boolean(c.required||(c.group))})),
   parse:(cells,mapping)=>templateRows(kind,cells,mapping),
-  // Wabotia (versão 28): the fiscal, naturezas and saldos models have the instructions, columns and examples on the first sheet.
+  // Vinki (versão 28): the fiscal, naturezas and saldos models have the instructions, columns and examples on the first sheet.
   model:format=>{const header=[templateHeader(kind).map(label=>textCell(label))];
    if(format==='xlsx'&&IMPORT_PREVIEW_KINDS.includes(kind))return toXlsxBook([{name:'Instruções',rows:templateInstructions(kind).map(r=>r.map(v=>textCell(v)))},{name:'Planilha',rows:header}]);
    return format==='xlsx'?toXlsx(t.title.slice(0,31),header):toCsv(header);},

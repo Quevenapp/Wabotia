@@ -96,7 +96,7 @@ export const EMPTY_LISTS: ProductLists = { suppliers: [], dun_codes: [], tag_ids
 const LISTS_KEY = '__lists';
 /** "1.2000000000" → "1,2"; the form shows the exact stored value with a comma. */
 export const decimalInput = (value: unknown) => typeof value === 'string' && /^\d+(?:\.\d+)?$/.test(value) ? value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '').replace('.', ',') : '';
-// Wabotia: `priceInPlaces` (Preferências › Empresa › Geral, preço nas entradas) mostra os preços do fornecedor com essas casas, sem
+// Vinki: `priceInPlaces` (Preferências › Empresa › Geral, preço nas entradas) mostra os preços do fornecedor com essas casas, sem
 // esconder casas significativas (web/erp/decimals.ts); sem a preferência, como no Fagoo.
 export function productLists(record: CatalogRecord | null, initialValues?: Record<string, string>, priceInPlaces: number | null = null): ProductLists {
   if (initialValues?.[LISTS_KEY]) { try { return { ...EMPTY_LISTS, ...JSON.parse(initialValues[LISTS_KEY]) as ProductLists }; } catch { return EMPTY_LISTS; } }
@@ -134,7 +134,7 @@ export function checkWeights(values: Record<string, string>, initial: Record<str
   }
 }
 /**
- * Wabotia: um preço alterado aceita até as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): o de venda, as do preço
+ * Vinki: um preço alterado aceita até as casas de Preferências › Empresa › Geral (web/erp/decimals.ts): o de venda, as do preço
  * nas saídas; os do fornecedor, as do preço nas entradas. Como no peso, só o valor alterado é conferido: um preço já gravado com mais
  * casas não impede salvar o resto. O servidor aceita até dez casas no cadastro.
  */
@@ -156,7 +156,7 @@ export function productFormValues(record: CatalogRecord | null, initialValues: R
   if (initialValues) { const values = { ...initialValues }; delete values[LISTS_KEY]; return { active: 'true', ...values }; }
   const values: Record<string, string> = {};
   for (const field of PRODUCT_FIELDS) values[field.key] = typeof record?.[field.key] === 'string' ? record[field.key] as string : '';
-  // Wabotia: o preço de venda com as casas da preferência (preço nas saídas), sem esconder casas significativas.
+  // Vinki: o preço de venda com as casas da preferência (preço nas saídas), sem esconder casas significativas.
   if (values.price && defaults.priceOutPlaces != null) values.price = displayDecimal(values.price, defaults.priceOutPlaces);
   for (const key of WEIGHT_KEYS) if (values[key]) values[key] = displayDecimal(values[key], defaults.weightDecimals ?? 3);
   for (const key of MEASURE_KEYS) if (values[key]) values[key] = displayDecimal(values[key], 2);
@@ -278,7 +278,7 @@ export function exportCsv(rows: readonly ExportRow[], columns: readonly ExportCo
   return '﻿' + [columns.map(([label]) => label), ...rows.map(row => columns.map(([, read]) => read(row)))].map(line => line.map(cell).join(';')).join('\r\n') + '\r\n';
 }
 /** Tipo dos campos of the export: Padrão (the Brufap sheet), Customizado (ID, Código, Descrição and the custom fields) or Ambos.
- * Wabotia: sem as colunas do estoque observado no Origin (202610220008): Origin fora (motor 91213b8). */
+ * Vinki: sem as colunas do estoque observado no Origin (202610220008): Origin fora (motor 91213b8). */
 export function exportColumns(kind: 'standard' | 'custom' | 'both', custom: readonly ExportColumn[]): ExportColumn[] {
   return kind === 'standard' ? [...EXPORT_COLUMNS] : kind === 'custom' ? [...EXPORT_COLUMNS.slice(0, 3), ...custom] : [...EXPORT_COLUMNS, ...custom];
 }

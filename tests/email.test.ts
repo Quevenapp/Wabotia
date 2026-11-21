@@ -362,7 +362,7 @@ describe("e-mail pelo Cloudflare Email Sending", () => {
     expect(invite.email_status).toBe("sent");
     const mail = sent.at(-1)!.body;
     expect(mail.to).toBe(email);
-    expect(mail.subject).toBe("Convite para o Wabotia");
+    expect(mail.subject).toBe("Convite para o Vinki");
     expect(mail.text).toContain(invite.url);
     // Link de nova senha pedido pelo administrador, com envio.
     const u = await person([f.profile]);
@@ -393,7 +393,7 @@ describe("e-mail pelo Cloudflare Email Sending", () => {
 
   it("assunto sem segredo", () => {
     expect(() =>
-      assertSafeSubject("Sua senha do Wabotia foi trocada"),
+      assertSafeSubject("Sua senha do Vinki foi trocada"),
     ).not.toThrow();
     for (const bad of [
       "Link: https://exemplo.com/app",

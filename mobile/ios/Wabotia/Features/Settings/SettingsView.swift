@@ -92,7 +92,7 @@ struct SettingsView: View {
             Button("Sair e trocar servidor", role: .destructive) { vm.logout(keepServer: false) }
             Button("Cancelar", role: .cancel) {}
         } message: {
-            Text("Você sai da conta neste aparelho e informa o endereço de outra instalação Wabotia.")
+            Text("Você sai da conta neste aparelho e informa o endereço de outra instalação Vinki.")
         }
         .confirmationDialog("Sair da demonstração?", isPresented: $confirmExitDemo, titleVisibility: .visible) {
             Button("Sair da demonstração", role: .destructive) { vm.cancel(); container.exitDemo() }
@@ -185,7 +185,7 @@ struct SettingsView: View {
         }
         if !vm.pushRegistered { return "O aparelho ainda não foi registrado no servidor. Toque em Registrar novamente." }
         if !vm.notificationsEnabled { return "Com as notificações desligadas, o servidor não envia avisos para este aparelho." }
-        if vm.authorizationStatus == .denied { return "O servidor envia os avisos, mas o iPhone está bloqueando as notificações do Wabotia. Libere nos Ajustes." }
+        if vm.authorizationStatus == .denied { return "O servidor envia os avisos, mas o iPhone está bloqueando as notificações do Vinki. Libere nos Ajustes." }
         return "Você recebe novas mensagens, fila, transferências e protocolos. Mensagens atendidas pelo bot não geram aviso."
     }
 

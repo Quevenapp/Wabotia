@@ -69,7 +69,7 @@ function Vault({ view }: { view: ReformSettingsView }) {
   const v = view.vault;
   return <section aria-label="Cofre fiscal e a reforma">
     <h2>Seu cofre fiscal</h2>
-    {!v.known ? <p className="real-alert">O Wabotia ainda não sabe se o seu cofre recebe a reforma tributária. Em <Link to="/certificado-a1">Configuração do emissor</Link>, clique em Testar conexão e salve a configuração da NF-e. Até lá, nota com produto classificado fica parada.</p>
+    {!v.known ? <p className="real-alert">O Vinki ainda não sabe se o seu cofre recebe a reforma tributária. Em <Link to="/certificado-a1">Configuração do emissor</Link>, clique em Testar conexão e salve a configuração da NF-e. Até lá, nota com produto classificado fica parada.</p>
       : v.ibs_cbs ? <p className="real-notice">O cofre recebe o grupo IBS/CBS{v.selective ? " e o Imposto Seletivo" : ""}: as NF-e saem com os valores da reforma.{v.credit_debit ? " Nota de crédito e nota de débito liberadas." : " Nota de crédito e nota de débito (finalidades 5 e 6) ainda não."}</p>
       : <p className="real-alert">O seu cofre ainda não recebe a reforma tributária: as NF-e saem como hoje, sem o grupo IBS/CBS, e a tela da nota mostra os valores só para conferência. Atualize o cofre e teste a conexão de novo.</p>}
   </section>;

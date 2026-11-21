@@ -1,4 +1,4 @@
-// Conciliação bancária e de cartões (Wabotia, sem função no oráculo; versão 30,
+// Conciliação bancária e de cartões (Vinki, sem função no oráculo; versão 30,
 // parte Financeiro): OFX e planilha sem duplicar, sugestões com confiança
 // (lançamento existente, conta em aberto pelo valor, vencimento e nome, regra
 // da pessoa), conciliar, baixar, lançar pela regra, ignorar com motivo,

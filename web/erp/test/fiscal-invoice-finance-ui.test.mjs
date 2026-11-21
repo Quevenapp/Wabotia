@@ -28,7 +28,7 @@ test('247 ⋮ of a note of the FAGOO: Lançar contas, Estornar contas, Emitir bo
   assert.equal(rowActions(config, row({ status: 3 }), { writable: true, finance: { writable: true, posted: true, grouped: false } }).find(a => a.id === 'finance').enabled, true, 'a cancelled note with contas may still estornar them');
   const entry = rowActions(SCREENS.entrada, row(), { writable: true, finance: { writable: true, posted: true, grouped: false } });
   assert.deepEqual(entry.filter(a => ['finance', 'boleto'].includes(a.id)).map(a => [a.id, a.enabled]), [['boleto', false], ['finance', true]]);
-  // Wabotia: Origin fora (motor 91213b8): saiu o caso da nota do Origin em consulta.
+  // Vinki: Origin fora (motor 91213b8): saiu o caso da nota do Origin em consulta.
   assert.deepEqual(financeIndicator(true), [{ text: 'C', color: 'green', title: 'Conta lançada pela NF' }]); assert.deepEqual(financeIndicator(false), []);
   assert.deepEqual([...invoiceFlags({ entity: 'invoice_finance_flags', data_mode: 'erp_native', items: [{ invoice_id: NOTE, posted: true, grouped: false, category_ids: [] }] }, [NOTE]).entries()], [[NOTE, { posted: true, grouped: false, category_ids: [] }]]);
   assert.throws(() => invoiceFlags({ entity: 'invoice_finance_flags', data_mode: 'erp_native', items: [{ invoice_id: id(99), posted: true, grouped: false, category_ids: [] }] }, [NOTE]));

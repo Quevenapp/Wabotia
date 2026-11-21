@@ -10,7 +10,7 @@ struct DeviceLaunch: Identifiable, Equatable {
     var role: DeviceRole? = nil
 }
 
-/// O modo aparelho ocupa o app inteiro, fora do login: parear com o Wabotia, escolher o papel (e os ajustes), a tela do
+/// O modo aparelho ocupa o app inteiro, fora do login: parear com o Vinki, escolher o papel (e os ajustes), a tela do
 /// papel (totem, painel de chamadas ou híbrido) e a impressora. Os ajustes ficam atrás da engrenagem e do PIN; sair do
 /// app pelo gesto de Início só o Acesso Guiado (ou o Modo de App Único por MDM) impede (`GuidedAccessStatus`).
 struct DeviceModeView: View {
@@ -124,7 +124,7 @@ struct DeviceModeView: View {
         guard vm.config != nil else { return }
         if let role = DemoMode.deviceRole.flatMap(DeviceRole.init(rawValue:)), vm.config?.role != role {
             vm.chooseRole(role)
-            print("[Wabotia] aparelho: papel \(role.rawValue)")
+            print("[Vinki] aparelho: papel \(role.rawValue)")
         }
         for _ in 0..<100 where vm.overview == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
         switch DemoMode.deviceAction {
@@ -162,8 +162,8 @@ private struct DevicePairingScreen: View {
     var body: some View {
         let code = vm.pairing.userCode
         AuthScaffold(
-            title: code == nil ? "Painel ou totem" : "Aprove no Wabotia",
-            subtitle: code == nil ? "Este aparelho vira um totem de senhas, um painel de chamadas ou os dois." : "Digite este código no painel do Wabotia."
+            title: code == nil ? "Painel ou totem" : "Aprove no Vinki",
+            subtitle: code == nil ? "Este aparelho vira um totem de senhas, um painel de chamadas ou os dois." : "Digite este código no painel do Vinki."
         ) {
             if vm.demo {
                 DeviceNotice(text: "Demonstração: o código é aprovado sozinho em alguns segundos e nada sai do aparelho.", color: Theme.warn)
@@ -180,7 +180,7 @@ private struct DevicePairingScreen: View {
                 }
                 .frame(maxWidth: .infinity)
                 .card(padding: 20)
-                Text("No painel do Wabotia, um administrador abre Integrações → Parear Senhapp, digita o código e aprova só “Ler a fila” e “Emitir senhas (totem)”. O código vale 10 minutos.")
+                Text("No painel do Vinki, um administrador abre Integrações → Parear Senhapp, digita o código e aprova só “Ler a fila” e “Emitir senhas (totem)”. O código vale 10 minutos.")
                     .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
                 SecondaryButton(title: "Cancelar", action: vm.cancelPairing)
             } else {
@@ -312,7 +312,7 @@ private struct DeviceSettingsScreen: View {
                                     title: URL(string: config.baseUrl)?.host ?? config.baseUrl, subtitle: connectionText)
                             Button { confirmLeave = true } label: {
                                 CardRow(icon: "rectangle.portrait.and.arrow.right", iconColor: Theme.danger, title: vm.demo ? "Sair da demonstração" : "Desfazer pareamento",
-                                        subtitle: vm.demo ? nil : "O aparelho esquece a credencial e avisa o Wabotia", titleColor: Theme.danger, divider: false)
+                                        subtitle: vm.demo ? nil : "O aparelho esquece a credencial e avisa o Vinki", titleColor: Theme.danger, divider: false)
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("device.unpair")
@@ -333,7 +333,7 @@ private struct DeviceSettingsScreen: View {
                 Button(vm.demo ? "Sair" : "Desfazer", role: .destructive, action: vm.unpair)
                 Button("Cancelar", role: .cancel) {}
             } message: {
-                Text(vm.demo ? "O aparelho volta à tela inicial do Wabotia." : "O aparelho esquece o vínculo e avisa o Wabotia. Para voltar a ser painel ou totem, pareie de novo.")
+                Text(vm.demo ? "O aparelho volta à tela inicial do Vinki." : "O aparelho esquece o vínculo e avisa o Vinki. Para voltar a ser painel ou totem, pareie de novo.")
             }
         }
     }
@@ -465,7 +465,7 @@ private struct UnlockSheet: View {
                     pin = ""
                 }
             }
-            Text(vm.demo ? "Esqueceu o PIN? Na demonstração, feche e abra o app de novo." : "Esqueceu o PIN? Um administrador revoga este aparelho no Wabotia (Integrações). Os ajustes passam a abrir sem PIN para desfazer o pareamento e parear de novo.")
+            Text(vm.demo ? "Esqueceu o PIN? Na demonstração, feche e abra o app de novo." : "Esqueceu o PIN? Um administrador revoga este aparelho no Vinki (Integrações). Os ajustes passam a abrir sem PIN para desfazer o pareamento e parear de novo.")
                 .font(Theme.font(13)).foregroundStyle(Theme.textSecondary).fixedSize(horizontal: false, vertical: true)
             Spacer()
         }
@@ -491,7 +491,7 @@ private struct DevicePanelScreen: View {
                 ZStack {
                     s.bg.ignoresSafeArea()
                     VStack(spacing: 0) {
-                        PanelHeaderBar(name: config.name, role: vm.demo ? "Wabotia · demonstração" : "Wabotia", title: role.panel ? "Chamadas" : "Retire sua senha") {
+                        PanelHeaderBar(name: config.name, role: vm.demo ? "Vinki · demonstração" : "Vinki", title: role.panel ? "Chamadas" : "Retire sua senha") {
                             Text(connectionLabel).font(s.text(base * 0.8, .semibold))
                                 .foregroundStyle(vm.offline || vm.revoked ? Color.red : s.headerFg)
                                 .accessibilityIdentifier("device.connection")
@@ -504,7 +504,7 @@ private struct DevicePanelScreen: View {
                         }
                         VStack(spacing: base * 0.7) {
                             if (vm.offline || vm.revoked) && role.totem {
-                                Text(vm.revoked ? "Este aparelho foi desconectado do Wabotia. Dirija-se ao balcão." : "Sem conexão com o Wabotia: o totem não emite senhas agora. Dirija-se ao balcão.")
+                                Text(vm.revoked ? "Este aparelho foi desconectado do Vinki. Dirija-se ao balcão." : "Sem conexão com o Vinki: o totem não emite senhas agora. Dirija-se ao balcão.")
                                     .font(s.text(base)).foregroundStyle(Color.white)
                                     .frame(maxWidth: .infinity, alignment: .leading).padding(base * 0.7)
                                     .background(Color(UIColor.systemRed))
@@ -580,7 +580,7 @@ private struct DevicePanelScreen: View {
         } else {
             VStack(spacing: 12) {
                 if vm.offline {
-                    Text(vm.notice ?? "Sem conexão com o Wabotia. Tentando de novo…").multilineTextAlignment(.center)
+                    Text(vm.notice ?? "Sem conexão com o Vinki. Tentando de novo…").multilineTextAlignment(.center)
                 } else {
                     ProgressView()
                     Text("Lendo a fila…")

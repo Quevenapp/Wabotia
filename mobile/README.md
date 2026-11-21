@@ -1,6 +1,6 @@
-# Aplicativos Wabotia (Android e iOS)
+# Aplicativos Vinki (Android e iOS)
 
-Clientes nativos do Wabotia para a equipe de atendimento. Funcionam com **qualquer servidor** Wabotia: a pessoa informa o endereço da instalação na primeira tela, entra com e-mail e senha de atendente e passa a operar o atendimento do WhatsApp pelo celular. A documentação do servidor (login móvel, dispositivos, push, gateway) está em [`docs/MOBILE.md`](../docs/MOBILE.md). O contrato REST completo está em [`docs/API.md`](../docs/API.md) e em `/api/openapi.json` de cada servidor.
+Clientes nativos do Vinki para a equipe de atendimento. Funcionam com **qualquer servidor** Vinki: a pessoa informa o endereço da instalação na primeira tela, entra com e-mail e senha de atendente e passa a operar o atendimento do WhatsApp pelo celular. A documentação do servidor (login móvel, dispositivos, push, gateway) está em [`docs/MOBILE.md`](../docs/MOBILE.md). O contrato REST completo está em [`docs/API.md`](../docs/API.md) e em `/api/openapi.json` de cada servidor.
 
 | Plataforma | Pasta | Stack | Mínimo |
 |---|---|---|---|
@@ -24,7 +24,7 @@ O detalhe de cada parte, a demonstração e os atalhos de teste estão em [`ios/
 
 **Interface 0.13.0.** A aparência e o comportamento das telas estão em [`DESIGN.md`](DESIGN.md): visual de mensageiro no estilo do WhatsApp, relógio da janela de 24 horas (lista, conversa e dados do contato), pílula de presença Online/Offline, rodapé "Assumir conversa" conforme o estado e a folha única **Encaminhar atendimento** (Pessoas, Bots, Setores, Menu, Protocolo). As abas passaram a ser **Conversas, Protocolos, Equipe, Ligações e Ajustes**; os bots ficam em Equipe → Bots e o que era "Mais" está em Ajustes. As seções abaixo continuam valendo para regras, dados e chamadas de cada recurso.
 
-**Modo de demonstração (todos os builds).** Na tela Servidor, **Conhecer o app (demonstração)** (ou digitar `demo` como servidor) entra numa instalação fictícia em memória (`demo.wabotia.localhost`), respondida na camada de rede do próprio app: sem servidor, sem senha e sem conta. É para quem baixou o app sem ter um servidor Wabotia e para a revisão das lojas (a diretriz 2.1 da Apple aceita um modo de demonstração completo no lugar de uma conta de teste). Regras:
+**Modo de demonstração (todos os builds).** Na tela Servidor, **Conhecer o app (demonstração)** (ou digitar `demo` como servidor) entra numa instalação fictícia em memória (`demo.wabotia.localhost`), respondida na camada de rede do próprio app: sem servidor, sem senha e sem conta. É para quem baixou o app sem ter um servidor Vinki e para a revisão das lojas (a diretriz 2.1 da Apple aceita um modo de demonstração completo no lugar de uma conta de teste). Regras:
 
 - **Nada sai do aparelho.** Toda chamada para esse endereço é respondida em memória (Android: interceptor em todo cliente OkHttp, inclusive Coil e Media3; iOS: `DemoURLProtocol` na URLSession). No iOS os players de áudio e vídeo tocam uma cópia local do anexo, porque o AVPlayer não passa pela URLSession. `.localhost` nunca é um endereço da internet.
 - **Sem push.** O aparelho nunca é registrado (`PUT /devices` não é chamado nem o token FCM é pedido pela demonstração) e o app não pede permissão de notificações. Um aviso de outro servidor que chegue durante a demonstração não abre nada nela (o Android nem o mostra).
@@ -49,7 +49,7 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 ## Telas
 
 ### Servidor e login
-1. **Servidor:** campo único com prefixo `https://`, exemplos, validação por `GET /api/health` (`service == "wabotia"`) e `GET /api/auth/status` (`initialized`). Erros amigáveis (não é Wabotia, sem administrador, DNS, certificado). Abaixo, **Conhecer o app (demonstração)** abre o modo de demonstração (ver acima).
+1. **Servidor:** campo único com prefixo `https://`, exemplos, validação por `GET /api/health` (`service == "wabotia"`) e `GET /api/auth/status` (`initialized`). Erros amigáveis (não é Vinki, sem administrador, DNS, certificado). Abaixo, **Conhecer o app (demonstração)** abre o modo de demonstração (ver acima).
 2. **Login:** e-mail, senha (mostrar/ocultar), "Trocar servidor". Após entrar: pedir permissão de notificações e registrar o dispositivo.
 3. **Perfil:** lista quando há mais de um (`GET /api/v1/profiles`); administradores veem todos. Um perfil só → entra direto.
 
@@ -84,7 +84,7 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 
 ### Mais (aba 5) — atendimento e equipe na versão 0.9.0
 
-- **Equipe e conversas internas:** diretório de pessoas e bots com estado Online/Offline, histórico privado e chat dentro do Wabotia. As mensagens internas não passam pelo WhatsApp. O histórico continua acessível quando um contato fica indisponível. Respostas de bots são acompanhadas na própria conversa.
+- **Equipe e conversas internas:** diretório de pessoas e bots com estado Online/Offline, histórico privado e chat dentro do Vinki. As mensagens internas não passam pelo WhatsApp. O histórico continua acessível quando um contato fica indisponível. Respostas de bots são acompanhadas na própria conversa.
 - **Linhas de atendimento:** escolha equipe humana, bot específico ou configuração do perfil para cada linha; configure menus automáticos, sob demanda ou desligados e a participação no roteador separadamente. Administradores editam; atendentes consultam.
 - **Menus e submenus (administrador):** crie ou edite opções, destino, menu pai, linhas permitidas e exibição automática/sob demanda. Submenus respeitam também o escopo de linhas do pai. A lista mostra o destino de cada opção pelo nome (Pessoa, Bot, Submenu, Aplicativo, **Abrir protocolo** para `type: "ticket"`, Link, Mensagem informativa, Consultar protocolos, Pesquisa de satisfação; um tipo desconhecido aparece como "Outro destino (tipo)"). O aplicativo monta os destinos Pessoa, Bot, Submenu, Aplicativo e Abrir protocolo (com `category_id` opcional); os demais continuam selecionados ao abrir a opção e todos os campos que a tela não edita (`url`, `content`, `question`, `department_id`, campos novos) são preservados ao salvar.
 - **Linhas dos bots (administrador):** autorize todas as linhas, linhas específicas ou nenhuma (somente conversas internas).
@@ -103,7 +103,7 @@ No iOS 15 (incluindo iPhone 7), uma camada de compatibilidade oferece navegaçã
 
 ## Compilar
 
-Veja [`docs/MOBILE.md`](../docs/MOBILE.md#4-compilar-os-aplicativos). Resumo: Android `cd android && ./gradlew assembleDebug` (JDK 17, SDK 36, Kotlin 2.2; `google-services.json` opcional); iOS `cd ios && xcodegen generate && xcodebuild -scheme Wabotia -destination "generic/platform=iOS" build` (Xcode 16+, `GoogleService-Info.plist` opcional).
+Veja [`docs/MOBILE.md`](../docs/MOBILE.md#4-compilar-os-aplicativos). Resumo: Android `cd android && ./gradlew assembleDebug` (JDK 17, SDK 36, Kotlin 2.2; `google-services.json` opcional); iOS `cd ios && xcodegen generate && xcodebuild -scheme Vinki -destination "generic/platform=iOS" build` (Xcode 16+, `GoogleService-Info.plist` opcional).
 
 Os dois precisam do repositório **ThermalPrinterKit** ao lado:
 
@@ -124,7 +124,7 @@ Os dados da conversa mostram os canais da ficha e atalhos para outras conversas 
 
 **Enviar conversa por e-mail** aparece conforme a permissão. Os aplicativos usam a mesma prévia, destinos, intervalo, confirmação do endereço e pedido do cliente definidos em [EMAIL.md](../docs/EMAIL.md). A chave de envio permanece estável durante repetição da mesma intenção; resultado indeterminado é mostrado sem reenvio automático. Notas internas nunca entram na transcrição.
 
-Push usa o título já preparado pelo servidor: em área multicanal pode conter `Instagram · Nome`; prévia mínima continua `Wabotia`. Android não acrescenta um segundo prefixo e conserva os canais de notificação do sistema operacional.
+Push usa o título já preparado pelo servidor: em área multicanal pode conter `Instagram · Nome`; prévia mínima continua `Vinki`. Android não acrescenta um segundo prefixo e conserva os canais de notificação do sistema operacional.
 
 A demonstração mantém cenários sintéticos só WhatsApp e multicanal, janelas aberta/humana/fechada, ficha compartilhada, mídia indisponível e transcrição sem configuração/permissão ou repetida. No Android, os dados multicanal pertencem à área `demo-channels`; no iOS, o modo de inspeção usa `WABOTIA_DEMO_CHANNELS=multichannel`. Nada disso é captura de conta real ou teste de entrega remota.
 

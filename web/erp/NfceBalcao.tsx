@@ -163,7 +163,7 @@ export function NfceSettings({ port }: { port: CommercialNfePort }) {
   };
   const environment = view?.environment === "producao" ? "produção" : "homologação";
   return <section className="nfce-settings" aria-label="Cupom fiscal do balcão (NFC-e)"><h2>Cupom fiscal do balcão (NFC-e)</h2>
-    <p className="real-help">Série, ambiente da NFC-e, CSC (código de segurança do consumidor) e certificado ficam no cofre. O Wabotia mostra o que o cofre informou no último Testar conexão.</p>
+    <p className="real-help">Série, ambiente da NFC-e, CSC (código de segurança do consumidor) e certificado ficam no cofre. O Vinki mostra o que o cofre informou no último Testar conexão.</p>
     {error && <p className="real-alert" role="alert">{error}</p>}
     {!view ? !error && <p role="status">Consultando o cofre…</p> : <>
       <dl className="commercial-nfe-values">

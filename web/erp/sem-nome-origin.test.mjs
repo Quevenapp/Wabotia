@@ -37,7 +37,7 @@ const unavoidable = [
   { path: 'src/erp/domains/documents/rpc/erp_document_sales_report.ts', phrases: ['Vendedor Origin '] },
   // Registro de atividades: a tela traduz a descrição (RealActivity, "do sistema de origem" e "(importada)").
   { path: 'src/erp/domains/access/activity.ts', phrases: ["'Importação do financeiro do Origin'", "' (Origin)'"] },
-  // Espelho de estoque e abertura de saldo: só existem com dados do sincronizador antigo, desligado no Wabotia.
+  // Espelho de estoque e abertura de saldo: só existem com dados do sincronizador antigo, desligado no Vinki.
   { path: 'src/erp/domains/stock/rpc/mirror.ts', phrases: ['Produto Origin ', 'Depósito Origin '] },
   { path: 'src/erp/domains/stock/rpc/opening.ts', phrases: ['Saldo de abertura (Origin)', 'Abertura Origin depósito '] },
 ];

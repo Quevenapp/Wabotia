@@ -111,7 +111,7 @@ function ModuleCard({
           {module.enabled ? "Ligado" : "Desligado"}
         </Pill>
         <small>Versão {module.version}</small>
-        {module.builtin && <small>Integrado ao Wabotia</small>}
+        {module.builtin && <small>Integrado ao Vinki</small>}
       </div>
       {!module.enabled && missing.length > 0 && (
         <p className="muted">

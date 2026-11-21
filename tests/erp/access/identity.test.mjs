@@ -25,7 +25,7 @@ test("envelope: codifica, decodifica e descarta o que não confere", () => {
   assert.deepEqual(readIdentity(null), { actor: null, people: null });
 });
 
-test("projeção: papel do Wabotia em membership, nome em profile; sem papel fica inativo; nada muda sem mudança", () => {
+test("projeção: papel do Vinki em membership, nome em profile; sem papel fica inativo; nada muda sem mudança", () => {
   const lite = freshLite();
   const db = nodeDriver(lite);
   const clock = new Clock();

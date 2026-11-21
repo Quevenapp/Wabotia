@@ -179,9 +179,9 @@ test('browser navigation to another period closes an open Customizado choice',as
  }finally{view.unmount();}
 });
 
-// Wabotia (latência, 9.6): gráficos (H7) e novas NF-es (H8) saem no salto 1, sem esperar o /v1/inicio; perfil e armazenamento
+// Vinki (latência, 9.6): gráficos (H7) e novas NF-es (H8) saem no salto 1, sem esperar o /v1/inicio; perfil e armazenamento
 // são lidos uma vez e repartidos com a barra do topo (aqui um substituto de HomeFavorites chama useCompanyChrome como a barra).
-test('Wabotia: charts and new NF-es start with the summary; profile and storage are read once with the top bar', async () => {
+test('Vinki: charts and new NF-es start with the summary; profile and storage are read once with the top bar', async () => {
  let release;const source=server({summaryHook:()=>new Promise(resolve=>{release=resolve;})}),system=[],platform=[];
  const platformRead=source.controller.platform;source.controller.platform=async(...args)=>{platform.push(args[0]);return platformRead(...args);};
  source.controller.system=async path=>{system.push(path);if(path==='/v1/sistema/perfil')return {scope:'system_profile'};return {};};

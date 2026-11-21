@@ -19,7 +19,7 @@ import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Servidor Wabotia fictício, em memória, para o modo de demonstração ([DemoMode]).
+ * Servidor Vinki fictício, em memória, para o modo de demonstração ([DemoMode]).
  * Responde a toda chamada para `demo.wabotia.localhost` sem tocar na rede; as demais seguem normalmente.
  */
 internal class DemoInterceptor : Interceptor {

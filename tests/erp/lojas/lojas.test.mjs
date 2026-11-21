@@ -1,4 +1,4 @@
-// Lojas e filiais (Wabotia, sem função no oráculo; versão 27): a primeira loja
+// Lojas e filiais (Vinki, sem função no oráculo; versão 27): a primeira loja
 // nasce com os dados da empresa e fica com tudo o que existe; com uma loja só,
 // nada muda nas listas; a segunda loja traz depósito e caixa próprios; a
 // pessoa limitada só vê e opera as lojas dela; o pedido novo leva o depósito

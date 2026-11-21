@@ -80,7 +80,7 @@ export function ProductEditor(props: CatalogEditorProps) {
 
   const [attempt, setAttempt] = useState(0);
   // Preferências > Empresa > Geral: decimals of the weights (display and the check of a changed weight); 3 when unreadable.
-  // Wabotia: the same read brings the decimals of the prices (web/erp/decimals.ts); null when unreadable (the server checks).
+  // Vinki: the same read brings the decimals of the prices (web/erp/decimals.ts); null when unreadable (the server checks).
   const [places, setPlaces] = useState<DecimalPlaces | null | undefined>(undefined);
   useEffect(() => {
     const request = new AbortController();
@@ -295,7 +295,7 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
         <td><input aria-label={`Quantidade do DUN da linha ${index + 1}`} value={item.quantity} inputMode="decimal" maxLength={19} placeholder="Digite aqui" disabled={locked} onChange={event => changeLists(current => ({ ...current, dun_codes: current.dun_codes.map((row, i) => i === index ? { ...row, quantity: event.target.value } : row) }))} /></td>
         <td><button type="button" className="icon-button" aria-label={`Remover o DUN da linha ${index + 1}`} title="Remover" disabled={locked} onClick={() => changeLists(current => ({ ...current, dun_codes: current.dun_codes.filter((_, i) => i !== index) }))}><Icon name="trash-can" size={12} /></button></td></tr>)}</tbody></table>
       <button type="button" id="catalog-dun_codes" className="text-button" disabled={locked || lists.dun_codes.length >= 10} onClick={() => changeLists(current => ({ ...current, dun_codes: [...current.dun_codes, { code: '', quantity: '' }] }))}><Icon name="plus" size={11} />Adicionar DUN</button></div>, lists.dun_codes.length > 0)}
-    {/* Wabotia: sem o painel do espelho do Origin (Leva H, 350): Origin fora (motor 91213b8). */}
+    {/* Vinki: sem o painel do espelho do Origin (Leva H, 350): Origin fora (motor 91213b8). */}
     {record && <details className="product-section" onToggle={event => setPricesOpen((event.currentTarget as HTMLDetailsElement).open)}><summary>Listas de preço<Icon name="chevron-down" size={11} /></summary><div className="real-editor-fields"><div className="real-field-wide product-grid">{priceLists === null ? <p role="status">Consultando as listas de preço…</p> : priceLists === 'error' ? <p className="real-help">Não foi possível consultar as listas de preço deste produto.</p>
       : priceLists.length ? <table className="data-table"><thead><tr><th scope="col">Nome da lista</th><th scope="col">Tipo de lista</th><th scope="col" className="numeric">Preço do produto na lista</th><th scope="col">Regra aplicada</th></tr></thead>
         <tbody>{priceLists.map(item => <tr key={item.id}><td>{item.name}</td><td>{{ rates: 'Lista de taxas', period: 'Lista por período', custom: 'Lista customizada' }[item.list_type]}</td><td className="numeric">{item.list_price ? `R$ ${item.list_price.replace('.', ',')}` : '—'}</td><td>{item.rule}</td></tr>)}</tbody></table>
@@ -348,7 +348,7 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
         ? input(field.key, locked, { label: field.label, max: field.max, info: field.info, help: <a className="product-external" href={NFE_TABLES} target="_blank" rel="noreferrer noopener" title="Tabelas oficiais da NF-e (código de enquadramento legal do IPI)">Consultar</a> }) : input(field.key, locked))}
       {group === 'IPI' && ipiNote && <p className="real-help real-field-wide">{ipiNote}</p>}</>, DETAIL_FIELDS.some(field => field.group === group && Boolean(values[field.key])))}</div>)}
     {section('Dados adicionais', input('additional_info', locked), Boolean(values.additional_info))}
-    {/* Wabotia: reforma tributária (IBS/CBS e Imposto Seletivo), gravada à parte; só com o produto salvo e a parte Fiscal ligada. */}
+    {/* Vinki: reforma tributária (IBS/CBS e Imposto Seletivo), gravada à parte; só com o produto salvo e a parte Fiscal ligada. */}
     {record?.id && blockEnabled('erp-fiscal') && <ProductReformSection productId={record.id} />}
   </>;
   const basicFields = (locked: boolean) => <fieldset disabled={locked} className="real-editor-fields product-basic-fields"><legend>Dados básicos</legend>

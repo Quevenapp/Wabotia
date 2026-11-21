@@ -17,7 +17,7 @@ test("configuração: padrão, gravação pela versão, repetição pelo comando
   assert.deepEqual([empty.version, empty.settings, empty.crt, empty.regime, empty.writable], [0, { simples_regular: false, rates: {} }, "1", "simples", true]);
   assert.equal(empty.years[0].origin, "test");
   assert.equal(empty.years[1].origin, "unpublished");
-  // Sem configuração da NF-e salva depois do teste de conexão, o Wabotia não sabe o que o cofre aceita.
+  // Sem configuração da NF-e salva depois do teste de conexão, o Vinki não sabe o que o cofre aceita.
   assert.deepEqual(empty.vault, { known: false, ibs_cbs: false, selective: false, credit_debit: false, purposes: [] });
   const command = randomUUID();
   const data = { simples_regular: true, rates: { 2027: { cbs: "8.8", ibs_uf: "", ibs_mun: null } } };

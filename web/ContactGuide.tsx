@@ -81,7 +81,7 @@ export function ContactGuide() {
         />
       </details>
       <p>
-        <a href="https://github.com/Quevenapp/Wabotia/blob/main/docs/CONTATOS.md">
+        <a href="https://github.com/Quevenapp/Vinki/blob/main/docs/CONTATOS.md">
           Guia completo da agenda ↗
         </a>{" "}
         · <a href="/api-docs">Agenda pela API ↗</a>

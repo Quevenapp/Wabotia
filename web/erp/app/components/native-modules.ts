@@ -1,6 +1,6 @@
 import { lazy, type ComponentType } from 'react';
 
-// Wabotia: cada módulo do menu carrega as suas telas juntas, e os blocos opcionais (Fiscal, Cobrança, PDV) em arquivos próprios; as telas do Origin saíram (PLANO-FAGOO.md, item 17) (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
+// Vinki: cada módulo do menu carrega as suas telas juntas, e os blocos opcionais (Fiscal, Cobrança, PDV) em arquivos próprios; as telas do Origin saíram (PLANO-FAGOO.md, item 17) (web/erp/screens/<módulo>.ts), em vez de um import() por tela;
 // o ERP fica em 30 a 50 arquivos (web/erp/chunks.ts). Original do Fagoo em web/erp/ORIGEM.json.
 const cadastros = () => import('../../screens/cadastros');
 const documentos = () => import('../../screens/documentos');
@@ -13,7 +13,7 @@ const preferencias = () => import('../../screens/preferencias');
 const receberBling = () => import('../../screens/receber-bling');
 const pick = <M extends Record<K, ComponentType<any>>, K extends string>(load: () => Promise<M>, name: K) => () => load().then(module => ({ default: module[name] as M[K] }));
 
-// Wabotia: primeira visita. O arquivo da tela do endereço começa a baixar quando o ERP monta (web/erp/mount.tsx), junto com o
+// Vinki: primeira visita. O arquivo da tela do endereço começa a baixar quando o ERP monta (web/erp/mount.tsx), junto com o
 // /v1/me, e não só depois dele; o lazy() da rota reaproveita o mesmo import(). Endereço sem tela conhecida não baixa nada.
 const SCREEN_FILES: [RegExp, () => Promise<unknown>][] = [
   [/^\/receber-bling$/, receberBling],

@@ -4,7 +4,7 @@
 //   bate com o valor do Fagoo (se o Fagoo mudar, o teste e o gerador param);
 // - o mecanismo troca exatamente as linhas do desvio;
 // - no diferencial, com o desvio valendo, os dois motores leem o valor do
-//   Wabotia e a semeadura diferente não aparece como divergência.
+//   Vinki e a semeadura diferente não aparece como divergência.
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -122,7 +122,7 @@ test("diferencial com o desvio valendo: mesmo valor nos dois motores, sem diverg
   }
 });
 
-test("desvio de função: o oráculo da fixture passa a devolver o trecho do Wabotia, com dono, SECURITY DEFINER e GRANTs iguais", async () => {
+test("desvio de função: o oráculo da fixture passa a devolver o trecho do Vinki, com dono, SECURITY DEFINER e GRANTs iguais", async () => {
   const d = functionDeviations.find((x) => x.id === "exportacao-wabotia");
   const pg = await oracleDb();
   const privileges = async (db) =>
@@ -173,7 +173,7 @@ test("desvio de função: trecho ausente ou repetido falha com a função e o tr
     assert.throws(() => applyFunctionDeviation(def, d), (e) => e.message.includes("public.erp_teste") && e.message.includes("'velho-'"));
   }
   assert.match(checkFunctionDeviation(null, d), /public\.erp_teste: a função não existe/);
-  // Reaplicar no mesmo banco: só o estado exato (trecho do Fagoo some, o do Wabotia uma vez) conta como aplicado.
+  // Reaplicar no mesmo banco: só o estado exato (trecho do Fagoo some, o do Vinki uma vez) conta como aplicado.
   const applied = applyFunctionDeviation(body, d);
   assert.equal(functionDeviationApplied(applied, d), true);
   assert.equal(functionDeviationApplied(body, d), false);

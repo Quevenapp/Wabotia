@@ -18,7 +18,7 @@
 //   função;
 // - o diferencial (tests/erp/harness/dual-fixture.mjs) aplica os mesmos itens
 //   no Postgres antes de começar: os dois motores rodam com o valor do
-//   Wabotia. "seed": troca a linha nos dois bancos. "function": CREATE OR
+//   Vinki. "seed": troca a linha nos dois bancos. "function": CREATE OR
 //   REPLACE da função no oráculo (só o Postgres desta fixture; o motor já
 //   traz o valor no código portado).
 // Só texto e JSON aqui: o gerador (Node) importa este arquivo direto.
@@ -34,7 +34,7 @@ export interface SeedDeviation {
   column: string;
   /** Valor no Fagoo (JSON, como o Postgres devolve). */
   oracle: unknown;
-  /** Valor no Wabotia. */
+  /** Valor no Vinki. */
   value: unknown;
   reason: string;
   decided: string;
@@ -50,7 +50,7 @@ export interface FunctionDeviation {
   fn: string;
   /** Trecho do Fagoo, que precisa aparecer exatamente uma vez no corpo. */
   oracle: string;
-  /** Trecho do Wabotia. */
+  /** Trecho do Vinki. */
   value: string;
   reason: string;
   decided: string;
@@ -120,13 +120,13 @@ export function checkFunctionDeviation(definition: string | null, d: FunctionDev
 }
 
 /**
- * O desvio já está no corpo (o trecho do Fagoo some e o do Wabotia aparece
+ * O desvio já está no corpo (o trecho do Fagoo some e o do Vinki aparece
  * exatamente uma vez): aplicar de novo no mesmo banco não faz nada.
  */
 export const functionDeviationApplied = (definition: string | null, d: FunctionDeviation) =>
   definition !== null && occurrences(definition, d.oracle) === 0 && occurrences(definition, d.value) === 1;
 
-/** O corpo com o trecho do Wabotia no lugar do Fagoo; lança se o trecho não aparece exatamente uma vez. */
+/** O corpo com o trecho do Vinki no lugar do Fagoo; lança se o trecho não aparece exatamente uma vez. */
 export function applyFunctionDeviation(definition: string | null, d: FunctionDeviation): string {
   const problem = checkFunctionDeviation(definition, d);
   if (problem) throw new Error(`Desvio de função desatualizado: ${problem}`);

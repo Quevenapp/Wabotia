@@ -57,7 +57,7 @@ export function createC2Demo(scenario: C2DemoScenario = "all", clock: () => numb
       channel, kind: channel === "email" ? "email" : channel === "telegram" ? "telegram_bot" : "zernio",
       status: "active", configured: true, credential: "configurado", send_ready: channel === "email",
       config: channel === "email" ? { address: "atendimento@example.test", bot_enabled: false, auto_ack_enabled: false }
-        : channel === "telegram" ? { username: "wabotia_demo_bot", webhook_configured: true }
+        : channel === "telegram" ? { username: "vinki_demo_bot", webhook_configured: true }
           : { comments_enabled: channel === "instagram" || channel === "facebook" } });
     return id;
   }
@@ -116,7 +116,7 @@ export function createC2Demo(scenario: C2DemoScenario = "all", clock: () => numb
     }
   }
   for (const name of C2_DEMO_SCENARIOS.filter(name => name.startsWith("telegram"))) if (enabled(name)) {
-    const telegram = { username: "wabotia_demo_bot", botUrl: "https://t.me/wabotia_demo_bot",
+    const telegram = { username: "vinki_demo_bot", botUrl: "https://t.me/vinki_demo_bot",
       blocked: name === "telegram-blocked", webhookConfigured: true,
       ...(name === "telegram-phone-self" ? { phoneSuggestion: { masked: "+55 •• •••••-1234", confirmedByHuman: false as const } } : {}) };
     const code = name === "telegram-expired-button" ? "callback_expired" : name === "telegram-phone-third-party" ? "contact_not_self"
@@ -319,7 +319,7 @@ export function createC2Demo(scenario: C2DemoScenario = "all", clock: () => numb
         // Lista permitida: o token informado nunca entra na projeção ou no recibo.
         row.config = channel === "email" ? { address: typeof config.address === "string" ? config.address.toLowerCase() : "atendimento@example.test",
           bot_enabled: config.bot_enabled === true, auto_ack_enabled: config.auto_ack_enabled === true }
-          : { username: "wabotia_demo_bot", webhook_configured: false };
+          : { username: "vinki_demo_bot", webhook_configured: false };
         row.status = "pending";
         return { id, channel, status: "pending", configured: true };
       }));

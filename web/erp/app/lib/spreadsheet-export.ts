@@ -49,7 +49,7 @@ export function zipStore(files: readonly { name: string; data: Uint8Array }[]): 
 export function toXlsx(sheetName: string, rows: readonly (readonly SheetCell[])[]): Uint8Array {
   return toXlsxBook([{ name: sheetName, rows }]);
 }
-/** XLSX with several sheets, in order (Wabotia: the import models put the Portuguese instructions on the first one). */
+/** XLSX with several sheets, in order (Vinki: the import models put the Portuguese instructions on the first one). */
 export function toXlsxBook(sheets: readonly { name: string; rows: readonly (readonly SheetCell[])[] }[]): Uint8Array {
   const encode = (value: string) => new TextEncoder().encode(value);
   const names = sheets.map(sheet => xml(sheet.name.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Planilha'));

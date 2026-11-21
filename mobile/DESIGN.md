@@ -1,4 +1,4 @@
-# Wabotia móvel — desenho da interface (versão 0.13.0)
+# Vinki móvel — desenho da interface (versão 0.13.0)
 
 Este documento define a interface dos aplicativos Android e iOS a partir da 0.13.0. O contrato de dados, a idempotência e as regras de cada recurso continuam em [`README.md`](README.md); aqui fica **como a tela se parece e se comporta**. As duas plataformas seguem o mesmo desenho, com os controles nativos de cada uma.
 
@@ -80,11 +80,11 @@ Android: `NavigationBar` Material 3 com indicador em pílula. iOS: `TabView`. No
 
 Fluxo inicial sem mudança de regra: Servidor → Login → Perfil. Essas três telas ganham o mesmo estilo: marca no topo (o símbolo do ícone do app, não o desenho de servidor), um cartão com o campo, botão principal `brand` em largura total, textos de ajuda curtos.
 
-**Demonstração.** Na tela Servidor, abaixo de **Conectar** e da ajuda, um divisor fino com "ou" e o botão secundário (contorno/tom `brand`, largura total, ícone de play) **Conhecer o app (demonstração)**, seguido de uma linha de ajuda: "Ainda não tem um servidor Wabotia? Explore o app com dados fictícios, sem conta e sem enviar nada." O toque entra direto nas abas, sem login nem perfil. Durante a demonstração, uma **faixa fixa** fica acima de toda a navegação (aparece em todas as telas, inclusive as empilhadas; folhas e diálogos a cobrem normalmente): fundo `warn` a 16–18% sobre `background`, estendido sob a barra de status; ícone de informação em `warn`; "Demonstração" em `textPrimary` semibold e "Dados fictícios · nada é enviado" em `textSecondary`; à direita o botão **Sair** em `brand` (alvo de 44 pt / 48 dp) que pede confirmação ("Sair da demonstração?" · "Continuar explorando") e volta à tela Servidor. Em Ajustes, Notificações e Servidor viram explicações curtas e "Sair da conta" vira **Sair da demonstração**.
+**Demonstração.** Na tela Servidor, abaixo de **Conectar** e da ajuda, um divisor fino com "ou" e o botão secundário (contorno/tom `brand`, largura total, ícone de play) **Conhecer o app (demonstração)**, seguido de uma linha de ajuda: "Ainda não tem um servidor Vinki? Explore o app com dados fictícios, sem conta e sem enviar nada." O toque entra direto nas abas, sem login nem perfil. Durante a demonstração, uma **faixa fixa** fica acima de toda a navegação (aparece em todas as telas, inclusive as empilhadas; folhas e diálogos a cobrem normalmente): fundo `warn` a 16–18% sobre `background`, estendido sob a barra de status; ícone de informação em `warn`; "Demonstração" em `textPrimary` semibold e "Dados fictícios · nada é enviado" em `textSecondary`; à direita o botão **Sair** em `brand` (alvo de 44 pt / 48 dp) que pede confirmação ("Sair da demonstração?" · "Continuar explorando") e volta à tela Servidor. Em Ajustes, Notificações e Servidor viram explicações curtas e "Sair da conta" vira **Sair da demonstração**.
 
 ## 4. Conversas (aba 1)
 
-**Barra superior.** Título "Wabotia" em `brand` com o nome do perfil como subtítulo pequeno (toque troca de perfil quando houver mais de um). À direita: **pílula de presença** e lupa.
+**Barra superior.** Título "Vinki" em `brand` com o nome do perfil como subtítulo pequeno (toque troca de perfil quando houver mais de um). À direita: **pílula de presença** e lupa.
 
 - Pílula de presença: `● Online` (fundo `ok` a 15%, texto `ok`) ou `○ Offline` (cinza). Toque abre uma folha com dois botões grandes, "Ficar online" e "Ficar offline", uma linha explicando o efeito ("Offline: novos atendimentos não são encaminhados a você") e quantas pessoas da equipe estão online. Confirma com `PUT /presence {present}` e mostra retorno ("Você está online"). O estado vem de `GET /presence` (entrada com `actor == eu`) e é relido ao voltar ao primeiro plano.
 

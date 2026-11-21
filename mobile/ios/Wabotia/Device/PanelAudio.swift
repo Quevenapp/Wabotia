@@ -37,17 +37,17 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
         synthesizer.delegate = self
         #if DEBUG
         // Para conferir pelo console do aparelho (`devicectl … --console`) que a voz é a de pt-BR.
-        print("[Wabotia] voz do painel: \(voice.map { "\($0.language) \($0.name)" } ?? "pt-BR não instalada")")
+        print("[Vinki] voz do painel: \(voice.map { "\($0.language) \($0.name)" } ?? "pt-BR não instalada")")
         #endif
     }
 
     #if DEBUG
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        print("[Wabotia] fala iniciada (\(utterance.voice?.language ?? "?")): \(utterance.speechString)")
+        print("[Vinki] fala iniciada (\(utterance.voice?.language ?? "?")): \(utterance.speechString)")
     }
 
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        print("[Wabotia] fala concluída: \(utterance.speechString)")
+        print("[Vinki] fala concluída: \(utterance.speechString)")
     }
     #endif
 
@@ -59,7 +59,7 @@ final class SpeechPanelAudio: NSObject, PanelCallAudio, AVSpeechSynthesizerDeleg
         player.play()
         chimeUntil = Date().addingTimeInterval(player.duration)
         #if DEBUG
-        print("[Wabotia] gongo")
+        print("[Vinki] gongo")
         #endif
     }
 

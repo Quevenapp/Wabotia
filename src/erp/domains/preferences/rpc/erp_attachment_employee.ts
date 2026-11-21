@@ -1,6 +1,6 @@
 // Foto do funcionário (migração 272): public.erp_attachment_employee_list,
 // _reserve, _object, _claim, _finish, _stop e _delete.
-// storage.buckets/objects do Supabase: no Wabotia o objeto fica no R2; o bucket
+// storage.buckets/objects do Supabase: no Vinki o objeto fica no R2; o bucket
 // sempre existe (storageReady) e a confirmação do envio lê o objeto que o hub
 // consultou antes da transação (ctx.objects, registerRpc(…, { objects })).
 // Os gatilhos employee_file_identity e employee_file_audit_immutable são

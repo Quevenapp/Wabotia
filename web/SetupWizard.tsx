@@ -476,7 +476,7 @@ export function SetupWizard({
                 <h3>Importe seus telefones da Zernio</h3>
                 <p>
                   A integração reúne os telefones do WhatsApp já cadastrados e
-                  conectados na Zernio. O Wabotia recebe as mensagens e
+                  conectados na Zernio. O Vinki recebe as mensagens e
                   encaminha cada conversa para o atendimento escolhido.
                 </p>
                 <ol className="setup-instructions">
@@ -776,7 +776,7 @@ export function SetupWizard({
                   <article>
                     <h4>Senhapp</h4>
                     <p>
-                      Gere um código em Conectar ao Wabotia no Senhapp. Confirme
+                      Gere um código em Conectar ao Vinki no Senhapp. Confirme
                       o código aqui e escolha as permissões. A conexão é
                       concluída sem copiar tokens.
                     </p>
@@ -874,11 +874,11 @@ export function SetupWizard({
                   </Action>
                 </div>
                 <details className="setup-detail">
-                  <summary>Manter o Wabotia atualizado</summary>
+                  <summary>Manter o Vinki atualizado</summary>
                   <p>
                     Em Sistema e atualizações, habilite as atualizações
                     automáticas e escolha o horário. Na janela escolhida, o
-                    Wabotia verifica versões oficiais e instala usando a
+                    Vinki verifica versões oficiais e instala usando a
                     autorização já cadastrada. Você também pode verificar e
                     atualizar manualmente.
                   </p>

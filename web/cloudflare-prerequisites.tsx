@@ -3,7 +3,7 @@ import React from "react";
 const services = [
   [
     "Workers",
-    "Mantém o painel e a API do Wabotia funcionando, mesmo com seu computador desligado.",
+    "Mantém o painel e a API do Vinki funcionando, mesmo com seu computador desligado.",
     "Exige o plano pago Workers Paid. O plano gratuito não é suportado.",
   ],
   [
@@ -28,7 +28,7 @@ const services = [
   ],
   [
     "Access",
-    "Confere se quem está chamando o Hermes é o seu Wabotia autorizado.",
+    "Confere se quem está chamando o Hermes é o seu Vinki autorizado.",
     "Só no caminho por túnel: aplicações e políticas Service Auth, Client ID e Client Secret.",
   ],
   [
@@ -48,7 +48,7 @@ const services = [
   ],
   [
     "Workers Secrets",
-    "Guardam as chaves de instalação do Wabotia no ambiente protegido do Worker.",
+    "Guardam as chaves de instalação do Vinki no ambiente protegido do Worker.",
     "O instalador gera e guarda MASTER_KEY e SETUP_TOKEN. Preserve as originais.",
   ],
 ];
@@ -64,7 +64,7 @@ export function CloudflarePrerequisites() {
       <h2 id="prerequisites-title">Prepare os serviços da Cloudflare</h2>
       <p>
         Ter a conta criada não ativa todos os serviços. Confira R2 e D1 na conta
-        que vai receber o Wabotia. Se já estão disponíveis, continue sem repetir
+        que vai receber o Vinki. Se já estão disponíveis, continue sem repetir
         contratações ou criar recursos duplicados. Zero Trust e domínio só
         entram se você ligar o Hermes por túnel; com o plugin no Hermes, que é o
         caminho recomendado, não são necessários.
@@ -78,7 +78,7 @@ export function CloudflarePrerequisites() {
             <strong>Durable Objects</strong> organizam o trabalho. Quando
             precisa de um bot, o pedido chega ao <strong>Hermes</strong>, que
             executa o modelo na sua máquina ou VPS: pelo plugin, que busca o
-            trabalho no Wabotia, ou pelo <strong>Access</strong> e pelo{" "}
+            trabalho no Vinki, ou pelo <strong>Access</strong> e pelo{" "}
             <strong>Tunnel</strong> no caminho por túnel.
           </p>
           <div className="guide-table-scroll">
@@ -86,7 +86,7 @@ export function CloudflarePrerequisites() {
               <thead>
                 <tr>
                   <th>Serviço</th>
-                  <th>Função no Wabotia</th>
+                  <th>Função no Vinki</th>
                   <th>O que preparar</th>
                 </tr>
               </thead>
@@ -168,12 +168,12 @@ export function CloudflarePrerequisites() {
               limites e eventuais cobranças seguem o plano Workers.
             </li>
             <li>
-              O instalador do Wabotia cria o banco. Não precisa criar um banco
+              O instalador do Vinki cria o banco. Não precisa criar um banco
               de teste antes. Na instalação concluída, confira o banco ligado ao
               Worker em <strong>Bindings → DB</strong>.
             </li>
             <li>
-              <strong>O Wabotia exige o plano pago Workers Paid.</strong> No
+              <strong>O Vinki exige o plano pago Workers Paid.</strong> No
               gratuito, o trabalho de cada área e a conclusão do carrinho passam
               do limite de consultas por execução e param no meio. Assine na{" "}
               <a
@@ -189,7 +189,7 @@ export function CloudflarePrerequisites() {
           </ol>
           <p>
             O Worker acessa D1 e R2 pelas ligações criadas na instalação. Você
-            não precisa gerar chaves D1 ou S3/R2 para preencher no Wabotia.{" "}
+            não precisa gerar chaves D1 ou S3/R2 para preencher no Vinki.{" "}
             <a
               href="https://developers.cloudflare.com/d1/platform/pricing/"
               target="_blank"

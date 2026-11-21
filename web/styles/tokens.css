@@ -1,5 +1,5 @@
 /*
- * Tokens do Wabotia web (web/DESIGN.md §1, mobile/DESIGN.md §1).
+ * Tokens do Vinki web (web/DESIGN.md §1, mobile/DESIGN.md §1).
  * Este é o ÚNICO arquivo com cor literal. Todo o resto usa var(--token)
  * ou color-mix() sobre os tokens.
  */

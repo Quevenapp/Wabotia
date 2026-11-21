@@ -196,7 +196,7 @@ export function boletoPdf(data: BoletoData): Uint8Array {
     page.text(M, y + 20, "Pix copia e cola:", { size: 6, gray: 0.35 });
     wrapText(data.pix_code, qr ? 150 : W, 6, "mono").slice(0, 4).forEach((part, index) => page.text(M, y + 23 + index * 3, part, { size: 6, font: "mono" }));
   }
-  return pdfDocument([page], { title: `Boleto ${data.document_number ?? data.our_number}`, producer: "Wabotia" });
+  return pdfDocument([page], { title: `Boleto ${data.document_number ?? data.our_number}`, producer: "Vinki" });
 }
 
 /** Dígito do código do banco no cabeçalho do boleto (módulo 11 com pesos 2 a 9). */

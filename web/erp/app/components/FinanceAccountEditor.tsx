@@ -114,7 +114,7 @@ export default function FinanceAccountEditor({ finance, account, writable, mayWr
         {bank && <section ref={element => { sections.current.boleto = element; }} data-step="boleto" className="finance-account-section"><h2>Emissão de Boleto</h2>
           {account?.cnab ? <p>Cobrança bancária configurada: banco {account.cnab.bank ?? '—'}, agência {account.cnab.agency ?? '—'}, conta {account.cnab.account ?? '—'}{account.cnab.account_digit ? `-${account.cnab.account_digit}` : ''}. Carteira, instruções, juros, multa e remessas ficam na <Link to="/cobranca-empresa">cobrança bancária</Link>.</p>
             : <p className="real-help">Esta conta ainda não emite boletos. A carteira, as instruções e a homologação são configuradas na <Link to="/cobranca-empresa">cobrança bancária</Link>; o envio ao banco continua desligado.</p>}
-          {/* Wabotia (boleto-api): remessa CNAB ou API do banco, e as credenciais no cofre. */}
+          {/* Vinki (boleto-api): remessa CNAB ou API do banco, e as credenciais no cofre. */}
           {account && <Suspense fallback={null}><BoletoApiAccountSettings accountId={account.id} /></Suspense>}
         </section>}
       </fieldset>

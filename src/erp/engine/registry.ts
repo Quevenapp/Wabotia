@@ -16,7 +16,7 @@ import { prepareArgs } from "./args.ts";
 import { flushSequences } from "./sequence.ts";
 import type { ErpModuleState } from "./module-state.ts";
 
-/** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Wabotia, o R2). */
+/** Objeto já enviado ao armazenamento (o storage.objects do Supabase; no Vinki, o R2). */
 export interface StoredObject {
   size: number;
   mimetype: string;

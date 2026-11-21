@@ -1,12 +1,12 @@
 // Pessoas do ERP (decisão de 16/11; motor 308e227, domínio Acesso): a lista
-// de pessoas e o papel no ERP vêm do núcleo do Wabotia, não da erp-api.
+// de pessoas e o papel no ERP vêm do núcleo do Vinki, não da erp-api.
 //
 // Núcleo (origin/feat/acessos-pessoa, docs/API.md "Pessoas da área"):
 //   GET /api/v1/profiles/<área>/people
 //   → { data: [{ id, name, role: "admin"|"operator", grants: ["erp:vendas", …] }] }
 // O papel do ERP é o item erp:<papel> do acesso por pessoa, no máximo um; o
-// administrador do Wabotia vale erp:admin. Quem não tem papel não aparece.
-// O id é users.id do Wabotia, o mesmo user_id que o motor recebe no envelope
+// administrador do Vinki vale erp:admin. Quem não tem papel não aparece.
+// O id é users.id do Vinki, o mesmo user_id que o motor recebe no envelope
 // de identidade (src/erp/engine/identity.ts) e que /v1/usuarios/:id/controles
 // aceita.
 
@@ -76,7 +76,7 @@ export function erpPeople(raw: unknown): ErpPerson[] {
 
 export type PeoplePort = (signal: AbortSignal) => Promise<ErpPerson[]>;
 
-/** Porta das pessoas da área, pelo cookie da sessão do Wabotia. */
+/** Porta das pessoas da área, pelo cookie da sessão do Vinki. */
 export function createPeoplePort(
   profile: string,
   fetchImpl: typeof fetch = (input, init) => fetch(input, init),

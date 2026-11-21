@@ -61,12 +61,12 @@ test('detail error retries that GET and rejects a response for a different docum
   assert.equal(reads,1);assert.equal(component(view,'Editor'),undefined);
   await view.click('Tentar consultar documento novamente');assert.equal(reads,2);assert.equal(component(view,'Editor'),undefined);
   await view.click('Tentar consultar documento novamente');assert.equal(reads,3);assert.equal(component(view,'Editor').props.record.id,id);
-  // Wabotia: com o documento aberto a lista não é lida (era 1 leitura desperdiçada); a nova tentativa também não a lê.
+  // Vinki: com o documento aberto a lista não é lida (era 1 leitura desperdiçada); a nova tentativa também não a lê.
   assert.equal(server.calls.filter(call=>call.path.includes('?')).length,0,'retry must not merely reload the list');
  }finally{view.unmount();}
 });
 
-// Wabotia (latência do editor): o documento sai no mesmo salto de /v1/documentos, a lista escondida não é lida e salvar não remonta.
+// Vinki (latência do editor): o documento sai no mesmo salto de /v1/documentos, a lista escondida não é lida e salvar não remonta.
 const listPage={kind:'sales_proposals',items:[],limit:100,page:1,order:'date_desc',has_more:false,next_cursor:null,total_count:0,total_amount:'0.00',data_mode:'erp_native',operational_effects:false};
 function racingServer(detail=async path=>({document:{id:path.split('/').at(-1),kind:'sales_proposals',version:1,number:'1'}})){
  const access=deferred(),calls=[];
@@ -77,7 +77,7 @@ function racingServer(detail=async path=>({document:{id:path.split('/').at(-1),k
   return detail(path,options);
  }}};
 }
-test('Wabotia: a routed document is requested while /v1/documentos is pending; the hidden list and its settings are read only when the list shows',async()=>{
+test('Vinki: a routed document is requested while /v1/documentos is pending; the hidden list and its settings are read only when the list shows',async()=>{
  const server=racingServer(),view=await mountDocuments(server,documentUrl(id));
  try{
   assert.ok(server.calls.includes('/v1/documentos')&&server.calls.includes(`/v1/documentos/sales_proposals/${id}`),'both requests are in flight together');
@@ -91,7 +91,7 @@ test('Wabotia: a routed document is requested while /v1/documentos is pending; t
  }finally{view.unmount();}
 });
 
-test('Wabotia: refusals keep their messages when the document answers before the access',async()=>{
+test('Vinki: refusals keep their messages when the document answers before the access',async()=>{
  const cases=[[{read:[],write:[]},new AccessError(403),/Seu perfil não permite consultar este tipo de documento/],[{read:['sales_proposals'],write:[]},new AccessError(403),/Seu perfil não permite esta operação/],
   [{read:['sales_proposals'],write:[]},new AccessError(404),/Documento não encontrado/],[{read:[],write:[]},null,/Seu perfil não permite consultar este tipo de documento/]];
  for(const [access,failure,message] of cases){
@@ -103,7 +103,7 @@ test('Wabotia: refusals keep their messages when the document answers before the
  }
 });
 
-test('Wabotia: saving the open document applies the saved envelope in place: no remount, no reread of the document, its children or the list',async()=>{
+test('Vinki: saving the open document applies the saved envelope in place: no remount, no reread of the document, its children or the list',async()=>{
  const contact='30000000-0000-4000-8000-000000000001',actor='40000000-0000-4000-8000-000000000001';
  const dto={...normalizeDocument('sales_proposals',{date:'2026-10-16',contact_id:contact,items:[{description:'Item sintético',unit:'UN',quantity:'1',unit_price:'12.50'}]}),id,kind:'sales_proposals',number:'7',version:1,status:'draft',contact_snapshot:{id:contact,name:'Contato sintético'},effect_flags:{finance_active:false,stock_active:false},created_at:'2026-10-16T07:00:00Z',updated_at:'2026-10-16T07:00:00Z',source_proposal_id:null};
  let current={...dto,seller_name:'Vendedor sintético'},replay=false;const calls=[],ports=new Map();

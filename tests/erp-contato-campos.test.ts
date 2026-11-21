@@ -1,4 +1,4 @@
-// Campos próprios de contato pela rota do Wabotia (src/erp/contact-fields):
+// Campos próprios de contato pela rota do Vinki (src/erp/contact-fields):
 // Preferências › Cadastros, cadastro do contato, ficha do atendimento, lista,
 // importação e as operações dos bots, com só a parte Cadastros ligada. O motor
 // é o de verdade (objeto erp da área); nada sai para a rede.

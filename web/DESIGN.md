@@ -1,4 +1,4 @@
-# Wabotia web — desenho da interface (versão 0.14.0)
+# Vinki web — desenho da interface (versão 0.14.0)
 
 O painel web passa a ter a mesma cara e os mesmos recursos de atendimento dos aplicativos. A referência visual e de comportamento é [`mobile/DESIGN.md`](../mobile/DESIGN.md): cores, avatar com selo, relógio da janela de 24 horas, ticks, rodapé por estado, folha de transferência, presença. Este documento diz **como isso se organiza em uma tela de computador** e o que a web tem a mais. Regras de dados e de cada recurso continuam em `docs/API.md`, `docs/ATENDIMENTO-EQUIPE.md`, `docs/MENUS-PROTOCOLOS.md` e `docs/CENTRAL-ATENDIMENTO.md`.
 
@@ -11,6 +11,7 @@ Princípio: quem atende abre a web e reconhece o WhatsApp Web. Quem administra e
 - Tipografia do sistema (`system-ui`, Segoe UI, Roboto). Corpo 14–15 px no painel, 15–16 px nas bolhas. Cantos: bolha 12, cartão 16, diálogo 20.
 - Mesmos componentes: avatar com iniciais e cor derivada do id; selo de estado; ponto de presença; anel da janela; pílulas; chips com contador; cartões; esqueletos de carregamento; estados vazios com ícone, título e uma linha.
 - Ícones `lucide-react` (já usados). Foco visível em todo controle; tudo operável por teclado; `aria-label` em botões só de ícone; contraste AA nos dois temas; respeitar `prefers-reduced-motion`.
+- Marca Vinki: os desenhos do dono ficam em `brand/vinki/icone.svg` (coração) e `brand/vinki/logo.svg` (palavra "vinki"). No painel, `BrandMark` desenha o coração em branco sobre o degradê da marca e `Logo` usa o desenho da palavra na cor do texto (`web/ui/misc.tsx`). Favicon (`public/favicon.svg`), ícones do PWA, `apple-touch-icon` e imagem de compartilhamento ficam em `public/icons/`, em PNG convertido do SVG com o `sips` do macOS (fundo `#1A6354`, a cor do ícone). Rodapé do painel e do site: "Vinki · Queven".
 
 ## 2. Estrutura da tela
 

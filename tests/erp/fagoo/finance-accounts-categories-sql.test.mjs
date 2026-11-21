@@ -16,7 +16,7 @@
 //   (PLANO-FAGOO-MOTOR.md, seção 2). As conferências de papel do mesmo teste
 //   ficam, no primeiro teste abaixo.
 // - "135 splits every 'both' category…": testa a conversão de dados da
-//   migração 135; no Wabotia cada instalação começa vazia (PLANO-FAGOO.md,
+//   migração 135; no Vinki cada instalação começa vazia (PLANO-FAGOO.md,
 //   decisão 2: migra-se só a estrutura).
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';

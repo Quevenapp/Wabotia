@@ -40,7 +40,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
     { title: 'Tabelas e configurações adicionais', entries: [{ label: 'Alterar dados da empresa', to: '/empresa-configuracoes', description: 'Cadastro fiscal e dados gerais da empresa.' }] },
   ] },
   { id: 'sistema', label: 'Sistema', icon: 'desktop', sections: [
-    { title: 'Manutenção da instalação', entries: [{label:'Atualizações do sistema',to:'/preferencias/sistema/atualizacoes',roles:ADMIN,description:'Versão instalada, novas versões e atualização completa da sua instalação.'},{label:'Wabotia',to:'/preferencias/sistema/wabotia',roles:ADMIN,description:'Conectar atendimento e bots por código, sem copiar credenciais.'}] },
+    { title: 'Manutenção da instalação', entries: [{label:'Atualizações do sistema',to:'/preferencias/sistema/atualizacoes',roles:ADMIN,description:'Versão instalada, novas versões e atualização completa da sua instalação.'},{label:'Vinki',to:'/preferencias/sistema/wabotia',roles:ADMIN,description:'Conectar atendimento e bots por código, sem copiar credenciais.'}] },
     { title: 'Configurações do sistema', entries: [page('sistema-interface')] },
     { title: 'Tabelas e configurações adicionais', entries: [
       { label: 'Manutenção de efeitos', to: '/manutencao-efeitos', description: 'Consultar e desfazer efeitos históricos com as permissões e confirmações originais.' },
@@ -68,13 +68,13 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   { id: 'notas-fiscais', label: 'Notas Fiscais', icon: 'file-invoice', notice: { title: 'Importante', text: 'Antes de alterar as configurações entre em contato com o seu contador.' }, sections: [
     { title: 'Configurações de notas fiscais', entries: [page('notas-nfce'), page('notas-nfe')] },
     { title: 'Tabelas e configurações adicionais', entries: [
-      // Wabotia: inutilização e carta de correção vão pelo emissor de notas (as consultas antigas não têm motor).
+      // Vinki: inutilização e carta de correção vão pelo emissor de notas (as consultas antigas não têm motor).
       { label: 'Inutilizar numeração de NF-e e NFC-e', to: '/certificado-a1', roles: ['admin', 'fiscal'], description: 'No emissor de notas, em Inutilizações: a faixa de números pulados, com a justificativa.' },
       { label: 'Cartas de correção de NF-e', to: '/historico-fiscal?modelo=55', roles: ['admin', 'fiscal'], description: 'Abra a nota autorizada em Notas fiscais de saída e use Carta de correção.' },
       { label: 'Naturezas de operação', to: '/naturezas-operacao', roles: FISCAL_READ, description: 'Naturezas com regras de ICMS, IPI, PIS, COFINS e II, padrões e configurações globais de impostos.' },
       { label: 'Contador e envio dos arquivos fiscais', to: '/contador-fiscal?aba=contador', roles: FISCAL_READ, description: 'Nome, e-mail e WhatsApp do contador, envio automático do pacote do mês e anexo do Simples de cada natureza.' },
     ] },
-    // Wabotia: rascunhos, séries e a conexão com a SEFAZ são feitos pelo emissor de notas (certificado no cofre).
+    // Vinki: rascunhos, séries e a conexão com a SEFAZ são feitos pelo emissor de notas (certificado no cofre).
     { title: TOOLS, entries: [
       { label: 'Emissor de notas', to: '/certificado-a1', roles: ['admin', 'fiscal'], description: 'Certificado, ambiente, série e numeração, teste de conexão com a SEFAZ e inutilizações.' },
     ] },
@@ -99,8 +99,8 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   { id: 'servicos', label: 'Serviços', icon: 'screwdriver-wrench', sections: [
     { title: 'Configurações de serviços', entries: [page('servicos-os')] },
   ] },
-  // Wabotia: a categoria Integrações (telas do Origin) saiu; a migração do Bling é um componente à parte (PLANO-FAGOO.md, item 17).
-  // Pedido do dono (21/11): o grupo "Mais" saiu do menu superior; as telas de integração do Wabotia moram neste cartão.
+  // Vinki: a categoria Integrações (telas do Origin) saiu; a migração do Bling é um componente à parte (PLANO-FAGOO.md, item 17).
+  // Pedido do dono (21/11): o grupo "Mais" saiu do menu superior; as telas de integração do Vinki moram neste cartão.
   { id: 'integracoes', label: 'Integrações', icon: 'link', sections: [
     { title: 'Integrações', entries: [
       { label: 'Integrações', to: '/integracoes', host: 'integrations', description: 'Pedidos, mesas, agenda e os outros módulos da área ligados ao ERP: o que entra no financeiro e no estoque.' },
@@ -127,7 +127,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
       { label: 'Importar notas fiscais em Lote', to: '/preferencias/importacoes/notas-fiscais', roles: ADMIN, description: 'Notas de saída a conferir antes de emitir, uma por número da planilha.' }, { label: 'Importar contas a receber', to: '/preferencias/importacoes/contas-receber', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
       { label: 'Importar contas a pagar', to: '/preferencias/importacoes/contas-pagar', roles: ADMIN, description: 'Contas em aberto, sem baixa.' },
       { label: 'Importar vendas', to: '/preferencias/importacoes/vendas', roles: ADMIN, description: 'Pedidos de venda em aberto, sem lançar estoque nem contas.' },
-      // Wabotia (versão 28): a planilha fiscal dos produtos, as naturezas com as regras fiscais e os saldos iniciais das contas.
+      // Vinki (versão 28): a planilha fiscal dos produtos, as naturezas com as regras fiscais e os saldos iniciais das contas.
       { label: 'Importar dados fiscais dos produtos', to: '/preferencias/importacoes/fiscal-produtos', roles: ADMIN, description: 'NCM, CEST, origem e os impostos de cada produto por natureza, com prévia do que muda.' },
       { label: 'Importar naturezas de operação e regras fiscais', to: '/preferencias/importacoes/naturezas-operacao', roles: ADMIN, description: 'Inclui ou atualiza naturezas e regras; trocar a natureza padrão pede confirmação.' },
       { label: 'Importar saldos iniciais das contas financeiras', to: '/preferencias/importacoes/saldos-iniciais', roles: ADMIN, description: 'O saldo de cada conta num dia, lançado como no Financeiro.' }] },
@@ -137,7 +137,7 @@ export const COMPANY_PREFERENCES: readonly PreferenceCategory[] = [
   ] },
   { id: 'backup', label: 'Backup e Exportação de Dados', icon: 'database', sections: [
     { title: 'Backup e exportação', entries: [{ label: 'Backup', to: '/preferencias/backup/exportacao', roles: ADMIN, description: 'Pacote ZIP com os dados e os arquivos da empresa, gerado no servidor.' },
-      // Wabotia: SPED e SINTEGRA ficam em Fiscal › SPED e SINTEGRA (/sped-fiscal), com a conferência antes de gerar.
+      // Vinki: SPED e SINTEGRA ficam em Fiscal › SPED e SINTEGRA (/sped-fiscal), com a conferência antes de gerar.
       { label: 'Gerar SPED PIS/COFINS (Contribuições)', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' },
       { label: 'Gerar SPED ICMS/IPI (Fiscal)', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' },
       { label: 'Exportar dados para o SINTEGRA', to: '/sped-fiscal', roles: FISCAL_READ, description: 'Em SPED e SINTEGRA: o arquivo do mês, com a conferência dos cadastros antes de gerar.' }] },
@@ -149,7 +149,7 @@ export interface CompanyAccess { role?: string; resources?: readonly string[]; c
 
 export function realTargetAllowed(target: RealTarget | undefined, access: CompanyAccess): target is RealTarget {
   if (!target || !access.role) return false;
-  // Wabotia: item de um bloco desligado na área (Fiscal, Cobrança, PDV, Origin) some do menu.
+  // Vinki: item de um bloco desligado na área (Fiscal, Cobrança, PDV, Origin) some do menu.
   if (!targetEnabled(target.to)) return false;
   if (isOriginIntegrationRoute(target.to) && !originHistoryAvailable(access)) return false;
   if (target.resource && !(access.resources || []).includes(target.resource)) return false;

@@ -30,7 +30,7 @@ export interface EmissorCheck {
   state: FiscalProviderState | null;
   series: FiscalSeries[] | null;
   contract: {
-    /** Versão do contrato com que o Wabotia foi escrito. */
+    /** Versão do contrato com que o Vinki foi escrito. */
     pinned: string;
     /** Versão do contrato servida pelo cofre (null se não leu). */
     vault: string | null;
@@ -235,14 +235,14 @@ export function emissorAlerts(checked: EmissorCheck | null, at = now()): Emissor
     alerts.push({
       code: "contract_incompatible",
       level: "error",
-      message: `O cofre usa o contrato ${contract.vault ?? "?"}; este Wabotia foi escrito para o ${contract.pinned}.`,
+      message: `O cofre usa o contrato ${contract.vault ?? "?"}; este Vinki foi escrito para o ${contract.pinned}.`,
       version: contract.vault,
     });
   else if (contract && contract.differences.length)
     alerts.push({
       code: "contract_changed",
       level: "info",
-      message: `O contrato do cofre (${contract.vault ?? "?"}) tem ${contract.differences.length} diferença(s) para o do Wabotia (${contract.pinned}).`,
+      message: `O contrato do cofre (${contract.vault ?? "?"}) tem ${contract.differences.length} diferença(s) para o do Vinki (${contract.pinned}).`,
       version: contract.vault,
     });
   return alerts;

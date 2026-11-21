@@ -195,7 +195,7 @@ export function InternalChat({
           label="Mensagens internas"
         >
           <EventChip icon={<Lock size={12} />}>
-            Esta conversa fica dentro do Wabotia. Nada aqui é enviado ao cliente
+            Esta conversa fica dentro do Vinki. Nada aqui é enviado ao cliente
             no WhatsApp.
           </EventChip>
           {!detail && (

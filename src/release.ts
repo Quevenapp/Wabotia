@@ -1,4 +1,4 @@
-// Pacote de publicação do Wabotia (formato 2), lido pelo atualizador do
+// Pacote de publicação do Vinki (formato 2), lido pelo atualizador do
 // painel e pelos dois instaladores. Nenhuma credencial do cliente vai para a
 // origem oficial; só a Cloudflare recebe o token de API.
 // Formato, assinatura e limites: docs/ATUALIZACOES-FORMATO.md.
@@ -769,7 +769,7 @@ export async function workerUploadV2(
     ],
     assets: { jwt: completionToken, config: m.assets_config },
     annotations: {
-      "workers/message": `Wabotia ${m.version} · ${m.commit.slice(0, 12)}`,
+      "workers/message": `Vinki ${m.version} · ${m.commit.slice(0, 12)}`,
     },
   };
   for (const key of [

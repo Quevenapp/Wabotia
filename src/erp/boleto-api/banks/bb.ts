@@ -1,6 +1,6 @@
 // Banco do Brasil: API Cobranças v2. OAuth com Basic (Client ID e Secret) e a
 // chave do desenvolvedor (gw-dev-app-key) em cada chamada; produção com
-// certificado (mTLS). O nosso número é escolhido pelo Wabotia:
+// certificado (mTLS). O nosso número é escolhido pelo Vinki:
 // "000" + convênio (7) + sequência (10). Boleto híbrido com indicadorPix.
 // Contrato público: developers.bb.com.br (API Cobranças v2). Conferir na
 // homologação: docs/BOLETO-API.md.

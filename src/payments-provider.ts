@@ -8,14 +8,14 @@ export interface ProviderCredentials {
 }
 
 export interface ChargeRequest {
-  /** Id da cobrança no Wabotia: vai como external_reference. */
+  /** Id da cobrança no Vinki: vai como external_reference. */
   id: string;
   amount_cents: number;
   currency: string;
   description: string;
   payer_email: string;
   expires_at: number;
-  /** URL do webhook desta conta no Wabotia. */
+  /** URL do webhook desta conta no Vinki. */
   notification_url: string;
 }
 

@@ -52,7 +52,7 @@ test('products open newest first in pages of 100 with total, Origin columns, sto
     assert.match(view.text(), /Quantidade de Produtos250/);
     assert.match(view.text(), /250 cadastros encontrados/);
     assert.ok(view.button(active.name), 'the first-cell button stays available for keyboard users');
-    // Wabotia: os depósitos (opções do seletor Depósito) só são lidos quando o filtro de Estoque é usado, uma vez.
+    // Vinki: os depósitos (opções do seletor Depósito) só são lidos quando o filtro de Estoque é usado, uma vez.
     assert.ok(!calls.some(call => call.path === '/v1/posicoes-estoque/depositos?limit=100'), 'no depósito options on open');
     await view.change('catalog-stock-filter', 'positive');
     await view.change('catalog-stock-filter', '');

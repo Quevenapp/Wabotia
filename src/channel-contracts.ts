@@ -28,7 +28,7 @@ export interface ChannelSpec {
     publicReply: boolean;
   }>>;
   text: { enabled: boolean; maxChars: number | null };
-  /** Limites sociais são locais do Wabotia; MIME e formatos: a conferir com a conta real. */
+  /** Limites sociais são locais do Vinki; MIME e formatos: a conferir com a conta real. */
   media: Partial<Record<MediaKind, {
     receive: boolean;
     send: boolean;

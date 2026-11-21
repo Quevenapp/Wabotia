@@ -14,7 +14,7 @@ const sourceProperties = {
   number_id: {
     ...id,
     description:
-      "ID local Wabotia do número, diferente do accountId da Zernio.",
+      "ID local Vinki do número, diferente do accountId da Zernio.",
   },
   pool_id: {
     ...id,
@@ -109,7 +109,7 @@ export const routerSchemas = {
   RouterUsage: {
     type: "object",
     description:
-      "Mensagens com entrega confirmada (delivered/read) no mês e fuso da integração, desde monitored_at. Recibos duplicados contam uma vez. Fila, aceitação sent, envios sem confirmação e uso inicial manual não entram. Categorias descrevem o tipo da mensagem, não preço; UTILITY continua template mesmo sem cobrança. Não há saldo nem teto local. Envios externos só aparecem quando seus recibos chegam ao Wabotia.",
+      "Mensagens com entrega confirmada (delivered/read) no mês e fuso da integração, desde monitored_at. Recibos duplicados contam uma vez. Fila, aceitação sent, envios sem confirmação e uso inicial manual não entram. Categorias descrevem o tipo da mensagem, não preço; UTILITY continua template mesmo sem cobrança. Não há saldo nem teto local. Envios externos só aparecem quando seus recibos chegam ao Vinki.",
     properties: Object.fromEntries([
       ["period", { type: "string", example: "2026-11" }],
       ["timezone", { type: "string", example: "America/Sao_Paulo" }],
@@ -199,7 +199,7 @@ export const routerSchemas = {
         type: "boolean",
         default: false,
         description:
-          "Campo legado que restringe o pedido a mensagens sem template. Não impõe saldo ou teto de mensagens e não garante gratuidade. Aplicações pareadas como Vinki mantêm essa restrição a templates.",
+          "Campo legado que restringe o pedido a mensagens sem template. Não impõe saldo ou teto de mensagens e não garante gratuidade. Aplicações pareadas como Vinki V4 mantêm essa restrição a templates.",
       },
       text: { type: "string", maxLength: 4096 },
       attachments: { type: "array", maxItems: 1, items: id },
@@ -223,7 +223,7 @@ export const routerSchemas = {
       free_only: {
         const: false,
         description:
-          "Modelos pagos não aceitam free_only=true. Aplicações pareadas como Vinki não podem enviar modelos pagos.",
+          "Modelos pagos não aceitam free_only=true. Aplicações pareadas como Vinki V4 não podem enviar modelos pagos.",
       },
       allow_paid: {
         const: true,
@@ -255,7 +255,7 @@ export const routerSchemas = {
             type: "array",
             maxItems: 12,
             description:
-              "Parâmetros dos componentes aprovados: texto posicional ou nomeado; header image/video/document com media_id privado do Wabotia; botão url, quick_reply ou copy_code. Formatos não suportados são recusados.",
+              "Parâmetros dos componentes aprovados: texto posicional ou nomeado; header image/video/document com media_id privado do Vinki; botão url, quick_reply ou copy_code. Formatos não suportados são recusados.",
             items: {
               type: "object",
               required: ["type", "parameters"],
@@ -344,7 +344,7 @@ export const routerSchemas = {
           estimated: {
             type: "boolean",
             description:
-              "O Wabotia não estima preços ou franquias. A cobrança é definida pelo provedor.",
+              "O Vinki não estima preços ou franquias. A cobrança é definida pelo provedor.",
           },
         },
       },
@@ -409,12 +409,12 @@ export const routerSchemas = {
     required: ["account_id"],
     anyOf: [{ required: ["accountId"] }, { required: ["phone_id"] }],
     description:
-      "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é o ID local da integração Zernio no Wabotia; accountId é o ID do telefone na Zernio. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
+      "Número WhatsApp descoberto na Zernio há menos de uma hora. account_id é o ID local da integração Zernio no Vinki; accountId é o ID do telefone na Zernio. phone_id é um alias aceito para accountId. Cria pausado; uma conexão anterior do mesmo telefone deve estar pausada e sem entregas não confirmadas.",
     properties: {
       account_id: {
         ...id,
         description:
-          "ID local retornado ao cadastrar a integração Zernio no Wabotia.",
+          "ID local retornado ao cadastrar a integração Zernio no Vinki.",
       },
       accountId: {
         type: "string",

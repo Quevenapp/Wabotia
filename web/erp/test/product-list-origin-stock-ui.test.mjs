@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mountComponent } from './helpers/component-recovery-harness.mjs';
 import { exportColumns, exportCsv } from '../app/lib/product-form-model.ts';
 
-// Wabotia: Origin fora (motor 91213b8). O motor manda origin_stock sempre nulo; a lista, a impressão e a exportação mostram só o
+// Vinki: Origin fora (motor 91213b8). O motor manda origin_stock sempre nulo; a lista, a impressão e a exportação mostram só o
 // estoque nativo, sem as linhas, filtros e colunas do saldo observado no Origin (202610220008). Synthetic data only.
 globalThis.document ??= { activeElement: null, getElementById: () => null };
 const actor = '93000000-0000-4000-8000-0000000000aa', warehouse = '93000000-0000-4000-8000-0000000000bb';

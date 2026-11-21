@@ -1,4 +1,4 @@
-// Expedição (Wabotia, sem função no oráculo; parte erp-expedicao, versão 25):
+// Expedição (Vinki, sem função no oráculo; parte erp-expedicao, versão 25):
 // separação consolidada de vários pedidos, marcação dividida entre os pedidos,
 // pendência e ocorrência no pedido quando falta, embalagens e volumes com
 // pesos, transporte do pedido com Fiscal ligado, expedição, etiquetas,

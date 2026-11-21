@@ -32,7 +32,7 @@ import {captureReviewedAuthorizationRequest} from './fiscal-reviewed-authorizati
 import {captureSubsetReviewRequest} from './fiscal-subset-review-model.ts';
 import {captureReconciliationRequest} from './fiscal-reconciliation-model.ts';
 import type {UpdateAction,UpdateOptions} from './system-updates.ts';
-// Wabotia: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
+// Vinki: cache de sessão dos GETs estáveis (lista explícita e regras em web/erp/session-cache.ts).
 import {createSessionCache,cachePolicy} from '../../session-cache.ts';
 import {readPendingInMotor,writeRefused} from '../../motor.ts';
 import {parseMyPermissions} from '../../../../packages/erp-domain/src/user-permissions.mjs';
@@ -71,13 +71,13 @@ export interface AuthPort {
   signOut(options: { scope: 'local' }): Promise<{ error: unknown }>;
 }
 const initial: AccessState = { phase: 'loading', membership: null, records: null, listPending: false, loginPending: false, message: null, logoutFailed: false, permissionMessage: null, permissions: null };
-/** Wabotia: o que a tela diz quando a API recusa, com a causa quando ela é conhecida (nunca o genérico "não foi possível"). */
+/** Vinki: o que a tela diz quando a API recusa, com a causa quando ela é conhecida (nunca o genérico "não foi possível"). */
 export function accessErrorText(status: number, code?: string, detail?: string): string {
   if (detail) return detail;
   if (code === 'module_disabled' || code === 'erp_parts_stale') return 'Esta ação depende de uma parte do ERP que está desligada nesta área. Peça ao administrador para ligá-la em Gestão › Módulos.';
   if (code === 'erp_parts_unavailable') return 'Não deu para conferir agora quais partes do ERP estão ligadas. Atualize a tela e tente de novo.';
   if (code?.startsWith('ERP_ACCESS_OUTSIDE')) return 'Seu acesso ao ERP está fora do horário permitido. Fale com o administrador.';
-  if (status === 401) return 'Sua sessão terminou. Entre de novo no Wabotia.';
+  if (status === 401) return 'Sua sessão terminou. Entre de novo no Vinki.';
   if (status === 403) return 'Seu papel no ERP não permite esta ação. Peça ao administrador em Gestão › Pessoas e acessos.';
   if (status === 404) return 'O registro não foi encontrado: pode ter sido excluído. Atualize a tela.';
   if (status === 409) return 'Os dados mudaram enquanto você trabalhava. Atualize a tela, confira e tente de novo.';
@@ -93,7 +93,7 @@ export class AccessError extends Error {
   code?: string;
   /** Field named by a specific refusal of the API (contatos, onda C), e.g. the required field of Preferências. */
   field?: string;
-  /** Wabotia: a frase do servidor (ou a parte desligada), já conferida para ir à tela. */
+  /** Vinki: a frase do servidor (ou a parte desligada), já conferida para ir à tela. */
   detail?: string;
   constructor(status: number, code?: string, field?: string, detail?: string) { super(accessErrorText(status, code, detail)); this.status = status; this.code = code; if (field) this.field = field; if (detail) this.detail = detail; }
 }
@@ -133,7 +133,7 @@ async function limitedBytes(response: Response, limit: number) {
   return bytes;
 }
 /** Code, field and the sentence of an API refusal ({ error: { code, field, message } }), read from at most 4 KiB; anything
- * else stays unread. Wabotia: a frase do servidor só passa se for texto para gente (screenSentence). */
+ * else stays unread. Vinki: a frase do servidor só passa se for texto para gente (screenSentence). */
 async function refusalDetail(response: Response): Promise<{ code?: string; field?: string; message?: string }> {
   try {
     const value = (JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(await limitedBytes(response, 4096))) as { error?: { code?: unknown; field?: unknown; message?: unknown } } | null)?.error;
@@ -190,12 +190,12 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   let listRequest: AbortController | null = null;
   let permissionRecheck: AbortController | null = null;
   let permissionPromise: Promise<void> | null = null;
-  // Wabotia: um cache por controlador (área/apiUrl); chave apiUrl+ator+papel+caminho. Só serve com a credencial já conferida pelo /v1/me.
+  // Vinki: um cache por controlador (área/apiUrl); chave apiUrl+ator+papel+caminho. Só serve com a credencial já conferida pelo /v1/me.
   const sessionCache = createSessionCache();
   const cacheReady = () => !suspended&&!stopped&&!signingOut&&!!token&&state.phase==='ready'&&!!sessionActor&&state.membership?.user_id===sessionActor&&verifiedCredentialEpoch===credentialEpoch;
   const cacheKey = (path: string) => JSON.stringify([apiUrl,sessionActor,state.membership?.role??null,currentErpModules(),path]);
   const update = (patch: Partial<AccessState>) => { state = { ...state, ...patch }; listeners.forEach(listener => listener()); };
-  // Wabotia: fim de sessão (401, logout, troca de sessão, parada do controlador) também esvazia o cache.
+  // Vinki: fim de sessão (401, logout, troca de sessão, parada do controlador) também esvazia o cache.
   const cancel = () => { generation++; listGeneration++; requests.forEach(request => request.abort()); requests.clear(); fineRequests.clear(); listRequest = null; permissionRecheck = null; permissionPromise = null; fineRequest = null; finePromise = null; sessionCache.clear(); };
   const request = async (path: string, bearer: string, controller: AbortController, options: { method?: 'GET' | 'POST' | 'PATCH'; body?: unknown; responseLimit?: number; timeoutMs?: number } = {}): Promise<unknown> => {
     requests.add(controller);
@@ -236,7 +236,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const active = () => !suspended && !stopped && !controller.signal.aborted && current === generation && credential === credentialEpoch &&
       bearer === token && me.user_id === sessionActor && state.phase === 'ready' && state.membership?.role === me.role;
     const base = {userId:me.user_id,role:me.role,resources:me.resources,apiUrl,permissions:null};
-    // Wabotia: na reconferência do mesmo ator e papel, a última permissão conferida vale até a resposta nova chegar.
+    // Vinki: na reconferência do mesmo ator e papel, a última permissão conferida vale até a resposta nova chegar.
     if (!lastChecked(me.user_id, me.role)) update({permissions:{...base,phase:'checking',message:'Verificando suas permissões individuais…'}});
     finePromise = (async () => {
       try {
@@ -256,7 +256,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
   // An operation-level403 is not proof that company membership was revoked.
   // Keep this actor's mounted editor and command while /me checks membership.
   // The server continues to authorize every individual request independently.
-  // Wabotia: `quiet` é a reconferência de fundo (a janela voltou ao foco): mesma conferência, sem aviso na tela.
+  // Vinki: `quiet` é a reconferência de fundo (a janela voltou ao foco): mesma conferência, sem aviso na tela.
   const revalidateMembership = (quiet = false) => {
     if(permissionRecheck)return permissionPromise;
     if(suspended||stopped||signingOut||!token||state.phase!=='ready'||!state.membership)return null;
@@ -277,14 +277,14 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
         if(me.user_id!==actor){denyAccess(401);return;}
         verifiedCredentialEpoch=credential;
         const changed=me.role!==state.membership!.role||JSON.stringify(me.resources)!==JSON.stringify(state.membership!.resources);
-        // Wabotia: papel ou recursos mudaram: nada do cache do papel anterior é servido.
+        // Vinki: papel ou recursos mudaram: nada do cache do papel anterior é servido.
         if(changed){listGeneration++;listRequest?.abort();listRequest=null;sessionCache.clear();}
         update({membership:me,permissionMessage:null,...(changed?{records:null,listPending:false}:{})});
         await checkPermissions(true);
       }catch(error){
         if(!active())return;
         if(error instanceof AccessError&&(error.status===401||error.status===403))denyAccess(error.status,error.code);
-        // Wabotia: falha passageira da conferência de fundo não vira aviso; o próximo pedido reconfere (a credencial segue sem conferir).
+        // Vinki: falha passageira da conferência de fundo não vira aviso; o próximo pedido reconfere (a credencial segue sem conferir).
         else if(silent)return;
         else update({permissionMessage:'Não foi possível reconfirmar seu acesso. Sua tentativa foi preservada; tente verificar as permissões novamente.',
           ...(fineEnabled ? {permissions:{userId:actor,role:state.membership!.role,apiUrl,permissions:null,phase:'error' as const,message:'Não foi possível verificar suas permissões individuais. Tente novamente.'}} : {})});
@@ -321,7 +321,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     if(bearer!==token||verifiedCredentialEpoch!==credentialEpoch)throw new AccessError(503);
   };
   const handleAccessFailure = (error: unknown,bearer:string|null,credential:number) => {
-    // Wabotia: qualquer 401/403 descarta os envelopes de permissão guardados.
+    // Vinki: qualquer 401/403 descarta os envelopes de permissão guardados.
     if(error instanceof AccessError&&(error.status===401||error.status===403))sessionCache.dropPermissions();
     // A response to an older credential cannot log out a verified renewal of
     // the same actor. The component still receives an uncertain/retryable error.
@@ -403,9 +403,9 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       const requirement = erpRouteRequirement(options.method ?? 'GET', new URL(path, 'https://erp.invalid'), options.body);
       if (requirement === 'externo' || !requirementEnabled(requirement)) throw new AccessError(409, 'module_disabled');
     }
-    // Wabotia: GET da lista estável passa pelo cache de sessão (o pedido compartilhado volta aqui com shared=true);
+    // Vinki: GET da lista estável passa pelo cache de sessão (o pedido compartilhado volta aqui com shared=true);
     // escrita invalida antes de sair e de novo ao terminar (com ou sem sucesso), para nenhum GET em voo guardar o estado anterior.
-    // Wabotia: leitura auxiliar ainda sem motor (web/erp/motor.ts): responde aqui, sem ir à rede, como o motor responderia.
+    // Vinki: leitura auxiliar ainda sem motor (web/erp/motor.ts): responde aqui, sem ir à rede, como o motor responderia.
     if((options.method??'GET')==='GET'&&readPendingInMotor(path))throw new AccessError(501,'ERP_NOT_PORTED');
     const write=(options.method??'GET')!=='GET',policy=write||shared||beforeDispatch||options.body!==undefined?null:cachePolicy(path);
     if(policy&&cacheReady())return sessionCache.read(cacheKey(path),path,policy,signal=>nativeRequest(prefix,path,{method:'GET',signal},responseLimit,timeoutMs,undefined,true),options.signal);
@@ -424,7 +424,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     } catch (error) {
       if (!sameParts() || stopped || current !== generation || controller.signal.aborted) throw new DOMException('Request cancelled', 'AbortError');
       const failure=handleAccessFailure(error,bearer,credential);
-      // Wabotia: escrita sem motor ainda (502 ERP_UPSTREAM_UNAVAILABLE): a casca avisa que a ação está em implantação (web/erp/motor.ts).
+      // Vinki: escrita sem motor ainda (502 ERP_UPSTREAM_UNAVAILABLE): a casca avisa que a ação está em implantação (web/erp/motor.ts).
       if(write&&failure instanceof AccessError)writeRefused(failure.status,failure.code);
       throw failure;
     } finally { requests.delete(controller);fineRequests.delete(controller);options.signal?.removeEventListener('abort', abort);if(write)sessionCache.invalidateWrite(path); }
@@ -502,7 +502,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const current = generation, controller = new AbortController(), timeout = new AbortController();
     const abort = () => controller.abort(), timer = setTimeout(() => timeout.abort(), upload ? 120000 : 45000);
     options.signal?.addEventListener('abort', abort, { once: true }); if (options.signal?.aborted) controller.abort(); requests.add(controller);
-    if(upload)sessionCache.invalidateWrite(path); // Wabotia: o PUT do envio também é escrita.
+    if(upload)sessionCache.invalidateWrite(path); // Vinki: o PUT do envio também é escrita.
     let bearer=token,credential=credentialEpoch;
     try {
       const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);credential=credentialEpoch;
@@ -738,7 +738,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
     const selected=captureBackupRequest(path,options),current=generation,controller=new AbortController();
     const requireAdmin=()=>{if(stopped||signingOut||state.phase!=='ready'||state.membership?.role!=='admin')throw new AccessError(state.phase==='ready'?403:401);};
     requireAdmin();requests.add(controller);const abort=()=>controller.abort();selected.signal?.addEventListener('abort',abort,{once:true});if(selected.signal?.aborted)abort();
-    // Wabotia: a importação de backup reescreve a empresa inteira: cada escrita dela esvazia o cache (antes e ao terminar).
+    // Vinki: a importação de backup reescreve a empresa inteira: cada escrita dela esvazia o cache (antes e ao terminar).
     const write=selected.method!=='GET';if(write)sessionCache.clear();
     const timer=setTimeout(abort,selected.finish?900000:120000);let bearer=token,credential=credentialEpoch;
     try{
@@ -758,7 +758,7 @@ export function createAccessController(auth: AuthPort, apiUrl: string, fetcher: 
       requireAdmin();const current=generation,controller=new AbortController(),body=action==='status'?undefined:action==='check'?{}:structuredClone(options.body);
       const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)controller.abort();
       let bearer:string|null=null,credential=credentialEpoch;
-      // Wabotia: verificar/aplicar atualização é escrita: esvazia o cache antes e ao terminar.
+      // Vinki: verificar/aplicar atualização é escrita: esvazia o cache antes e ao terminar.
       if(action!=='status')sessionCache.clear();
       try{
         const authorized=authorizedBearer(controller.signal);bearer=typeof authorized==='string'?authorized:await authorized;assertDispatch(current,controller,bearer);requireAdmin();credential=credentialEpoch;

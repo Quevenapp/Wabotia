@@ -272,8 +272,8 @@ export async function deliverEmail(ctx: ChannelDeliveryContext, transport: Chann
         fail("message_expired", "O teste expirou ou o endereço foi alterado.", 410);
     };
     await check();
-    return sendChannelEmail(ctx.env, ctx.connection, { to: address, subject: `Wabotia: teste de recebimento ${token}`,
-      text: "Este é o teste de recebimento do Wabotia. Não responda a esta mensagem.",
+    return sendChannelEmail(ctx.env, ctx.connection, { to: address, subject: `Vinki: teste de recebimento ${token}`,
+      text: "Este é o teste de recebimento do Vinki. Não responda a esta mensagem.",
       messageId: `<${await sha(ctx.outbox.id)}@${address.split("@")[1]}>`, automatic: true }, async () => {
       await check(); await ctx.beforeFetch();
     }, transport);

@@ -1,7 +1,7 @@
-Wabotia - Copyright (c) 2026 Quevenapp contributors.
+Vinki - Copyright (c) 2026 Quevenapp contributors.
 
 Servidor e painel web: GNU Affero General Public License, versão 3 (LICENSE).
-Quem oferece o Wabotia pela rede, modificado ou não, oferece também o
+Quem oferece o Vinki pela rede, modificado ou não, oferece também o
 código-fonte da versão em execução (seção 13): o link fica em /api/health,
 /api/v1/capabilities, no menu da conta e no rodapé do painel, no login e nas
 páginas que o cliente final abre. Quem modificar aponta o próprio repositório em

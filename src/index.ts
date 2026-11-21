@@ -467,7 +467,7 @@ const webStepHeaders = {
 };
 const webStepHtml = (c: any, body: string, status = 200) =>
   c.html(body, status, webStepHeaders);
-const appName = (env: Env) => env.APP_NAME || "Wabotia";
+const appName = (env: Env) => env.APP_NAME || "Vinki";
 // Páginas do passo web assinadas com os dados do estabelecimento da área.
 const pageBrand = async (env: Env, profile: string) => ({
   app: appName(env),
@@ -795,7 +795,7 @@ app.post("/api/install/step", bodyLimit({ maxSize: 256 * 1024 }), async (c) => {
     throw new ApiError(
       404,
       "not_found",
-      "O instalador pelo navegador só existe no site oficial do Wabotia.",
+      "O instalador pelo navegador só existe no site oficial do Vinki.",
     );
   if (c.req.header("Origin") !== new URL(c.req.url).origin)
     throw new ApiError(403, "invalid_origin", "Origem da requisição inválida.");

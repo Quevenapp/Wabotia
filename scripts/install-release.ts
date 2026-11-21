@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Bundled as public/install-wabotia.mjs. Run locally once; Wabotia runs on Cloudflare.
+// Bundled as public/install-wabotia.mjs. Run locally once; Vinki runs on Cloudflare.
 import { mkdir, readFile, writeFile, chmod, access } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join, dirname } from "node:path";
@@ -220,7 +220,7 @@ export async function install() {
     args.includes(name) ? args[args.indexOf(name) + 1] : undefined;
   if (args.includes("--help")) {
     console.log(
-      "Wabotia: instalação sem GitHub.\nnode install-wabotia.mjs [--name NOME] [--directory PASTA] [--resume]\nO assistente pede Account ID e token Cloudflare. Node.js 22.13+ e npm são necessários.\n--resume retoma somente a instalação identificada pela pasta local. Não apaga recursos.",
+      "Vinki: instalação sem GitHub.\nnode install-wabotia.mjs [--name NOME] [--directory PASTA] [--resume]\nO assistente pede Account ID e token Cloudflare. Node.js 22.13+ e npm são necessários.\n--resume retoma somente a instalação identificada pela pasta local. Não apaga recursos.",
     );
     return;
   }
@@ -231,7 +231,7 @@ export async function install() {
     "Instale Node.js 22.13 ou superior: https://wabotia.queven.app/install#nodejs",
   );
   console.log(
-    "Wabotia · instalação direta na sua Cloudflare\nNão é necessário ter conta ou repositório GitHub.",
+    "Vinki · instalação direta na sua Cloudflare\nNão é necessário ter conta ou repositório GitHub.",
   );
   console.log(
     "Primeiro você informa Account ID, token e nome. Nenhuma publicação começa antes disso.\nDurante a execução, o assistente informa a etapa e o tempo a cada 10 segundos.\nSe estiver gravando, pause antes de preencher tokens ou abrir arquivos de chaves.",
@@ -249,7 +249,7 @@ export async function install() {
   const name =
     option("--name") ||
     (await question(
-      "Nome novo para a instalação (exemplo: wabotia-atendimento)",
+      "Nome novo para a instalação (exemplo: vinki-atendimento)",
     ));
   const base = scriptPath(account, name),
     folder = resolve(option("--directory") || name);
@@ -303,7 +303,7 @@ export async function install() {
     const index = releaseDirectory
       ? (await localRelease(resolve(releaseDirectory))).index
       : await progress(
-          "Consultando a versão oficial do Wabotia",
+          "Consultando a versão oficial do Vinki",
           latestReleaseV2,
         );
     await mkdir(folder, { mode: 0o700 });
@@ -425,7 +425,7 @@ export async function install() {
       observability: { enabled: true },
       workers_dev: true,
       vars: {
-        APP_NAME: "Wabotia",
+        APP_NAME: "Vinki",
         WABOTIA_ACCOUNT_ID: account,
         WABOTIA_WORKER_NAME: name,
         WABOTIA_INSTALLATION_ID: state.installation_id,

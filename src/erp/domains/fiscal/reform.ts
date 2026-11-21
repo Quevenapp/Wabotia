@@ -5,7 +5,7 @@
 // matchRule do Fagoo (packages/fiscal-core/src/tax-engine.mjs), sem destino:
 // produto do cadastro > exceção por produto > por grupo > pelo NCM de prefixo
 // mais longo > padrão; empate, a menor posição.
-// RPCs só do motor (sem assinatura no oráculo; rota própria do Wabotia em
+// RPCs só do motor (sem assinatura no oráculo; rota própria do Vinki em
 // src/erp/reforma, /erp-reforma): erp_fiscal_reform_nature_class_get e _save
 // e, na versão 26, a configuração, o produto, o contexto dos documentos e o
 // relatório (fim do arquivo). O _save troca a lista inteira,

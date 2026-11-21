@@ -1,4 +1,4 @@
-# ERP (Fagoo) no Wabotia — fase 0: as provas
+# ERP (Fagoo) no Vinki — fase 0: as provas
 
 Este documento registra as provas históricas do porte. O contrato vigente
 de módulos, autorização e aceitação da fase 2 está em
@@ -140,7 +140,7 @@ Conversão (contagens de `src/erp/schema/report.generated.json`):
 | `numeric(p≤15)` / `(16–18)` / `(>18)` | `dec`: INTEGER escalado, lido como número / `dec_i64`: INTEGER escalado lido como TEXT / `dec_text`: **decimal exato em TEXT** (o i64 não comporta 30 dígitos) |
 | CHECK | 996 traduzidos para SQL e **provados por comportamento**: 10.469 avaliações com os mesmos valores nos dois motores, zero divergência (89 valores que o próprio Postgres recusa no tipo ficam de fora). 233 com regex viram `RegExp` em TS, conferidos contra o `~` do Postgres. **222 pendentes**, com motivo (aritmética decimal, `lower`/`upper`, funções do Fagoo, tempo relativo, arrays): validação em TS no porte do domínio |
 | UNIQUE / PK | 201 / 430, iguais |
-| FK | 512 mantidas; 327 para `auth.users`/`storage` removidas (ator do Wabotia e R2); **22 `DEFERRABLE` viram imediatas** (prova 1): o porte confere a ordem de escrita |
+| FK | 512 mantidas; 327 para `auth.users`/`storage` removidas (ator do Vinki e R2); **22 `DEFERRABLE` viram imediatas** (prova 1): o porte confere a ordem de escrita |
 | Índices | 231 criados (104 parciais traduzidos), 16 colunas normalizadas ou calculadas pelo motor (`fold`, `lower`, funções do Fagoo), 1 GIN descartado |
 | Gatilhos | **148 gerados em SQL** (só lançam erro: `RAISE(ABORT,'<sqlstate>:<mensagem>')`, um por evento); **240 pendentes** (PL/pgSQL; 12 são gatilhos de restrição adiados, que viram conferência no fim da transação em TS) |
 | Padrões | constantes no DDL; `now()`/`clock_timestamp()`, `gen_random_uuid()` e 7 expressões preenchidos pelo motor (`columns.generated.ts`) |
@@ -414,7 +414,7 @@ acesso à área) → `src/erp/api/local-fetch.ts` → `createHandler` da erp-api
 `scripts/erp/copy-fagoo.mjs` com as dependências que ela alcança: 229
 arquivos, 3,0 MB, mais `@xmldom/xmldom` 0.9.12) com `fetchImpl` local:
 `/rest/v1/rpc/<nome>` → objeto `/erp-rpc/<nome>`; `/auth/v1/user` → o ator do
-Wabotia; `/storage/v1` → R2 (bucket MEDIA, `src/erp-storage.ts`; veja
+Vinki; `/storage/v1` → R2 (bucket MEDIA, `src/erp-storage.ts`; veja
 `docs/ERP-PORTE.md`, "Armazenamento").
 
 | Verificação | Resultado |
@@ -585,7 +585,7 @@ Mudar o padrão para 2 faz o servidor recusar 3 casas ou mais até a empresa sub
 **Mecanismo registrado (`src/erp/schema/deviations.ts`).**
 - **O que entra na lista:** só valores iniciais semeados (referência e preferências), cada um com motivo e decisão.
 - **Gerador:** confere cada item contra o oráculo e para se o Fagoo mudar o valor. Só os itens com `applied: true` trocam a semeadura.
-- **Diferencial:** `dualFixture` aplica os mesmos itens no Postgres antes de começar. Os dois motores rodam com o valor do Wabotia, e a semeadura diferente não vira divergência.
+- **Diferencial:** `dualFixture` aplica os mesmos itens no Postgres antes de começar. Os dois motores rodam com o valor do Vinki, e a semeadura diferente não vira divergência.
 - **Prova:** `tests/erp/deviations.test.mjs`.
 - **Primeiro item:** `telas-2-casas`, com `decimais_preco_saida` 10 → 2, `decimais_preco_entrada` 10 → 2 e `decimais_quantidade` 6 → 2.
 - **Situação: aplicado** (opção (a) do usuário: "casas decimais usamos apenas 02", "pode deixar padrão 02 casas"). `decimais_peso` fica em 3.
@@ -937,7 +937,7 @@ npm run test:erp
      - **Hipótese revista com o detalhe da K:** os dois 500 passam pelo `requireModule`, e só o `wipe` o pula. Ele foi chamado entre os dois e passou.
        - O `requireModule` lê o estado dos módulos no **D1** (`moduleStates` → `cachedAll`). O desligamento do módulo também grava no D1.
        - O fator comum é o D1, não o objeto `erp:`. Um erro transitório do D1 numa leitura sai como `internal_error` 500 do núcleo.
-       - Isso é do núcleo do Wabotia (`src/db.ts`), não do ERP. Proposta para o dono do núcleo: repetir uma vez as **leituras** do D1 em erro transitório, como a Cloudflare recomenda; escrita não se repete.
+       - Isso é do núcleo do Vinki (`src/db.ts`), não do ERP. Proposta para o dono do núcleo: repetir uma vez as **leituras** do D1 em erro transitório, como a Cloudflare recomenda; escrita não se repete.
        - Confirmar pelos registros quando alguém abrir o painel.
    - **Feito, com a aprovação da orquestração:** nova tentativa no stub (`src/erp/api/retry.ts`), conforme a página "Error handling" da Cloudflare ([Durable Objects › Best practices › Error handling](https://developers.cloudflare.com/durable-objects/best-practices/error-handling/)): repetir só o que é `retryable`, nunca o `overloaded`, com stub novo, e só pedido idempotente.
      - **Regras:**
@@ -1007,7 +1007,7 @@ Pedido da orquestração, a partir do levantamento das telas da M (`sessao-M-erp
 | Remessas e retornos (`cnab`, `cobranca-operacional`, `-v2`, `retornos-operacionais`, `conferencia-retornos`, `retornos-itau109`, `boletos-itau/preview`) | gerar e retomar remessa, importar retorno, prévia, vincular e baixar evento, baixar arquivo | 2 a 4 (`reserve` → `reservation` → arquivo → `finalize`; `verify` → `event` → `bind`/`settle`) | Sim, os pares sem arquivo no meio (`reserve`+`reservation`; `verify`+`event`+ação). Bloco `erp-cobranca`: não é tela de uso contínuo |
 | Notas recebidas | download e resumo | `erp_dfe_object` ×2, + `erp_dfe_summary_record` | Como os arquivos |
 | Produtos com espelho do Origin | `GET /v1/cadastros/products` (páginas v2/v3/custom), `…/exportacao` | página → `erp_stock_mirror_product_summary` | **Some com o Origin:** o espelho sai (linha de corte, `origin_stock` constante), e a rota volta a um RPC |
-| Integração Wabotia do Fagoo | `/v1/system/wabotia/*` | `erp_access_me` → `erp_wabotia_state` ×N | Bloco externo: a rota sai (src/erp/blocks.ts) |
+| Integração Vinki do Fagoo | `/v1/system/wabotia/*` | `erp_access_me` → `erp_wabotia_state` ×N | Bloco externo: a rota sai (src/erp/blocks.ts) |
 | Convite de usuário | `POST /v1/usuarios/convites` | `invite_begin` → `invite_complete` | Não se porta (estrutural `usuarios-supabase`) |
 
 Prioridade para o painel:
@@ -1026,7 +1026,7 @@ Prioridade para o painel:
 - **Rotas `/api/v1/profiles/:p/erp-emissor[/*]`** montadas no `src/index.ts`, com import dinâmico (o cliente e o contrato só carregam no primeiro uso). Teste em `tests/erp-do-emissor-route.test.ts`. Hoje valem:
   - pessoa com acesso à área (404 fora dela);
   - módulos `erp` e `erp-fiscal` ligados (409 `module_disabled`);
-  - configurar, trocar a chave, remover e testar a conexão: só administrador do Wabotia, que vale `erp:admin`.
+  - configurar, trocar a chave, remover e testar a conexão: só administrador do Vinki, que vale `erp:admin`.
 - **Pendências da fase 3** (o núcleo ainda não tem os dados):
   - leitura do estado só para quem tem papel `erp:*`;
   - sessão elevada (aal2) para configurar com a política de segundo fator ligada.
@@ -1038,7 +1038,7 @@ Prioridade para o painel:
   - a flag não vem ligada em nenhuma data de compatibilidade ([compatibility flags](https://developers.cloudflare.com/workers/configuration/compatibility-flags/)).
 
   O que foi conferido:
-  - nenhum `fetch` do Wabotia vai à própria instalação (busca no `src/`);
+  - nenhum `fetch` do Vinki vai à própria instalação (busca no `src/`);
   - `scripts/release.mjs`, o `src/release.ts` do tronco e o do `feat/pacote-v2`, o `src/web-install.ts` e o `scripts/install-release.ts` copiam e validam as flags como lista de texto, sem lista fixa, e aceitam a nova sem mudança no núcleo.
 
 ## Divisão em sessões (opinião)

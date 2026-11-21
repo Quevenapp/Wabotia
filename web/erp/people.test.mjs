@@ -16,7 +16,7 @@ import { parseSecurityPolicy } from "../../packages/erp-domain/src/access-securi
 const id = (n) => `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const VENDAS = "30000000-0000-4000-8000-000000000001";
 
-test("o papel no ERP vem do acesso por pessoa; o administrador do Wabotia vale erp:admin", () => {
+test("o papel no ERP vem do acesso por pessoa; o administrador do Vinki vale erp:admin", () => {
   const people = erpPeople({
     data: [
       {
@@ -360,7 +360,7 @@ test("sem papel erp:* o ERP pede o papel em Gestão › Pessoas e acessos", asyn
   }
 });
 
-test("ERP_MFA_REQUIRED abre o Confirme que é você do Wabotia e recarrega o acesso", async () => {
+test("ERP_MFA_REQUIRED abre o Confirme que é você do Vinki e recarrega o acesso", async () => {
   const sent = [];
   const challenge = async (input) => {
     sent.push(input);
@@ -391,7 +391,7 @@ test("ERP_MFA_REQUIRED abre o Confirme que é você do Wabotia e recarrega o ace
   }
 });
 
-test("Minha conta › Segurança: senha e aplicativo no Wabotia; a exigência do ERP pede a confirmação antes", async () => {
+test("Minha conta › Segurança: senha e aplicativo no Vinki; a exigência do ERP pede a confirmação antes", async () => {
   const policy = (aal2) => ({
     scope: "access_security_policy",
     data_mode: "erp_native",

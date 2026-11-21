@@ -5,7 +5,7 @@ import Foundation
 /// real), soma 5 s a cada `slow_down` e devolve a configuração do aparelho quando o administrador aprova.
 struct DevicePairingFlow {
     let pairing: QueuePairing
-    /// O piso do intervalo entre consultas (5 s no Wabotia; a demonstração responde mais rápido).
+    /// O piso do intervalo entre consultas (5 s no Vinki; a demonstração responde mais rápido).
     var minimumInterval: TimeInterval = 5
     var sleep: (TimeInterval) async throws -> Void = { try await Task.sleep(nanoseconds: UInt64($0 * 1_000_000_000)) }
     var now: () -> Date = Date.init
@@ -57,7 +57,7 @@ struct DevicePairingFlow {
         switch error.code {
         case "access_denied": return "O administrador recusou este aparelho. Gere outro código se foi engano."
         case "expired_token": return expiredMessage
-        case QueueError.network: return "Sem conexão com o Wabotia. Confira a rede e o endereço."
+        case QueueError.network: return "Sem conexão com o Vinki. Confira a rede e o endereço."
         default: return error.message
         }
     }

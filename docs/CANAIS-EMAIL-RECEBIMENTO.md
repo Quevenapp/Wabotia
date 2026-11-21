@@ -9,7 +9,7 @@ O aceite não acessou uma conta Cloudflare nem alterou DNS, enviou ou recebeu e-
 ## 1. Escolher domínio e endereço
 
 1. Escolha um domínio ou subdomínio cujo DNS esteja na Cloudflare e anote o endereço exato, por exemplo `atendimento@recebimento.suaempresa.com.br`.
-2. Confira os registros MX atuais e quem recebe os e-mails da empresa. Se o domínio principal usa Google, Microsoft ou outro provedor, preserve seus MX. Valide o uso de um subdomínio para o Wabotia antes de modificar qualquer registro.
+2. Confira os registros MX atuais e quem recebe os e-mails da empresa. Se o domínio principal usa Google, Microsoft ou outro provedor, preserve seus MX. Valide o uso de um subdomínio para o Vinki antes de modificar qualquer registro.
 3. Verifique se o endereço escolhido ainda não pertence a outra conexão desta instalação. A exclusividade é global, inclusive entre áreas.
 
 O endereço é normalizado em minúsculas e o domínio é normalizado. Pontos e `+tag` permanecem significativos: `atendimento+loja@…` e `atendimento@…` são endereços distintos. Informe um endereço só, sem lista.
@@ -18,12 +18,12 @@ O endereço é normalizado em minúsculas e o domínio é normalizado. Pontos e 
 
 1. Abra o serviço **Email Routing** da zona escolhida e confira o procedimento que o painel mostra para habilitar recebimento.
 2. Revise os MX propostos antes de salvar. Não remova os MX do provedor existente por uma instrução automática deste guia; confirme primeiro a configuração do subdomínio na conta real.
-3. Crie uma regra de **endereço exato → Worker** e selecione o Worker desta instalação Wabotia. Evite usar uma regra abrangente para substituir a correspondência exata.
-4. Anote o nome do Worker e mantenha-o. Se ele mudar, revise a regra na Cloudflare. Atualização do Wabotia não ajusta esse vínculo automaticamente.
+3. Crie uma regra de **endereço exato → Worker** e selecione o Worker desta instalação Vinki. Evite usar uma regra abrangente para substituir a correspondência exata.
+4. Anote o nome do Worker e mantenha-o. Se ele mudar, revise a regra na Cloudflare. Atualização do Vinki não ajusta esse vínculo automaticamente.
 
 O instalador e o atualizador não cadastram domínio, não alteram DNS/MX, não criam a regra de Email Routing e não recebem token de zona. Nenhum recurso Cloudflare adicional é necessário no código desta leva.
 
-## 3. Configurar o mesmo endereço no Wabotia
+## 3. Configurar o mesmo endereço no Vinki
 
 1. Entre como pessoa administradora e abra `/app?canais=2` para mostrar o catálogo novo.
 2. Em Conexões, crie a conexão de **E-mail** e informe exatamente o destinatário da regra.

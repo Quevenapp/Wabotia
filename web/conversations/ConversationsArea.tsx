@@ -141,7 +141,7 @@ export function ConversationsArea({ id }: { id?: string }) {
       ) : (
         <section className="main-pane pane-empty" aria-label="Nenhuma conversa aberta">
           <BrandMark size={72} />
-          <h2>Wabotia</h2>
+          <h2>Vinki</h2>
           <p>
             Escolha uma conversa na lista para ver o contexto e responder. O que
             você enviar chega ao cliente pelo WhatsApp.

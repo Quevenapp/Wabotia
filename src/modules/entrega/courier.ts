@@ -63,7 +63,7 @@ export async function issueQr(ctx: ModuleContext, actor: Actor, data: any) {
       qr: qr.url,
       lines: [
         est.name,
-        `Entregador: abra o app Wabotia e toque em Escanear pedido.`,
+        `Entregador: abra o app Vinki e toque em Escanear pedido.`,
         `QR válido até ${hhmm(qr.claim_expires_at)}; vale para uma leitura.`,
       ],
     },

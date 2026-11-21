@@ -15,7 +15,7 @@ export default function DocumentCategoryPicker({ controller, kind, id, selected,
 }) {
   const [choices, setChoices] = useState<CategoryChoices | null>(null), [error, setError] = useState('');
   const actor = useRef(controller.getSnapshot().membership?.user_id ?? null);
-  // Wabotia: as categorias já lidas valem enquanto o editor fica montado; travar e destravar o campo (ao salvar) não relê.
+  // Vinki: as categorias já lidas valem enquanto o editor fica montado; travar e destravar o campo (ao salvar) não relê.
   const loaded = useRef<{ controller: Controller; kind: CategoryKind } | null>(null);
   useEffect(() => {
     if (disabled || (loaded.current?.controller === controller && loaded.current.kind === kind)) return;

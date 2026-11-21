@@ -148,7 +148,7 @@ final class WorkOrdersViewModel: ObservableObject {
                 self.error = nil
             } else {
                 if let e = error as? QueueError { onFailure(e) }
-                self.error = WorkOrderRules.isNetwork(error) ? "Sem conexão com o Wabotia e ainda não há cópia desta lista no aparelho. Conecte-se e tente de novo." : WorkOrderRules.message(error)
+                self.error = WorkOrderRules.isNetwork(error) ? "Sem conexão com o Vinki e ainda não há cópia desta lista no aparelho. Conecte-se e tente de novo." : WorkOrderRules.message(error)
             }
         }
         loading = false
@@ -246,7 +246,7 @@ final class WorkOrderViewModel: ObservableObject {
             } else {
                 if let e = error as? QueueError { onFailure(e) }
                 if order == nil || !WorkOrderRules.isNetwork(error) {
-                    notice = WorkOrderRules.isNetwork(error) ? "Sem conexão com o Wabotia e esta ficha ainda não foi aberta neste aparelho. Conecte-se e tente de novo." : WorkOrderRules.message(error)
+                    notice = WorkOrderRules.isNetwork(error) ? "Sem conexão com o Vinki e esta ficha ainda não foi aberta neste aparelho. Conecte-se e tente de novo." : WorkOrderRules.message(error)
                 }
             }
         }

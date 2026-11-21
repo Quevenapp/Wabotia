@@ -1,6 +1,6 @@
 // Portas do ERP (PLANO-FAGOO-PAINEL.md, B): o que o painel do Fagoo recebia do
 // Supabase (sessão, segundo fator, endereço da API) passa a vir da casca do
-// Wabotia. mount.tsx registra as portas antes de abrir as telas; RealAccess as
+// Vinki. mount.tsx registra as portas antes de abrir as telas; RealAccess as
 // lê ao montar. Sem portas registradas, o ERP mostra "em preparação".
 import type { AuthPort } from "./app/lib/real-access";
 import type { ChallengePort } from "./session-port";
@@ -23,10 +23,10 @@ export type ErpPorts = {
   accessHost?: import("react").ComponentType<{
     children(host: import("./host-runtime").ErpHostView | null): import("react").ReactNode;
   }>;
-  /** Sessão do Wabotia vista como a sessão do Supabase que o controlador espera. */
+  /** Sessão do Vinki vista como a sessão do Supabase que o controlador espera. */
   auth: AuthPort;
   /**
-   * "Confirme que é você": o segundo fator na sessão do Wabotia, quando a
+   * "Confirme que é você": o segundo fator na sessão do Vinki, quando a
    * política do ERP exige (ERP_MFA_REQUIRED) ou para mudar essa política.
    */
   challenge: ChallengePort;
@@ -34,11 +34,11 @@ export type ErpPorts = {
   people: PeoplePort;
   /**
    * Abre Gestão → Pessoas e acessos: convite, papel no ERP, senha, segundo
-   * fator e sessões são do núcleo. Só para o administrador do Wabotia.
+   * fator e sessões são do núcleo. Só para o administrador do Vinki.
    */
   openPeople?: () => void;
   /**
-   * Abre "Minha conta" do Wabotia (senha e aplicativo autenticador). Ausente
+   * Abre "Minha conta" do Vinki (senha e aplicativo autenticador). Ausente
    * enquanto a casca não tiver a tela (origin/feat/login-mfa): o ERP diz onde
    * fica, sem botão.
    */
@@ -59,7 +59,7 @@ export type ErpPorts = {
   fetch: typeof fetch;
   /** Demonstração: nada é gravado. */
   demo: boolean;
-  /** Administrador do Wabotia (atalho para Gestão → Módulos). */
+  /** Administrador do Vinki (atalho para Gestão → Módulos). */
   admin?: boolean;
   /** Abre Gestão → Módulos no painel. */
   openModules?: () => void;

@@ -48,12 +48,12 @@ Limites, que a tela de ajustes também explica:
   aparelho, cujo PIN só a equipe deve saber.
 - Quem está diante do aparelho pode recusar a pergunta "Fixar app?". Por isso o pedido acontece ao abrir a tela do
   papel, quando quem configura costuma estar presente.
-- Reiniciar o aparelho solta a fixação, e o app não abre sozinho: abra o Wabotia (ele vai direto para o modo
+- Reiniciar o aparelho solta a fixação, e o app não abre sozinho: abra o Vinki (ele vai direto para o modo
   aparelho) e confirme a fixação de novo.
 
 ## Modo quiosque: o app como *device owner*
 
-Com o Wabotia como administrador do aparelho (*device owner*), o pacote entra na lista de `setLockTaskPackages` e a
+Com o Vinki como administrador do aparelho (*device owner*), o pacote entra na lista de `setLockTaskPackages` e a
 trava é silenciosa: sem pergunta, sem gesto do sistema e sem barra de status. O app **não** tem fluxo de
 provisionamento; a configuração é manual, feita pelo suporte.
 
@@ -68,7 +68,7 @@ protegido por `BIND_DEVICE_ADMIN`. Ele nunca pede para ser ativado: numa instala
    a conta Google e a conta Samsung no assistente inicial (ou remova todas as contas em Configurações → Contas).
 2. Ative a depuração USB (Configurações → Sobre o telefone → Informações do software → toque 7 vezes em "Número de
    compilação"; depois Opções do desenvolvedor → Depuração USB).
-3. Instale o Wabotia (loja ou APK) e, num computador com o `adb`:
+3. Instale o Vinki (loja ou APK) e, num computador com o `adb`:
 
    ```
    adb shell dpm set-device-owner br.com.queven.wabotia/br.com.queven.wabotia.device.WabotiaDeviceAdminReceiver
@@ -90,7 +90,7 @@ protegido por `BIND_DEVICE_ADMIN`. Ele nunca pede para ser ativado: numa instala
   garantido é a restauração de fábrica. Enquanto o app for administrador, o Android não deixa desinstalá-lo. Planeje o
   aparelho como dedicado ao totem ou ao painel.
 - **Atualizações:** pela loja ou por APK assinado com a mesma chave; o *device owner* continua.
-- **Tela inicial:** o app não se declara como tela inicial; depois de reiniciar, abra o Wabotia (ou deixe-o abrir
+- **Tela inicial:** o app não se declara como tela inicial; depois de reiniciar, abra o Vinki (ou deixe-o abrir
   sozinho com o recurso de "app de inicialização" do fabricante, quando houver).
 - **Energia:** o menu do botão liga/desliga continua disponível (padrão do Android para a trava).
 - **Samsung Knox / MDM:** se o aparelho já é gerenciado por uma empresa, o *device owner* é o MDM; nesse caso,

@@ -1,4 +1,4 @@
-"""Vínculo Wabotia: busca operações no Wabotia e as executa na API local do Hermes.
+"""Vínculo Vinki: busca operações no Vinki e as executa na API local do Hermes.
 
 Sem dependências do Hermes, para poder ser testado sozinho. O cliente HTTP é
 injetado e segue a interface de httpx.AsyncClient. Contrato: docs/HERMES-PLUGIN.md.
@@ -23,7 +23,7 @@ logger = logging.getLogger("wabotia.link")
 
 
 class Revoked(Exception):
-    """O Wabotia recusou o token: o vínculo foi revogado ou pareado de novo."""
+    """O Vinki recusou o token: o vínculo foi revogado ou pareado de novo."""
 
 
 def hermes_root():
@@ -87,7 +87,7 @@ class WabotiaLink:
         self.tasks = set()
         self.revoked = False
 
-    # --- Wabotia -----------------------------------------------------------
+    # --- Vinki -----------------------------------------------------------
     def _auth(self):
         return {"Authorization": "Bearer " + self.token, "X-Wabotia-Plugin": PLUGIN_VERSION}
 
@@ -119,12 +119,12 @@ class WabotiaLink:
                 delay = 1
             except Revoked:
                 self.revoked = True
-                logger.error("Wabotia recusou o token do vínculo. Pareie o plugin novamente pelo painel.")
+                logger.error("Vinki recusou o token do vínculo. Pareie o plugin novamente pelo painel.")
                 return
             except asyncio.CancelledError:
                 raise
             except Exception as error:  # rede instável: espera progressiva
-                logger.warning("Wabotia indisponível (%s). Nova tentativa em %ss.", type(error).__name__, delay)
+                logger.warning("Vinki indisponível (%s). Nova tentativa em %ss.", type(error).__name__, delay)
                 await asyncio.sleep(delay)
                 delay = min(delay * 2, 60)
                 continue
@@ -237,5 +237,5 @@ class WabotiaLink:
             return {"ok": False, "code": "upload_failed"}
         if sent.status_code == 401:
             raise Revoked()
-        # Em caso de sucesso o próprio Wabotia conclui a operação.
+        # Em caso de sucesso o próprio Vinki conclui a operação.
         return None if sent.status_code == 200 else {"ok": False, "code": "upload_failed"}

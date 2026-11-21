@@ -264,7 +264,7 @@ test('pedidos de compra: "Gerar nota fiscal" opens the entry note and the Vincul
 });
 
 test('Mais ações › Imprimir › "Etiquetas selecionadas" prints the address labels of the selected notes', async () => {
-  // Wabotia: Origin fora (motor 91213b8): as notas são registros do FAGOO, lidos por /v1/notas-fiscais/<id> (sem a projeção do Origin).
+  // Vinki: Origin fora (motor 91213b8): as notas são registros do FAGOO, lidos por /v1/notas-fiscais/<id> (sem a projeção do Origin).
   const nativeRow = n => ({ origin: 'brufap', id: id(9000 + n), version: 1, number: 120 + n, series: 3, issue_date: '2026-10-15', entry_date: '2026-10-16', name: `Cliente FAGOO ${n}`, document: '12345678000190', state: 'MG',
     nature: 'Venda de mercadoria', status: 6, status_raw: null, total: '100.10', total_known: true, environment: '2', issue_type: 'N', access_key: null, xml_id: null, xml_hash: null, xml_size: null, protocol_present: true, event_count: 0, orders: [] });
   const input = n => ({ model: '55', direction: '1', issue_type: 'N', series: '3', nature_id: NATURE, nature_description: 'Venda sintética', issue_date: '2026-10-15', crt: '1', purpose: '1', presence: '1', final_consumer: false,

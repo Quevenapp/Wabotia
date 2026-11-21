@@ -253,7 +253,7 @@ function AutomaticUpdates({
         </span>
       </div>
       <p>
-        O Wabotia pode consultar e instalar versões oficiais mais novas durante
+        O Vinki pode consultar e instalar versões oficiais mais novas durante
         uma janela diária. Usa a autorização Cloudflare já configurada nesta
         instalação.
       </p>
@@ -443,12 +443,12 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
       <section className="card system-card">
         <div className="section-heading">
           <h2>
-            <RefreshCw size={22} /> Atualizar Wabotia
+            <RefreshCw size={22} /> Atualizar Vinki
           </h2>
           <span className="badge active">v{u.installed.version}</span>
         </div>
         <p>
-          Instale as versões oficiais publicadas do Wabotia. A atualização
+          Instale as versões oficiais publicadas do Vinki. A atualização
           direta na Cloudflare mantém seu banco, mídias, domínios e credenciais.
         </p>
         <IndexRenewal updates={u} />
@@ -515,7 +515,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
                   })
                 }
               >
-                Atualizar Wabotia <ArrowRight size={16} />
+                Atualizar Vinki <ArrowRight size={16} />
               </button>
             )}
         </div>
@@ -550,7 +550,7 @@ export function SystemPanel({ api, demo }: { api: Api; demo: boolean }) {
               required
             />
             <button className="button" disabled={!!action.busy}>
-              Atualizar Wabotia <ArrowRight size={16} />
+              Atualizar Vinki <ArrowRight size={16} />
             </button>
           </form>
         )}
@@ -1116,7 +1116,7 @@ function PushSection({ api, demo }: { api: Api; demo: boolean }) {
         </span>
       </div>
       <p>
-        Os aplicativos Wabotia para Android e iOS, disponíveis nas lojas, se
+        Os aplicativos Vinki para Android e iOS, disponíveis nas lojas, se
         conectam a esta instalação informando o endereço do servidor e o login
         de atendente. Aqui você define como este servidor envia avisos de
         mensagens, fila, transferências, protocolos e ligações aos aparelhos.
@@ -1183,7 +1183,7 @@ function PushSection({ api, demo }: { api: Api; demo: boolean }) {
                 }}
               >
                 <option value="off">Desligado</option>
-                <option value="gateway">Gateway Wabotia</option>
+                <option value="gateway">Gateway Vinki</option>
                 <option value="fcm">FCM direto</option>
               </select>
             </label>

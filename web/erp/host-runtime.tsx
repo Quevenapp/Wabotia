@@ -390,7 +390,7 @@ export function acquireErpHost(context: ErpHostContext) {
       setActionPendingNotice(() => {
         if (!entry.valid || Date.now() - lastNotice < 5000) return;
         lastNotice = Date.now();
-        toast("Esta ação ainda está em implantação no ERP do Wabotia e não foi feita. O restante da tela funciona normalmente.", { tone: "info", ms: 10000 });
+        toast("Esta ação ainda está em implantação no ERP do Vinki e não foi feita. O restante da tela funciona normalmente.", { tone: "info", ms: 10000 });
       });
       removePorts = installErpPorts(ports);
       removeAccess = installErpTargetAccess(to => runtime.allowed(to));

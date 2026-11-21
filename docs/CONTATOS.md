@@ -1,6 +1,6 @@
 # Agenda de contatos
 
-Disponível a partir da versão **0.4.0**. Se o menu não aparecer, abra **Sistema e atualizações → Verificar atualização → Atualizar Wabotia**. Depois clique em **Reabrir painel atualizado**.
+Disponível a partir da versão **0.4.0**. Se o menu não aparecer, abra **Sistema e atualizações → Verificar atualização → Atualizar Vinki**. Depois clique em **Reabrir painel atualizado**.
 
 ## Criar e encontrar um contato
 

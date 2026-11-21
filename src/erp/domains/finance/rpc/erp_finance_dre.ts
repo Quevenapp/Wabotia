@@ -1,4 +1,4 @@
-// DRE gerencial (Wabotia, sem função no oráculo): erp_finance_dre lê o período
+// DRE gerencial (Vinki, sem função no oráculo): erp_finance_dre lê o período
 // pelo regime de caixa (baixas e lançamentos de caixa, pela data) ou de
 // competência (contas e lançamentos de caixa, pela competência), agrupa pelas
 // categorias financeiras do primeiro nível (grupo de DRE) e compara com o

@@ -82,7 +82,7 @@ async function setup({ email = true } = {}) {
   await enableErpParts(f.profile, f.admin.id);
   await setModule(f.profile, "erp-fiscal", true, f.admin.id);
   await exec(env, "DELETE FROM secrets WHERE id='email:config'");
-  if (email) await configureEmail(env, f.admin, { account_id: ACCOUNT, token: "token-de-teste-com-permissao-12345", from_address: "nao-responda@loja.exemplo.com.br", from_name: "Wabotia" });
+  if (email) await configureEmail(env, f.admin, { account_id: ACCOUNT, token: "token-de-teste-com-permissao-12345", from_address: "nao-responda@loja.exemplo.com.br", from_name: "Vinki" });
   const token = await bearer(f.admin);
   const call = async (path: string, init: RequestInit = {}) => {
     const ctx = createExecutionContext();

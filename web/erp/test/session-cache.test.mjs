@@ -1,4 +1,4 @@
-// Wabotia: cache de sessão do controlador do ERP (web/erp/session-cache.ts usado por
+// Vinki: cache de sessão do controlador do ERP (web/erp/session-cache.ts usado por
 // web/erp/app/lib/real-access.ts). Um teste por regra de invalidação, mais: o que fica
 // fora da lista nunca é guardado, erros não são guardados, pedido em voo compartilhado
 // com cancelamento por chamador e cópia a cada leitura.

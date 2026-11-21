@@ -8,7 +8,7 @@
 //   [data-theme="dark"] .x          → :root[data-theme="dark"] .fagoo-root .x
 //   .x / button / *                 → .fagoo-root .x / .fagoo-root button / .fagoo-root *
 //
-// O tema continua no <html data-theme> (web/lib/theme.ts), que o Wabotia já
+// O tema continua no <html data-theme> (web/lib/theme.ts), que o Vinki já
 // mantém; dentro de @keyframes nada muda.
 import type { Plugin as PostcssPlugin, Rule } from "postcss";
 

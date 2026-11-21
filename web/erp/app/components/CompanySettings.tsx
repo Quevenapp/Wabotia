@@ -46,7 +46,7 @@ export default function CompanySettings({controller}:{controller:CompanyControll
  // 262: Sua marca (the logo) through the attachment proxy.
  const logoPort=typeof controller.attachments==='function'&&typeof controller.getSnapshot==='function'?controller as Pick<AccessController,'attachments'|'getSnapshot'>:null;
  // Leva H (PRF-291, PRF-208): Alterar senha and the second factor, with the session of the company area.
- // Wabotia: a senha e o aplicativo ficam em Minha conta do Wabotia; aqui, a exigência do segundo fator no ERP (AccountSecurity).
+ // Vinki: a senha e o aplicativo ficam em Minha conta do Vinki; aqui, a exigência do segundo fator no ERP (AccountSecurity).
  const securityPort=typeof controller.security==='function'&&typeof controller.getSnapshot==='function'?controller as Pick<AccessController,'security'|'getSnapshot'>:null;
  const [section,setSection]=useState<Section>(()=>{const s=new URLSearchParams(search).get('secao');return system&&(s==='armazenamento'||s==='socios')?s:s==='seguranca'&&securityPort?s:'dados';}),[unlock,setUnlock]=useState(false);
  // 189: correcting Nome, Nome Fantasia or CNPJ asks for a reason, recorded in the audit.

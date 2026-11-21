@@ -107,7 +107,7 @@ export function period(from: string | null, to: string | null): { from: bigint; 
 
 /**
  * erp_activity.actor_label: nome do perfil, senão o e-mail do auth.users.
- * No Wabotia não há auth.users no objeto: o nome vem de erp_access.profile
+ * No Vinki não há auth.users no objeto: o nome vem de erp_access.profile
  * (o sincronismo com Pessoas da fase 3 o mantém); sem perfil, "Usuário xxxxxxxx".
  */
 export function actorLabel(db: SqlDriver, actor: string): string {

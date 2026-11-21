@@ -87,13 +87,13 @@ class ProfileApi(
         val response = try {
             http.newCall(request).execute()
         } catch (e: java.io.IOException) {
-            throw QueueException(0, QueueException.NETWORK, "Sem conexão com o Wabotia.")
+            throw QueueException(0, QueueException.NETWORK, "Sem conexão com o Vinki.")
         }
         response.use {
             if (!it.isSuccessful) {
                 val error = runCatching { (WabotiaJson.parseToJsonElement(it.body?.string().orEmpty()) as? JsonObject)?.get("error") as? JsonObject }.getOrNull()
                 val code = (error?.get("code") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "http_${it.code}"
-                val message = (error?.get("message") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "O Wabotia recusou (${it.code})."
+                val message = (error?.get("message") as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: "O Vinki recusou (${it.code})."
                 throw QueueException(it.code, code, message)
             }
             it.body?.bytes() ?: ByteArray(0)
@@ -354,7 +354,7 @@ object Money {
 
 /** O que fazer com uma recusa que vale para o app inteiro: 401 volta ao login, 409 `module_disabled` esconde o módulo. */
 object ModuleFailure {
-    const val DISABLED_MESSAGE = "Este módulo está desligado neste Wabotia. Um administrador liga em Gestão → Módulos."
+    const val DISABLED_MESSAGE = "Este módulo está desligado neste Vinki. Um administrador liga em Gestão → Módulos."
     const val RETRY_HINT = " Toque de novo para repetir com segurança."
 
     fun handle(container: AppContainer, module: String, error: Throwable) {
@@ -365,7 +365,7 @@ object ModuleFailure {
 
     fun message(error: Throwable): String = when {
         error is QueueException && error.moduleDisabled -> DISABLED_MESSAGE
-        error is QueueException -> error.message ?: "O Wabotia recusou."
+        error is QueueException -> error.message ?: "O Vinki recusou."
         else -> error.message ?: "Algo deu errado."
     }
 

@@ -39,7 +39,7 @@ class WorkDeps(
     }
 }
 
-private const val OFFLINE_READ = "Sem conexão com o Wabotia e nenhuma cópia guardada neste aparelho. Confira a internet e toque em Tentar de novo."
+private const val OFFLINE_READ = "Sem conexão com o Vinki e nenhuma cópia guardada neste aparelho. Confira a internet e toque em Tentar de novo."
 
 /** A mensagem de uma falha de leitura (lista, ficha, catálogo). */
 internal fun readMessage(e: Throwable): String = when {

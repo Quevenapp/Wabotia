@@ -507,7 +507,7 @@ fun ReservaFormScreen(
                     }
                 }
                 if (vm.ownBooking) {
-                    Text("A disponibilidade conta esta própria reserva como ocupada. O Wabotia confere de novo ao salvar.", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
+                    Text("A disponibilidade conta esta própria reserva como ocupada. O Vinki confere de novo ao salvar.", Modifier.padding(horizontal = 16.dp, vertical = 6.dp), color = c.textSecondary, style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (vm.conversationId == null) {

@@ -29,7 +29,7 @@ struct ServiceOrderReceiptData: Equatable {
     static func of(_ order: ServiceOrder, header: String, establishment: Establishment? = nil, now: Date = Date()) -> ServiceOrderReceiptData {
         let name = establishment?.displayName ?? header
         return ServiceOrderReceiptData(
-            header: name.isEmpty ? "Wabotia" : name,
+            header: name.isEmpty ? "Vinki" : name,
             number: order.number.map(String.init) ?? "—",
             created: order.created,
             customer: order.customerName,
