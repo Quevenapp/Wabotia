@@ -14,7 +14,8 @@ import { TicketsArea } from "../tickets/TicketsArea";
 import { TeamArea } from "../team/TeamArea";
 import { CallsArea } from "../calls/CallsArea";
 import { AdminArea } from "../admin/AdminArea";
-import { SegmentFirstVisit } from "../admin/area-templates/SegmentPicker";
+// A escolha do ramo carrega sob demanda: fora do pacote inicial do painel.
+const SegmentFirstVisit = React.lazy(() => import("../admin/area-templates/SegmentPicker").then(module => ({ default: module.SegmentFirstVisit })));
 import { ContactsArea } from "../admin/ContactsArea";
 import { QueueArea } from "../queue/QueueArea";
 import { MfaGate, MfaPrompt, mfaNeeded } from "./Account";
@@ -57,7 +58,7 @@ function Areas() {
   return (
     <Shell>
       {/* Primeiro acesso do administrador: "Qual é o seu negócio?" antes de Conversas. */}
-      <SegmentFirstVisit />
+      <Suspense fallback={null}><SegmentFirstVisit /></Suspense>
       {!app.profile && needsProfile ? (
         <div className="area">
           <Empty

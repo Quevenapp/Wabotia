@@ -14,7 +14,6 @@ import {
   type PageId,
 } from "../workspace-navigation";
 import { SetupWizard } from "../SetupWizard";
-import { SegmentReminder } from "./area-templates/SegmentPicker";
 import { SourceFooterLink } from "../ui/SourceLink";
 import { SystemPanel } from "../SystemPanel";
 import { NumberRouter } from "../NumberRouter";
@@ -22,7 +21,6 @@ import { LinesPanel, MenusPanel } from "../ServicePanels";
 import { OverviewPage } from "./OverviewPage";
 import { ConnectionsPage } from "./ConnectionsPage";
 import { ConnectionDialog } from "./ConnectionDialog";
-import { BotsPage } from "./BotsPage";
 import { KnowledgePage } from "./KnowledgePage";
 import { SettingsPage } from "./SettingsPage";
 import { UsersPage } from "./UsersPage";
@@ -43,6 +41,14 @@ import "../styles/admin.css";
 // Modelos de área levam o editor e a validação de modelos: só ao abrir a página.
 const AreaTemplatesPage = lazyWithRecovery<object>(() =>
   import("./area-templates/AreaTemplatesPage").then((m) => ({ default: m.AreaTemplatesPage })),
+);
+
+// Bots (com as concessões do ERP) e o lembrete do ramo: fora do pacote inicial do painel.
+const BotsPage = lazyWithRecovery<object>(() =>
+  import("./BotsPage").then((m) => ({ default: m.BotsPage })),
+);
+const SegmentReminder = React.lazy(() =>
+  import("./area-templates/SegmentPicker").then((m) => ({ default: m.SegmentReminder })),
 );
 
 // Backup do ERP: só ao abrir a página.
@@ -374,7 +380,7 @@ export function AdminArea({ page: requested }: { page: PageId | string }) {
                 </button>
               </div>
             )}
-            {page !== "setup" && page !== "area-templates" && <SegmentReminder />}
+            {page !== "setup" && page !== "area-templates" && <React.Suspense fallback={null}><SegmentReminder /></React.Suspense>}
             {needsProfile ? (
               <div className="card">
                 <Empty

@@ -13,7 +13,8 @@ import {
   ShieldCheck,
   Store,
 } from "lucide-react";
-import { SegmentPicker } from "./admin/area-templates/SegmentPicker";
+// A escolha do ramo carrega sob demanda: fora do pacote inicial do painel.
+const SegmentPicker = React.lazy(() => import("./admin/area-templates/SegmentPicker").then((m) => ({ default: m.SegmentPicker })));
 import "./setup-wizard.css";
 
 type Row = Record<string, any>;
@@ -462,11 +463,13 @@ export function SetupWizard({
               </div>
             </header>
             {step === 0 && (
-              <SegmentPicker
-                heading={false}
-                onDone={() => go(1)}
-                onSkip={() => go(1)}
-              />
+              <React.Suspense fallback={<p role="status">Carregando…</p>}>
+                <SegmentPicker
+                  heading={false}
+                  onDone={() => go(1)}
+                  onSkip={() => go(1)}
+                />
+              </React.Suspense>
             )}
             {step === 1 && (
               <>
