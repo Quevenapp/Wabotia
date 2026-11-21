@@ -131,6 +131,18 @@ export function registerBeforeRpc(fn: (ctx: RpcContext) => void) {
   before.push(fn);
 }
 
+/**
+ * Guarda de um RPC chamado de fora (não roda nos aninhados de invokeRpc), na
+ * mesma transação, depois das partes e antes do corpo: pode recusar ou acertar
+ * os argumentos e devolver o que roda logo depois do corpo. As lojas usam
+ * (domains/stores/guard.ts): sem duas lojas, não faz nada.
+ */
+export type RpcGuard = (ctx: RpcContext, name: string, args: RpcArgs) => (() => void) | void;
+const guards: RpcGuard[] = [];
+export function registerRpcGuard(fn: RpcGuard) {
+  guards.push(fn);
+}
+
 /** O RPC pede a listagem de todos os objetos da área? */
 export const rpcWantsListing = (name: string) => options.get(name)?.listing === true;
 /** O RPC acorda o agendador quando dá certo? */
@@ -190,7 +202,13 @@ export function callRpc(db: SqlDriver, name: string, args: RpcArgs, clock = new 
       }
       const run = () => {
         requireRpcParts(ctx, name, prepared);
+        const after: (() => void)[] = [];
+        for (const guard of guards) {
+          const next = guard(ctx, name, prepared);
+          if (next) after.push(next);
+        }
         const value = fn(ctx, prepared);
+        for (const next of after) next();
         return typeof env === "object" && env.maintenance?.action === "inspect" ? inspectErpEffects(ctx) : value;
       };
       return typeof env === "object" && env.maintenance ? withErpMaintenance(ctx, env.maintenance, run) : run();

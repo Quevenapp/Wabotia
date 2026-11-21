@@ -17,6 +17,7 @@ import { reportCoverage } from "../mirror-reads.ts";
 import { transitions } from "../preferences.ts";
 import { reportLastPurchaseUntil } from "../public.ts";
 import { requireAccess } from "../reads-g.ts";
+import { storeFilter } from "../../stores/public.ts";
 
 type Row = Record<string, unknown>;
 const st = stock;
@@ -187,9 +188,12 @@ export function erpDocumentSalesReport(ctx: RpcContext, a: RpcArgs) {
   // base
   const all = db.exec(`SELECT id, contact_id, contact_snapshot, body, total, number, status, warehouse_id FROM "erp_documents__document" WHERE authority='brufap' AND kind='sales_orders'`).rows;
   const typed = (id: unknown) => db.exec('SELECT type_id FROM "erp_catalog__contact_type_link" WHERE contact_id=?', id).rows.map((r) => String(r.type_id));
+  // Lojas (versão 27): com duas lojas ou mais, só os pedidos das lojas que a pessoa vê (ou da loja em uso).
+  const stores = storeFilter(ctx, user);
   const orders = all.filter((d) => {
     const body = parse(d.body);
     const snap = parse(d.contact_snapshot);
+    if (stores !== null && !stores.document(d.id, d.warehouse_id)) return false;
     if (statuses !== null && !statuses.has(String(d.status))) return false;
     if (!contactVisibleTo(db, scope, (d.contact_id as string | null) ?? null)) return false;
     const day =

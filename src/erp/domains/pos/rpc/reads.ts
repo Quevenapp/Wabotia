@@ -10,6 +10,7 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgBtrim, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { jsonTimestamp, saoPauloParts } from "../../../engine/time.ts";
 import { actorLabel } from "../../access/public.ts";
+import { storeFilter } from "../../stores/public.ts";
 import { get as preference } from "../../preferences/public.ts";
 import {
   access,
@@ -66,14 +67,17 @@ function erpPosContext(ctx: RpcContext, a: RpcArgs) {
       .map((r) => ({ id: r.id, name: left(r.name, 200), ...extra(r) }))
       .sort(byName);
 
-  const stores = named(db.exec(`SELECT id, name FROM "erp_finance__account" WHERE kind='cash' AND active=1 AND deleted_at IS NULL`).rows, 100);
+  // Lojas (versão 27): com duas lojas ou mais, só os caixas e as sessões das lojas que a pessoa vê (ou da loja em uso).
+  const inStore = storeFilter(ctx, user);
+  const stores = named(db.exec(`SELECT id, name FROM "erp_finance__account" WHERE kind='cash' AND active=1 AND deleted_at IS NULL`).rows
+    .filter((r) => inStore === null || inStore.account(r.id)), 100);
   const accounts = named(db.exec(`SELECT id, name, kind FROM "erp_finance__account" WHERE active=1 AND deleted_at IS NULL`).rows, 200, (r) => ({ kind: r.kind }));
   const sessions = db
     .exec(
       `SELECT c.*, CAST(c.opened_at AS TEXT) opened_at, CAST(c.change_cents AS TEXT) change_cents, a.name account_name
        FROM "erp_finance__cash_session" c JOIN "erp_finance__account" a ON a.id=c.account_id WHERE c.state='open' AND c.deleted_at IS NULL`,
     )
-    .rows.filter((c) => usableSession(db, user!, c))
+    .rows.filter((c) => usableSession(db, user!, c) && (inStore === null || inStore.account(c.account_id)))
     .sort(by<Row>((x, y) => cmpLower(x.account_name, y.account_name), (x, y) => cmpInt(x.opened_at, y.opened_at), (x, y) => cmpText(x.id, y.id)))
     .map((c) => ({
       id: c.id,
@@ -254,12 +258,15 @@ function erpPosSales(ctx: RpcContext, a: RpcArgs) {
   )
     raise("22023", "erp_pos_invalid_query");
   const q = query === null || pgBtrim(query) === "" ? null : pgLower(pgBtrim(query));
+  // Lojas (versão 27): as vendas das lojas que a pessoa vê (ou da loja em uso).
+  const inStore = storeFilter(ctx, str(a, "p_user_id"));
   const rows = db
     .exec(
-      `SELECT s.id, CAST(s.created_at AS TEXT) created_at, s.cash_session_id, s.state, s.table_number, CAST(d.number AS TEXT) number, d.contact_snapshot
+      `SELECT s.id, CAST(s.created_at AS TEXT) created_at, s.cash_session_id, s.state, s.table_number, CAST(d.number AS TEXT) number, d.contact_snapshot, d.id document_id, d.warehouse_id
        FROM "erp_pos__sale" s JOIN "erp_documents__document" d ON d.id=s.document_id`,
     )
     .rows.filter((s) => {
+      if (inStore !== null && !inStore.document(s.document_id, s.warehouse_id)) return false;
       if (session !== null && s.cash_session_id !== session) return false;
       if (state !== "all" && s.state !== state) return false;
       const day = saoPauloParts(BigInt(String(s.created_at))).date;

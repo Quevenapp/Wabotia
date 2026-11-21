@@ -36,6 +36,8 @@ const RPC_GROUPS = {
   shipping: `erp_shipping_overview erp_shipping_packages erp_shipping_package_save erp_shipping_pick_get erp_shipping_pick_create erp_shipping_pick_mark
     erp_shipping_pick_finish erp_shipping_pick_cancel erp_shipping_pending_resolve erp_shipping_order_get erp_shipping_pack erp_shipping_ship
     erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create`,
+  // Lojas e filiais: cadastro da Base; cada seção da lista e do relatório por loja confere a parte dela dentro do RPC.
+  stores: `erp_store_overview erp_store_save erp_store_person_set erp_store_select erp_store_assign erp_store_operations erp_store_report`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
   inbound: `erp_inbound_list erp_inbound_get erp_inbound_register erp_inbound_fetch_claim erp_inbound_fetch_record erp_inbound_review
     erp_inbound_supplier_create erp_inbound_enter erp_inbound_reverse erp_inbound_settings_get erp_inbound_settings_save
@@ -206,6 +208,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_effect: ["erp-fiscal"],
   inbound: ["erp-compras"],
   shipping: ["erp-expedicao"],
+  stores: ["erp"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],

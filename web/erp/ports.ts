@@ -10,6 +10,7 @@ import type { CommercialNfePort } from "./commercial-nfe";
 import type { RecebidasPort } from "./recebidas";
 import type { ProducaoPort } from "./producao";
 import type { ExpedicaoPort } from "./expedicao-api";
+import type { LojasPort } from "./lojas-api";
 
 export type ErpPorts = {
   /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
@@ -69,6 +70,8 @@ export type ErpPorts = {
   producao?: ProducaoPort;
   /** Vendas › Expedição: separação, volumes, etiquetas, romaneio e devolução física (web/erp/expedicao-api.ts). */
   expedicao?: ExpedicaoPort;
+  /** Cadastros › Lojas e filiais e a barra "Loja em uso" (web/erp/lojas-api.ts). */
+  lojas?: LojasPort;
 };
 
 let current: ErpPorts | null = null;

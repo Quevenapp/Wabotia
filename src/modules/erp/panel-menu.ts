@@ -115,6 +115,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/vendedores-empresa" },
     permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro"] },
   },
+  // Lojas e filiais (cadastro da Base): o cadastro é do administrador; a comparação entre lojas, de quem vê cada parte.
+  {
+    id: "erp.stores", module: "erp", part: "cadastro",
+    ...ERP_MENU_GROUPS.pessoas, order: 105,
+    label: "Lojas e filiais",
+    target: { kind: "ported", to: "/lojas" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","financeiro","estoque","fiscal"] },
+  },
   {
     id: "erp.employees", module: "erp", part: "cadastro",
     ...ERP_MENU_GROUPS.pessoas, order: 110,
@@ -484,6 +492,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.products"],
       legacyItems["erp.customers"],
       legacyItems["erp.sellers"],
+      { ...legacyItems["erp.stores"], homeShortcut: false },
       legacyItems["erp.employees"],
       legacyItems["erp.financial-accounts"],
       legacyItems["erp.financial-categories"],

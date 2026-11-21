@@ -35,7 +35,7 @@ import {
 } from "./security";
 import { event, audit, eventStatement, fanOut } from "./events";
 import { appErpRoleInput } from "./modules/erp/identity";
-import { erpBotAutonomousInput, erpBotOperationsInput } from "./modules/erp/bot-access";
+import { erpBotAutonomousInput, erpBotOperationsInput, erpBotStoresInput } from "./modules/erp/bot-access";
 import { setAreaBotGrant } from "./bot-actions/area";
 import { boundAllows, visibleConversation } from "./visibility";
 import { probe, telegramRemoved } from "./integrations";
@@ -236,7 +236,8 @@ export const eventTypes = [
   "payment.hook_failed",
 ];
 /** Concessões do bot e opções do que vai para a IA (bot_options da conexão). */
-const BOT_GRANT_OPTIONS = ["mask_personal", "pdf_raw_fallback", "image_to_team", "erp_operations", "erp_autonomous_operations"];
+// erp_stores: lojas do ERP a que o bot fica limitado (vazio = sem limite do bot; a pessoa continua com o limite dela).
+const BOT_GRANT_OPTIONS = ["mask_personal", "pdf_raw_fallback", "image_to_team", "erp_operations", "erp_autonomous_operations", "erp_stores"];
 const text = (value: any, max = 3800) => {
   requireValue(
     typeof value === "string" && value.trim().length > 0 && value.length <= max,
@@ -2949,6 +2950,8 @@ export async function perform(
       requireValue(!data.erp_autonomous_operations.length || data.erp_data_acknowledged === true,
         "Confirme que o bot vai ler, sem pedir confirmação, dados sensíveis que poderão ser enviados ao provedor de IA; o papel da pessoa continua obrigatório.");
     }
+    // Lojas do ERP que o bot alcança (pessoa ∩ bot no motor).
+    if (data.erp_stores !== undefined) data.erp_stores = erpBotStoresInput(data.erp_stores);
     if (data.mask_personal !== undefined)
       requireValue(typeof data.mask_personal === "boolean", "Máscara de dados pessoais inválida.");
     for (const option of ["pdf_raw_fallback", "image_to_team"])

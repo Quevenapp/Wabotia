@@ -294,6 +294,8 @@ export const serviceSchemas = {
         description: "Concessões nominais do ERP para este bot nesta área. Lista vazia revoga. Conserva papel, partes, horário e MFA da pessoa; escritas exigem proposta confirmada. Cada operação liberada entra no catálogo de ações só deste bot nesta área." },
       erp_autonomous_operations: { type: "array", uniqueItems: true, default: [], items: { type: "string", enum: ERP_BOT_OPERATIONS.filter(op => op.sensitive && op.method === "GET").map(op => op.id) },
         description: "Leituras sensíveis do ERP que este bot executa sem proposta nesta área. Desligada por padrão (lista vazia): leitura sensível segue proposta e confirmação. Só vale para operação também liberada em erp_operations; exige erp_data_acknowledged." },
+      erp_stores: { type: "array", uniqueItems: true, default: [], items: { type: "string", format: "uuid" },
+        description: "Lojas do ERP que este bot alcança nesta área (ids de erp-lojas). Lista vazia: sem limite do bot. O bot nunca passa do limite de lojas da pessoa por quem age (vale a interseção)." },
       erp_data_acknowledged: { type: "boolean", description: "Obrigatório true ao liberar operações: seus dados poderão ser enviados ao provedor de IA. Dados pessoais continuam mascarados por padrão." },
       line_ids: {
         ...lineIds,

@@ -8,6 +8,7 @@ import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
 import { pgBtrim, pgHasCntrl, pgLength, pgLower } from "../../../engine/text.ts";
 import { ignoredWarehouse } from "../home.ts";
+import { storeFilter } from "../../stores/public.ts";
 import { QTY, movementDto, requireAccess, reservedQuantity } from "../internal.ts";
 import {
   COMPOSITION_CURRENT, q6to30, reservationPositionHash, settingsDto, situationReservations, text6, virtualQuantity,
@@ -35,9 +36,11 @@ registerRpc("erp_stock_balances", (ctx: RpcContext, a: RpcArgs) => {
      LEFT JOIN "erp_stock__balance" b ON b.product_id=? AND b.warehouse_id=w.record_id WHERE ? IS NULL OR w.record_id=? ORDER BY w.record_id`,
     product, warehouse, warehouse,
   ).rows;
+  // Lojas (versão 27): com duas lojas ou mais, só os depósitos das lojas que a pessoa vê (ou da loja em uso).
+  const inStore = storeFilter(ctx, a.p_user_id as string);
   return {
     product_id: product,
-    items: warehouses.map((w) => {
+    items: warehouses.filter((w) => inStore === null || inStore.warehouse(w.id)).map((w) => {
       const id = String(w.id);
       const sit = inWarehouse(id);
       const quantity = virtual ? q6to30((virtualQuantity(db, product!, id) ?? 0n) * 10n ** BigInt(QTY)) : q6to30(fromColumn(w.q ?? 0));
@@ -175,6 +178,8 @@ registerRpc("erp_stock_positions", (ctx: RpcContext, a: RpcArgs) => {
         (!has(location) || contains(c.location, location!)),
     );
   const out: Record<string, unknown>[] = [];
+  // Lojas (versão 27): a posição geral soma só os depósitos das lojas que a pessoa vê (ou da loja em uso).
+  const inStore = storeFilter(ctx, a.p_user_id as string);
   for (const c of candidates) {
     const id = String(c.id);
     const balances = new Map(
@@ -186,7 +191,7 @@ registerRpc("erp_stock_positions", (ctx: RpcContext, a: RpcArgs) => {
         c.unit, id,
       ).rows.map((l) => [String(l.warehouse_id), l]),
     );
-    const positions = [...new Set([...balances.keys(), ...ledger.keys()])].map((w) => {
+    const positions = [...new Set([...balances.keys(), ...ledger.keys()])].filter((w) => inStore === null || inStore.warehouse(w)).map((w) => {
       const b = balances.get(w),
         l = ledger.get(w);
       const review =

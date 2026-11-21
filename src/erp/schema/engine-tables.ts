@@ -1869,6 +1869,93 @@ const SHIPPING_TABLES: readonly EngineTable[] = [
 ) STRICT`,
   ]),
 ];
+// Lojas e filiais da mesma empresa (versão 27; a 26 é de outra frente): o
+// cadastro das lojas e os vínculos (depósito, conta financeira ou caixa,
+// documento e conta a pagar ou receber), a restrição da pessoa e a loja em uso.
+// Nada nas tabelas antigas muda: sem vínculo, o registro é da loja principal.
+const ST_STORE = "erp_store__store", ST_WAREHOUSE = "erp_store__warehouse", ST_ACCOUNT = "erp_store__account", ST_DOCUMENT = "erp_store__document";
+const ST_TITLE = "erp_store__title", ST_PERSON = "erp_store__person", ST_SELECTION = "erp_store__selection", ST_COMMAND = "erp_store__command", ST_AUDIT = "erp_store__audit";
+const store = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 27, owner: "multiloja", structural: "lojas" });
+const STORE_UUID = (c: string) => `(length(${c}) = 36 AND ${c} = lower(${c}))`;
+const storeLink = (table: string, key: string, extra = "") => store(table, [
+  `CREATE TABLE "${table}" (
+  "${key}" TEXT NOT NULL PRIMARY KEY CHECK (${STORE_UUID(key)}),
+  "store_id" TEXT NOT NULL,${extra}
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${table}_store_fkey" FOREIGN KEY (store_id) REFERENCES "${ST_STORE}" (id)
+) STRICT`,
+  `CREATE INDEX "${table}_store_idx" ON "${table}" (store_id)`,
+]);
+const STORE_TABLES: readonly EngineTable[] = [
+  store(ST_STORE, [
+    `CREATE TABLE "${ST_STORE}" (
+  "id" TEXT NOT NULL PRIMARY KEY CHECK (${STORE_UUID("id")}),
+  "name" TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 80 AND name = trim(name)),
+  "is_main" INTEGER NOT NULL DEFAULT 0 CHECK (is_main IN (0,1)),
+  "active" INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  "address" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("address", "object")} AND length(CAST(address AS BLOB)) <= 4096),
+  "phone" TEXT CHECK (phone IS NULL OR (length(phone) BETWEEN 8 AND 20 AND phone NOT GLOB '*[^0-9]*')),
+  "cnpj" TEXT CHECK (cnpj IS NULL OR (length(cnpj) = 14 AND cnpj NOT GLOB '*[^0-9A-Z]*')),
+  "default_warehouse_id" TEXT,
+  "fiscal_series" INTEGER CHECK (fiscal_series IS NULL OR fiscal_series BETWEEN 0 AND 999),
+  "version" INTEGER NOT NULL DEFAULT 1 CHECK (version BETWEEN 1 AND 2147483647),
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${ST_STORE}_main_active_check" CHECK (is_main = 0 OR active = 1)
+) STRICT`,
+    `CREATE UNIQUE INDEX "${ST_STORE}_main_key" ON "${ST_STORE}" (is_main) WHERE is_main = 1`,
+    `CREATE UNIQUE INDEX "${ST_STORE}_name_key" ON "${ST_STORE}" (lower(name))`,
+  ]),
+  storeLink(ST_WAREHOUSE, "warehouse_id"),
+  storeLink(ST_ACCOUNT, "account_id"),
+  storeLink(ST_DOCUMENT, "document_id", `
+  "source" TEXT NOT NULL CHECK (source IN ('chosen','default','warehouse','account')),`),
+  storeLink(ST_TITLE, "title_id", `
+  "source" TEXT NOT NULL CHECK (source IN ('chosen','default','document','account')),`),
+  store(ST_PERSON, [
+    `CREATE TABLE "${ST_PERSON}" (
+  "user_id" TEXT NOT NULL CHECK (${STORE_UUID("user_id")}),
+  "store_id" TEXT NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  PRIMARY KEY (user_id, store_id),
+  CONSTRAINT "${ST_PERSON}_store_fkey" FOREIGN KEY (store_id) REFERENCES "${ST_STORE}" (id)
+) STRICT`,
+  ]),
+  store(ST_SELECTION, [
+    `CREATE TABLE "${ST_SELECTION}" (
+  "user_id" TEXT NOT NULL PRIMARY KEY CHECK (${STORE_UUID("user_id")}),
+  "store_id" TEXT,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${ST_SELECTION}_store_fkey" FOREIGN KEY (store_id) REFERENCES "${ST_STORE}" (id)
+) STRICT`,
+  ]),
+  store(ST_COMMAND, [
+    `CREATE TABLE "${ST_COMMAND}" (
+  "command_id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "request_hash" TEXT NOT NULL CHECK (${HEX64("request_hash")}),
+  "result" TEXT NOT NULL CHECK (${JSON_OF("result", "object")}),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+  ]),
+  store(ST_AUDIT, [
+    `CREATE TABLE "${ST_AUDIT}" (
+  "id" INTEGER PRIMARY KEY,
+  "command_id" TEXT NOT NULL,
+  "actor" TEXT NOT NULL,
+  "action" TEXT NOT NULL CHECK (length(action) BETWEEN 1 AND 40),
+  "target" TEXT NOT NULL,
+  "before_data" TEXT CHECK (before_data IS NULL OR json_valid(before_data)),
+  "after_data" TEXT CHECK (after_data IS NULL OR json_valid(after_data)),
+  "created_at" INTEGER NOT NULL
+) STRICT`,
+    `CREATE INDEX "${ST_AUDIT}_target_idx" ON "${ST_AUDIT}" (target, created_at)`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1938,6 +2025,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...EXTRA_TABLES,
   // Versão 25: Expedição (as versões 22 a 24 são de outras frentes).
   ...SHIPPING_TABLES,
+  // Versão 27: lojas e filiais da mesma empresa (a 26 é de outra frente).
+  ...STORE_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);
