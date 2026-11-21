@@ -15,7 +15,7 @@ import { settings, enqueue } from "./service";
 import { enqueueChannelPlan, enqueueSocialDeliveries } from "./channel-enqueue";
 import { sha } from "./security";
 import { departmentFor } from "./departments";
-import { allowsModules, assertChannelSend, channelRules, channelWindow, conversationAllowsModules } from "./channels";
+import { assertChannelSend, channelAllowsMenuModules, channelRules, channelWindow, conversationAllowsMenuModules } from "./channels";
 import type { ChannelId } from "./channel-contracts";
 import { channelExtension, extensionKey, registeredChannelExtensions } from "./channel-extension-registry";
 import { loadChannelOperationContext, prepareChannelAction } from "./channel-extension-kernel";
@@ -235,12 +235,12 @@ async function availableMenuTree(
   chatType = "direct",
   cfg?: any,
   // Canal da linha/conversa, ou a decisão de módulos já tomada pela conversa
-  // (conversationAllowsModules), que só filtra os itens de módulo.
+  // (conversationAllowsMenuModules), que só filtra os itens de módulo.
   channel?: ChannelId | null | boolean,
 ) {
   cfg ||= await settings(env, profile);
   const modules = typeof channel === "boolean" ? channel
-    : allowsModules(channel === undefined && connection ? "whatsapp" : channel ?? null);
+    : channelAllowsMenuModules(channel === undefined && connection ? "whatsapp" : channel ?? null);
   const policy = await getNumberPolicy(env, connection),
     service = await serviceForLine(env, connection);
   if (!policy.menu || !policy.service || service.menu_mode === "off") return [];
@@ -267,7 +267,9 @@ async function availableMenuTree(
       ["protocols", "survey", "ticket", "queue"].includes(item.type)
     )
       continue;
-    // "Entrar na fila" only while a queue takes tickets by WhatsApp.
+    // "Entrar na fila" only while a queue takes tickets by conversation. The
+    // stored channel "whatsapp" means every conversation channel
+    // (queueTakesConversations in src/queue.ts).
     if (
       item.type === "queue" &&
       !(
@@ -611,7 +613,7 @@ export async function sendMenu(
     menuId,
     manual,
     c.chat_type,
-    conversationAllowsModules(c, (c.channel ?? (c.connection_id ? "whatsapp" : null)) as ChannelId | null),
+    conversationAllowsMenuModules(c, (c.channel ?? (c.connection_id ? "whatsapp" : null)) as ChannelId | null),
   );
   requireValue(
     items.length,

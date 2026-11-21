@@ -36,6 +36,13 @@ import { publicOrigin } from "./web-steps";
 import { normalizeCustomerPhone } from "./customer/phone";
 import { customerRecordStatements, resolveCustomer } from "./customer/ports";
 import { verifiedPhone } from "./protocol-lookup";
+import {
+  CHANNEL_REGISTRY,
+  channelRules,
+  channelWindow,
+  conversationAllowsMenuModules,
+  isChannelId,
+} from "./channels";
 
 const DAY_MS = 86400000;
 export const QUEUE_SCOPES = ["queue:read", "queue:issue", "queue:operate"];
@@ -175,6 +182,48 @@ export const normalizePhone = (value: unknown) =>
 export function verifiedQueuePhone(c: Conversation): string | null {
   if (c.channel != null && c.channel !== "whatsapp") return null;
   return verifiedPhone(c);
+}
+
+/**
+ * Canal de conversa de onde a senha é retirada (docs/FILA-SENHAS.md, "Outros
+ * canais"): "whatsapp" nas linhas do WhatsApp, o canal gravado da conversa
+ * (instagram, facebook, telegram, tiktok) e "app" na conversa aberta por uma
+ * aplicação de integração (chat do site). null: grupo, equipe, comentário,
+ * e-mail e qualquer conversa sem conversa direta com o cliente.
+ */
+export function queueConversationChannel(c: Conversation): string | null {
+  if ((c.chat_type ?? "direct") !== "direct") return null;
+  if (c.external_namespace?.startsWith("app:"))
+    return c.channel == null ? "app" : null;
+  const channel =
+    c.channel ??
+    (c.connection_id && c.external_namespace === `channel:${c.connection_id}`
+      ? "whatsapp"
+      : null);
+  if (!channel || !isChannelId(channel)) return null;
+  return conversationAllowsMenuModules(c, channel) ? channel : null;
+}
+
+/** Senha de conversa fora do WhatsApp: o dono é a própria conversa. */
+export const chatQueueChannel = (c: Conversation) => {
+  const channel = queueConversationChannel(c);
+  return channel && channel !== "whatsapp" ? channel : null;
+};
+
+/**
+ * A fila aceita senha pela conversa. O canal gravado "whatsapp" em
+ * `queues.channels` vale para todos os canais de conversa (WhatsApp,
+ * Instagram, Facebook, Telegram, TikTok e chat do site): o dono pediu que a
+ * fila funcione em todos; "kiosk" continua sendo o totem.
+ */
+export const queueTakesConversations = (queue: any) =>
+  json(queue?.channels, []).includes("whatsapp");
+
+/** Nome do canal de origem da senha para a equipe e para o cliente. */
+export function queueChannelLabel(channel: string | null | undefined) {
+  if (!channel) return null;
+  if (channel === "app") return "Site";
+  return isChannelId(channel) ? CHANNEL_REGISTRY[channel].label : null;
 }
 
 async function queueCustomer(env: Env, c: Conversation) {
@@ -413,6 +462,35 @@ export async function couponView(
   };
 }
 
+/** Senha retirada por uma conversa fora do WhatsApp (sem telefone). */
+export const chatTicket = (row: any) =>
+  !!row?.channel && row.channel !== "whatsapp" && !row.phone;
+
+/**
+ * A conversa de outro canal ainda aceita mensagem automática: o chat do site
+ * sempre; Instagram, Facebook e TikTok só dentro da janela do canal;
+ * Telegram sem janela. Conexão removida ou canal desligado: fechada.
+ */
+function chatWindowFrom(c: any, connection: any) {
+  if (!c) return false;
+  if (String(c.external_namespace || "").startsWith("app:")) return true;
+  if (!connection) return false;
+  const rules = channelRules(connection);
+  if (!rules?.enabled || rules.id !== c.channel) return false;
+  return channelWindow(rules, Number(c.last_customer) || 0, now()).canAutomation;
+}
+async function chatWindowOpen(env: Env, c: Conversation) {
+  const connection = c.connection_id
+    ? await one(
+        env,
+        "SELECT * FROM connections WHERE id=? AND profile_id=?",
+        c.connection_id,
+        c.profile_id,
+      )
+    : null;
+  return chatWindowFrom(c, connection);
+}
+
 async function windowOpen(env: Env, conversationId: string | null) {
   if (!conversationId) return false;
   const c = await one(
@@ -439,6 +517,11 @@ const VIEW_SQL = {
   open: "SELECT count(*) n FROM counters c WHERE c.profile_id=? AND c.enabled=1 AND c.status='open' AND EXISTS(SELECT 1 FROM json_each(c.queue_ids) WHERE value=?)",
   window:
     "SELECT c.last_customer,n.kind FROM conversations c JOIN connections n ON n.id=c.connection_id WHERE c.id=? AND n.channel='whatsapp' AND n.kind IN ('meta','zernio','qr') AND (c.channel IS NULL OR c.channel='whatsapp')",
+  // Senha de outro canal de conversa: a conversa e a conexão dela, para a
+  // janela do canal (chatWindowOpen).
+  chatConversation: "SELECT * FROM conversations WHERE id=? AND profile_id=?",
+  chatConnection:
+    "SELECT n.* FROM conversations c JOIN connections n ON n.id=c.connection_id AND n.profile_id=c.profile_id WHERE c.id=? AND c.profile_id=?",
   // A linha da fila primeiro (whatsapp_line_id), como em whatsappLine.
   lines:
     "SELECT id,config FROM connections WHERE profile_id=? AND kind IN ('zernio','qr') AND channel='whatsapp' ORDER BY (id=coalesce((SELECT whatsapp_line_id FROM queues WHERE id=?),'')) DESC,created",
@@ -530,7 +613,18 @@ function viewReads(env: Env, row: any, options: ViewOptions) {
       first: true,
     });
   }
-  if (options.staff && row.conversation_id)
+  if (options.staff && row.conversation_id && chatTicket(row)) {
+    add("chatConversation", {
+      sql: VIEW_SQL.chatConversation,
+      args: [row.conversation_id, row.profile_id],
+      first: true,
+    });
+    add("chatConnection", {
+      sql: VIEW_SQL.chatConnection,
+      args: [row.conversation_id, row.profile_id],
+      first: true,
+    });
+  } else if (options.staff && row.conversation_id)
     add("window", {
       sql: VIEW_SQL.window,
       args: [row.conversation_id],
@@ -598,6 +692,10 @@ async function viewOf(
     code: row.code,
     preferential: !!row.preferential,
     source: row.source,
+    // Canal da conversa de onde a senha veio (whatsapp, instagram, facebook,
+    // telegram, tiktok ou app = chat do site); null no totem e no balcão.
+    channel:
+      row.channel || (row.source === "whatsapp" ? "whatsapp" : null),
     status: row.status,
     counter_id: row.counter_id || null,
     counter_name: counter?.name || null,
@@ -610,9 +708,11 @@ async function viewOf(
           phone: row.phone || null,
           conversation_id: row.conversation_id || null,
           window_open:
-            !!windowRow &&
-            (!["meta", "zernio"].includes(windowRow.kind) ||
-              now() - windowRow.last_customer < DAY_MS),
+            "chatConversation" in index
+              ? chatWindowFrom(pick("chatConversation"), pick("chatConnection"))
+              : !!windowRow &&
+                (!["meta", "zernio"].includes(windowRow.kind) ||
+                  now() - windowRow.last_customer < DAY_MS),
           cancel_reason: row.cancel_reason || null,
         }
       : {}),
@@ -1110,6 +1210,13 @@ export interface IssueInput {
   source: "whatsapp" | "kiosk" | "staff";
   actorId: string;
   conversationId?: string | null;
+  /**
+   * Canal da conversa (queueConversationChannel). Fora do WhatsApp a senha é
+   * da conversa, sem telefone: uma ativa por fila e o limite diário contados
+   * pela conversa. Gravada com source "whatsapp" (senha de conversa) e o
+   * canal na coluna `channel` (migração 0305).
+   */
+  channel?: string | null;
   phone?: string | null;
   sourceKey?: string | null;
   /** Totem (aplicação): o limite por minuto, conferido na mesma ida. */
@@ -1198,6 +1305,13 @@ export async function issueTicket(
         "Muitas senhas em pouco tempo. Aguarde um instante.",
       );
   }
+  const chat =
+    input.source === "whatsapp" && !!input.channel && input.channel !== "whatsapp";
+  if (old && chat) {
+    if (old.profile_id !== profile || old.conversation_id !== input.conversationId)
+      throw new ApiError(409, "contact_conflict", "Esta senha pertence a outro vínculo de atendimento.");
+    return { ticket: old, created: false, queue: queueFound ?? null };
+  }
   if (old) {
     if (input.source === "whatsapp" && input.conversationId) {
       const customer = await queueCustomer(env, await conversation(env, input.conversationId || "", profile));
@@ -1220,10 +1334,42 @@ export async function issueTicket(
       "queue_closed",
       "Esta fila não está aceitando senhas.",
     );
-  const customer = input.source === "whatsapp" && input.conversationId
-    ? await queueCustomer(env, await conversation(env, input.conversationId || "", profile)) : null;
-  const phone = customer?.phone || normalizePhone(input.phone);
   const day = serviceDay();
+  if (chat) {
+    // Conversa de outro canal: sem telefone comprovado, a senha é da
+    // conversa. Mesmas regras: uma ativa por fila e o limite diário.
+    const c = await conversation(env, input.conversationId || "", profile);
+    if (chatQueueChannel(c) !== input.channel)
+      throw new ApiError(
+        403,
+        "forbidden",
+        "Esta conversa não pode retirar senha por este canal.",
+      );
+    const existing = await one(
+      env,
+      "SELECT * FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND status IN ('waiting','called','serving') AND conversation_id=? AND phone IS NULL ORDER BY created_at DESC LIMIT 1",
+      profile, queue.id, day, c.id,
+    );
+    if (existing) return { ticket: existing, created: false, queue };
+    const cfg = queueSettings(await settings(env, profile));
+    const today =
+      (
+        await one(
+          env,
+          "SELECT count(*) n FROM queue_tickets WHERE profile_id=? AND service_day=? AND conversation_id=? AND phone IS NULL",
+          profile, day, c.id,
+        )
+      )?.n || 0;
+    if (today >= cfg.max_daily_per_contact)
+      throw new ApiError(
+        429,
+        "daily_limit",
+        `Você já retirou ${today} senhas hoje, o limite diário. Procure o atendimento presencial.`,
+      );
+  }
+  const customer = input.source === "whatsapp" && input.conversationId && !chat
+    ? await queueCustomer(env, await conversation(env, input.conversationId || "", profile)) : null;
+  const phone = chat ? "" : customer?.phone || normalizePhone(input.phone);
   if (phone) {
     const scope = customer ? ticketCustomerScope(customer.contactId, input.conversationId!, customer.phone) : null;
     const existing = await one(
@@ -1303,7 +1449,7 @@ export async function issueTicket(
     : null;
   const results = await batch(env, [
     [
-      "INSERT INTO queue_tickets(id,profile_id,queue_id,service_day,prefix,seq,code,preferential,source,source_key,issued_by,conversation_id,phone,public_token,link_code,created_at,updated) SELECT ?,?,?,?,?,coalesce(max(seq),0)+1,?||printf('%03d',coalesce(max(seq),0)+1),?,?,?,?,?,?,?,?,?,? FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND prefix=? RETURNING *",
+      "INSERT INTO queue_tickets(id,profile_id,queue_id,service_day,prefix,seq,code,preferential,source,source_key,issued_by,conversation_id,phone,channel,public_token,link_code,created_at,updated) SELECT ?,?,?,?,?,coalesce(max(seq),0)+1,?||printf('%03d',coalesce(max(seq),0)+1),?,?,?,?,?,?,?,?,?,?,? FROM queue_tickets WHERE profile_id=? AND queue_id=? AND service_day=? AND prefix=? RETURNING *",
       [
         id,
         profile,
@@ -1317,6 +1463,9 @@ export async function issueTicket(
         input.actorId,
         input.conversationId || null,
         phone || null,
+        input.source === "whatsapp" && input.conversationId
+          ? input.channel || "whatsapp"
+          : null,
         random().slice(0, 32),
         link,
         at,
@@ -1328,7 +1477,7 @@ export async function issueTicket(
       ],
     ],
     [
-      "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
+      "INSERT INTO events(profile_id,kind,resource_id,payload,created,source_key) SELECT ?,'queue.issued',id,json_object('id',id,'queue_id',queue_id,'code',code,'preferential',json(CASE WHEN preferential THEN 'true' ELSE 'false' END),'source',source,'channel',channel),?,NULL FROM queue_tickets WHERE id=? RETURNING id",
       [profile, at, id],
     ],
     ...(customer ? customerRecordStatements({ profileId: profile, contactId: customer.contactId, moduleId: "queue", kind: "ticket", recordId: id, conversationId: input.conversationId!, linkedBy: `conversation:${input.conversationId}`, occurredAt: at }) : []),
@@ -1496,7 +1645,7 @@ const CALL_SQL = {
   queues:
     "SELECT * FROM queues WHERE profile_id=?1 AND (id IN (SELECT value FROM json_each((SELECT queue_ids FROM counters WHERE id=?2 AND profile_id=?1))) OR id IN (SELECT queue_id FROM queue_tickets WHERE profile_id=?1 AND service_day=?3 AND status='waiting' AND target_counter_id=?2))",
   candidates:
-    "SELECT id,queue_id,preferential,created_at,seq,target_counter_id,code,conversation_id FROM queue_tickets WHERE profile_id=?1 AND service_day=?3 AND status='waiting' AND (target_counter_id=?2 OR (target_counter_id IS NULL AND queue_id IN (SELECT value FROM json_each((SELECT queue_ids FROM counters WHERE id=?2 AND profile_id=?1)))))",
+    "SELECT id,queue_id,preferential,created_at,seq,target_counter_id,code,conversation_id,phone,channel FROM queue_tickets WHERE profile_id=?1 AND service_day=?3 AND status='waiting' AND (target_counter_id=?2 OR (target_counter_id IS NULL AND queue_id IN (SELECT value FROM json_each((SELECT queue_ids FROM counters WHERE id=?2 AND profile_id=?1)))))",
   // O evento queue.called com a senha como ficou (callFrame), só se a
   // chamada pegou: a senha está chamada neste guichê, neste instante.
   called:
@@ -1861,15 +2010,22 @@ async function notify(
   kind: "called" | "recalled" | "ahead" | "transferred" | "cancelled",
   extra: { counter?: string; target?: string; ahead?: number } = {},
 ) {
-  if (!ticket.conversation_id || !ticket.phone) return;
-  if (await activeBlock(env, ticket.profile_id, ticket.phone)) return;
+  const chat = chatTicket(ticket);
+  if (!ticket.conversation_id || (!ticket.phone && !chat)) return;
+  if (!chat && (await activeBlock(env, ticket.profile_id, ticket.phone))) return;
   let c: Conversation;
   try {
     c = await conversation(env, ticket.conversation_id, ticket.profile_id);
   } catch {
     return;
   }
-  if (c.channel != null && c.channel !== "whatsapp") return;
+  // Senha de outro canal: o aviso vai na mesma conversa, como texto, só
+  // enquanto o canal aceita mensagem automática (Instagram e Facebook: 24 h
+  // depois da última mensagem do cliente). Fora disso o guichê vê "fora da
+  // janela" (window_open) e o cliente foi avisado ao retirar a senha.
+  if (chat) {
+    if (chatQueueChannel(c) !== ticket.channel) return;
+  } else if (c.channel != null && c.channel !== "whatsapp") return;
   const text =
     kind === "called"
       ? `🔔 Senha ${ticket.code}: é a sua vez! Dirija-se ao ${extra.counter}.`
@@ -1882,16 +2038,16 @@ async function notify(
           : kind === "transferred"
             ? `Senha ${ticket.code}: sua senha foi transferida para ${extra.target}. Aguarde a chamada.`
             : `Senha ${ticket.code} cancelada.`;
-  const open = await windowOpen(env, c.id);
+  const open = chat ? await chatWindowOpen(env, c) : await windowOpen(env, c.id);
   // Calls go even outside the 24h window (as the notification template);
   // the other notices only while the window is open.
-  if (!open && !["called", "recalled"].includes(kind)) return;
+  if (!open && (chat || !["called", "recalled"].includes(kind))) return;
   try {
     await enqueue(
       env,
       c,
       system,
-      ["called", "recalled"].includes(kind) ? "notification" : "text",
+      !chat && ["called", "recalled"].includes(kind) ? "notification" : "text",
       {
         text,
         automation: "queue",
@@ -2392,6 +2548,8 @@ function ticketCustomerScope(contactId: string | null, conversationId: string, p
 export async function activeTicketForConversation(env: Env, profile: string, conversationId: string) {
   // A mesma leitura relê canal, titular e senha. Ausência da conversa é ausência
   // de senha; não lança 404 nem acrescenta consultas ao caminho de mensagens.
+  // A segunda parte do UNION é a senha de outro canal de conversa
+  // (Instagram, Telegram, chat do site...): da própria conversa, sem telefone.
   const expressions = ["v.contact_id", "v.id", "v.phone", "v.contact_id", "v.contact_id", "v.contact_id", "v.contact_id"];
   let index = 0;
   const predicate = ticketCustomerScope(null, "", "").sql.replace(/\?/g, () => expressions[index++]);
@@ -2414,11 +2572,17 @@ export async function activeTicketForConversation(env: Env, profile: string, con
         AND length(c.normalized_phone) BETWEEN 8 AND 15 AND c.normalized_phone NOT GLOB '*[^0-9]*' AND substr(c.normalized_phone,1,1)<>'0'
         AND NOT EXISTS(SELECT 1 FROM conversation_contacts l JOIN contacts linked ON linked.id=l.contact_id AND linked.profile_id=l.profile_id
           WHERE l.profile_id=c.profile_id AND l.conversation_id=c.id AND linked.identity_state<>'active')
-    ) SELECT q.*,v.input_phone viewer_input_phone FROM queue_tickets q JOIN viewer v ON v.profile_id=q.profile_id WHERE q.service_day=?
+    ) SELECT * FROM (SELECT q.*,v.input_phone viewer_input_phone,0 chat_owner FROM queue_tickets q JOIN viewer v ON v.profile_id=q.profile_id WHERE q.service_day=?
     AND q.status IN ('waiting','called','serving') AND ${predicate}
-    ORDER BY q.created_at DESC,q.id DESC LIMIT 1`, profile, conversationId, serviceDay());
-  if (!row || !normalizeCustomerPhone(row.viewer_input_phone, "international")) return null;
-  const { viewer_input_phone: _phone, ...ticket } = row;
+    UNION ALL
+    SELECT q.*,NULL viewer_input_phone,1 chat_owner FROM queue_tickets q JOIN channel c ON c.profile_id=q.profile_id AND c.id=q.conversation_id
+    WHERE q.service_day=? AND q.status IN ('waiting','called','serving') AND q.phone IS NULL
+      AND q.channel IS NOT NULL AND q.channel<>'whatsapp' AND c.chat_type='direct'
+      AND coalesce(c.customer_link_state,'') NOT IN ('blocked','excluded'))
+    ORDER BY created_at DESC,id DESC LIMIT 1`, profile, conversationId, serviceDay(), serviceDay());
+  if (!row) return null;
+  if (!row.chat_owner && !normalizeCustomerPhone(row.viewer_input_phone, "international")) return null;
+  const { viewer_input_phone: _phone, chat_owner: _chat, ...ticket } = row;
   return ticket;
 }
 

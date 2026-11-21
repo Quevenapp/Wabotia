@@ -369,6 +369,36 @@ Botões só nas linhas Zernio/Meta; nas linhas QR o mesmo conteúdo vai como tex
 numerado e as respostas digitadas (sim, não, normal, preferencial, 1, 2, 3)
 funcionam em todas.
 
+## Outros canais (desde 21/11)
+
+O mesmo caminho (menu, Sim / Não, Normal / Preferencial, `SENHA`, `SAIR`,
+avisos) vale em toda conversa direta de Instagram, Facebook, Telegram, TikTok
+e do chat do site (conversa aberta por aplicação de integração, `app:`).
+
+- Fila: a marca `whatsapp` em `channels` passou a significar "conversa" e vale
+  para todos esses canais (na tela: "Conversa: WhatsApp, Instagram, …").
+  Fila só com `kiosk` some do menu de todos eles.
+- Apresentação: Instagram e Facebook recebem botões (até 3) ou respostas
+  rápidas (até 13 opções de até 20 caracteres); Telegram, TikTok e chat do
+  site recebem texto numerado. A resposta pode ser o número ou o nome da
+  opção. O negrito com asteriscos do WhatsApp sai como texto limpo.
+- Dono da senha: a própria conversa (não há telefone comprovado). Uma senha
+  ativa por fila e `max_daily_per_contact` por dia, contados pela conversa.
+  A lista negra é por telefone e não se aplica a estas senhas.
+- Gravação: `source` continua `whatsapp` (senha de conversa; o CHECK da 0017
+  não muda) e a coluna nova `queue_tickets.channel` (migração 0305) guarda o
+  canal: `whatsapp`, `instagram`, `facebook`, `telegram`, `tiktok` ou `app`.
+  A vista da senha traz `channel` e o painel da fila mostra o canal no lugar
+  de "WhatsApp". O evento `queue.issued` também leva `channel`.
+- Avisos: na mesma conversa, como texto. Instagram e Facebook só aceitam
+  mensagem automática até 24 h depois da última mensagem do cliente (TikTok:
+  48 h); fora disso o aviso não sai, `window_open` vem `false` e o guichê vê
+  "fora da janela do Instagram: o aviso de chamada não chega". A confirmação
+  da senha já diz isso ao cliente. Telegram e chat do site não têm janela.
+- Cupom do totem (`SENHA N023 <código>`): só pelo WhatsApp; nos outros canais
+  a resposta explica e orienta a retirar a senha pelo MENU.
+- E-mail e Google Business não têm menu (sem conversa direta automática).
+
 ### Bot de IA: "minha senha"
 
 A ferramenta de cliente `queue_minha_senha` (só leitura, sem botão;

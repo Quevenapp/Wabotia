@@ -53,7 +53,7 @@ import { completeChannelDelivery, loadChannelDeliveryContext } from "./delivery"
 import { channelConnectionDriver, channelExtension, extensionKey, registeredChannelExtensions, registeredChannelMaintenance } from "./channel-extension-registry";
 import { channelAutomationBlock, configureChannelConnection, ingressOperationContext, performChannelAction, validateChannelWritePlan, verifyIngressTicket } from "./channel-extension-kernel";
 import type { ChannelOutboxRow, ChannelWritePlan, ExtensionConnection } from "./channel-c2-contracts";
-import { channelRules, channelWindow, conversationAllowsModules, conversationChannel, isChannelId } from "./channels";
+import { channelRules, channelWindow, conversationAllowsMenuModules, conversationAllowsModules, conversationChannel, isChannelId, type ChannelId } from "./channels";
 import { refreshChannelSummaryStatements, validateChannelConfiguration } from "./channel-accounts";
 import { enqueueChannelAutomation, enqueueSocialDeliveries } from "./channel-enqueue";
 import { socialExternalId, type SocialSendProvenance } from "./zernio-social";
@@ -3289,7 +3289,7 @@ export async function perform(
             const cfg = await settings(env, profile);
             const menus = (
               await availableMenus(env, profile, c.connection_id, null, true, undefined,
-                conversationAllowsModules(c, c.connection_id ? "whatsapp" : null))
+                conversationAllowsMenuModules(c, (c.channel ?? (c.connection_id ? "whatsapp" : null)) as ChannelId | null))
             ).map((m: any) => ({ id: m.id, label: m.label, type: m.type }));
             await createRun(
               env,

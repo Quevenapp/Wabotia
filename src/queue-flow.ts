@@ -1,19 +1,25 @@
-// WhatsApp side of the ticket queue (docs/FILA-SENHAS.md, "WhatsApp").
-// Called from processInbox; every reply goes through enqueue with a key tied
-// to the inbox row, so a replayed row never repeats a message or a ticket.
+// Conversation side of the ticket queue (docs/FILA-SENHAS.md, "WhatsApp" and
+// "Outros canais"): WhatsApp, Instagram, Facebook, Telegram, TikTok and the
+// site chat (app:). Called from processInbox; every reply goes through
+// enqueue with a key tied to the inbox row, so a replayed row never repeats a
+// message or a ticket.
 import { all, one, exec, cachedOne } from "./db";
-import { ApiError, type Conversation, type Env, json, now } from "./types";
+import { ApiError, type Conversation, type Env, now } from "./types";
 import { enqueue, settings } from "./service";
+import { CHANNEL_REGISTRY, conversationChannelLabel, isChannelId } from "./channels";
 import {
   activeBlock,
   activeTicketForConversation,
   aheadOfNew,
   normalsOwed,
   blockMessage,
+  chatQueueChannel,
   customerCancel,
   estimateMinutes,
   issueTicket,
   linkKioskTicket,
+  queueConversationChannel,
+  queueTakesConversations,
   verifiedQueuePhone,
   queueSettings,
   serviceDay,
@@ -35,6 +41,7 @@ const normalize = (value: string) =>
     .trim();
 
 async function interactiveLine(env: Env, c: Conversation) {
+  if (c.channel != null && c.channel !== "whatsapp") return false;
   if (!c.connection_id || c.chat_type === "group") return false;
   const line = await cachedOne(
     env,
@@ -53,6 +60,52 @@ async function ask(
   key: string,
 ) {
   const numbered = `${body}\n\n${options.map((o, i) => `${i + 1}. ${o.title}`).join("\n")}`;
+  if (c.channel === "instagram" || c.channel === "facebook") {
+    // Botões (até 3) ou respostas rápidas do canal, nos limites locais do
+    // menu (line-service menuPayload); fora deles, o texto numerado.
+    const social = options.map((o) => ({
+      id: `${QUEUE_REPLY}${c.session}:${o.id}`,
+      title: o.title,
+    }));
+    const compatible =
+      social.length > 0 &&
+      social.length <= 13 &&
+      social.every(
+        (o) =>
+          o.title.trim() &&
+          Array.from(o.title).length <= 20 &&
+          !/[\u0000-\u001f\u007f]/.test(o.title) &&
+          new TextEncoder().encode(o.id).length <= 256,
+      );
+    return enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      compatible
+        ? {
+            text: formatted(c, `${body}\n\nEscolha uma opção abaixo.`),
+            automation: "queue",
+            content: {
+              type: social.length <= 3 ? "buttons" : "quick_replies",
+              options: social,
+            },
+          }
+        : { text: formatted(c, numbered), automation: "queue" },
+      key,
+    );
+  }
+  // Telegram, TikTok e chat do site: texto numerado; a pessoa responde o
+  // número ou o nome da opção.
+  if (chatQueueChannel(c))
+    return enqueue(
+      env,
+      c,
+      "system",
+      "text",
+      { text: formatted(c, numbered), automation: "queue" },
+      key,
+    );
   const interactive = await interactiveLine(env, c);
   const buttons =
     options.length <= 3 &&
@@ -107,8 +160,19 @@ async function ask(
   );
 }
 
+/** Negrito com asteriscos é do WhatsApp; nos outros canais sai texto limpo. */
+const formatted = (c: Conversation, text: string) =>
+  chatQueueChannel(c) ? text.replace(/\*([^*\n]+)\*/g, "$1") : text;
+
 const say = (env: Env, c: Conversation, text: string, key: string) =>
-  enqueue(env, c, "system", "text", { text, automation: "queue" }, key);
+  enqueue(
+    env,
+    c,
+    "system",
+    "text",
+    { text: formatted(c, text), automation: "queue" },
+    key,
+  );
 
 async function setPrompt(
   env: Env,
@@ -131,7 +195,10 @@ async function setPrompt(
 export const clearQueuePrompt = (env: Env, c: Conversation) =>
   setPrompt(env, c, null, null, null);
 
-/** Queues offered on WhatsApp, optionally only the one a menu points to. */
+/**
+ * Queues offered in a conversation (any conversation channel; see
+ * queueTakesConversations), optionally only the one a menu points to.
+ */
 export async function whatsappQueues(
   env: Env,
   profile: string,
@@ -143,23 +210,33 @@ export async function whatsappQueues(
       "SELECT * FROM queues WHERE profile_id=? AND enabled=1 ORDER BY sort,name,id",
       profile,
     )
-  ).filter(
-    (q) =>
-      json(q.channels, []).includes("whatsapp") && (!only || q.id === only),
-  );
+  ).filter((q) => queueTakesConversations(q) && (!only || q.id === only));
+}
+
+/**
+ * Canal com janela de resposta automática (Instagram, Facebook, TikTok): o
+ * aviso de chamada só chega enquanto ela estiver aberta. A frase vai na
+ * confirmação da senha, para o cliente saber o limite do canal.
+ */
+function windowNotice(c: Conversation) {
+  const channel = chatQueueChannel(c);
+  if (!channel || !isChannelId(channel)) return "";
+  const window = CHANNEL_REGISTRY[channel].window;
+  if (window.kind !== "customer") return "";
+  return `\n\nPelo ${CHANNEL_REGISTRY[channel].label} só conseguimos avisar até ${window.hours} horas depois da sua última mensagem. Se a espera passar disso, mande qualquer mensagem aqui para continuar recebendo os avisos.`;
 }
 
 const plural = (n: number, one: string, many: string) =>
   `${n} ${n === 1 ? one : many}`;
 
-async function statusText(env: Env, ticket: any) {
+async function statusText(env: Env, ticket: any, c?: Conversation) {
   const view = await ticketView(env, ticket, { link: false });
   if (view.status === "waiting")
     return `Sua senha é *${view.code}* (${view.queue_name}${view.preferential ? ", preferencial" : ""}).\n${
       view.ahead
         ? `${plural(view.ahead, "pessoa", "pessoas")} à sua frente${view.wait_minutes === null ? "." : `, espera estimada de ${view.wait_minutes} min.`}`
         : "Você é o próximo!"
-    }\n\nAvisaremos aqui quando for chamada. Envie SENHA para ver sua posição ou SAIR para desistir.`;
+    }\n\nAvisaremos aqui quando for chamada. Envie SENHA para ver sua posição ou SAIR para desistir.${c ? windowNotice(c) : ""}`;
   return `Sua senha *${view.code}* foi chamada${view.counter_name ? `: dirija-se ao ${view.counter_name}` : ""}.`;
 }
 
@@ -250,20 +327,22 @@ export async function startQueue(
   const phone = verifiedQueuePhone(c);
   const active = await activeTicketForConversation(env, c.profile_id, c.id);
   if (active) {
-    await say(env, c, await statusText(env, active), `queue-status:${rowId}`);
+    await say(env, c, await statusText(env, active, c), `queue-status:${rowId}`);
     return;
   }
-  const block = await activeBlock(env, c.profile_id, phone || "");
+  const block = phone ? await activeBlock(env, c.profile_id, phone) : null;
   if (block) {
     await say(env, c, blockMessage(block), `queue-blocked:${rowId}`);
     return;
   }
-  const queues = await whatsappQueues(env, c.profile_id, queueId);
+  const queues = queueConversationChannel(c)
+    ? await whatsappQueues(env, c.profile_id, queueId)
+    : [];
   if (!queues.length) {
     await say(
       env,
       c,
-      "No momento a fila de espera pelo WhatsApp não está disponível. Envie MENU para ver as opções.",
+      `No momento a fila de espera pelo ${conversationChannelLabel(c)} não está disponível. Envie MENU para ver as opções.`,
       `queue-none:${rowId}`,
     );
     return;
@@ -368,6 +447,16 @@ export async function queueTurn(
   // Coupon QR: a line "SENHA N023 AB12CD", alone (cupons antigos) or inside
   // the prefilled text (instrução + senha + link da imagem; couponWhatsappText).
   const kiosk = kioskLine(value);
+  if (kiosk && !replyId && chatQueueChannel(c)) {
+    // O cupom do totem vincula a senha a um telefone do WhatsApp.
+    await say(
+      env,
+      c,
+      `A senha do cupom só pode ser acompanhada pelo WhatsApp (o QR do cupom abre a conversa certa). Pelo ${conversationChannelLabel(c)}, envie MENU e escolha a fila para retirar uma senha por aqui.`,
+      `queue-link-refused:${row.id}`,
+    );
+    return { handled: true };
+  }
   if (kiosk && !replyId) {
     let linked;
     try { linked = await linkKioskTicket(env, c, kiosk[1], kiosk[2]); }
@@ -414,7 +503,7 @@ export async function queueTurn(
       await say(
         env,
         c,
-        await statusText(env, active),
+        await statusText(env, active, c),
         `queue-status:${row.id}`,
       );
       return { handled: true };
@@ -493,10 +582,11 @@ export async function queueTurn(
       source: "whatsapp",
       actorId: "customer",
       conversationId: c.id,
+      channel: queueConversationChannel(c),
       phone,
       sourceKey: `queue-inbox:${row.id}`,
     });
-    await say(env, c, await statusText(env, ticket), `queue-issued:${row.id}`);
+    await say(env, c, await statusText(env, ticket, c), `queue-issued:${row.id}`);
   } catch (error) {
     if (!(error instanceof ApiError)) throw error;
     await say(env, c, error.message, `queue-refused:${row.id}`);
@@ -521,7 +611,7 @@ export async function queueFrontDoor(
   if (!cfg.front_door) return false;
   const active = await activeTicketForConversation(env, c.profile_id, c.id);
   if (active) {
-    await say(env, c, await statusText(env, active), `queue-front:${rowId}`);
+    await say(env, c, await statusText(env, active, c), `queue-front:${rowId}`);
   } else if (!(await showMenu())) return false;
   await exec(
     env,

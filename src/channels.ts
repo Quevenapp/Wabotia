@@ -303,6 +303,72 @@ export function conversationAllowsModules(conversation: {
   return legacy && (conversation.channel == null || conversation.channel === "whatsapp");
 }
 
+/** Canais com conversa direta em que o menu de atendimento, a fila de senhas e
+ * os itens de módulo do menu funcionam (pedido do dono de 21/11: "entrar na
+ * fila por todos os canais"). E-mail tem entrada própria, sem menu; Google
+ * Business e comentários são públicos e nunca recebem menu. */
+export const MENU_MODULE_CHANNELS: readonly ChannelId[] = Object.freeze([
+  "whatsapp", "instagram", "facebook", "telegram", "tiktok",
+]);
+
+export function channelAllowsMenuModules(channel: ChannelId | null): boolean {
+  return channel != null && MENU_MODULE_CHANNELS.includes(channel);
+}
+
+function conversationContext(conversation: { chat_type?: string | null; channel_context?: string | null }) {
+  if (conversation.chat_type === "comment" || conversation.chat_type === "review") return conversation.chat_type;
+  try {
+    const value = JSON.parse(conversation.channel_context || "{}");
+    return typeof value?.context === "string" ? value.context : "direct";
+  } catch { return "direct"; }
+}
+
+/** Menu, fila de senhas e itens de módulo do menu numa conversa. Vale tudo o
+ * que conversationAllowsModules já libera e, além disso, a conversa direta de
+ * cada canal de MENU_MODULE_CHANNELS. Canal gravado diferente do resolvido,
+ * aplicação com canal social gravado, comentário e avaliação nunca liberam.
+ * Não consulta banco nem conexões. */
+export function conversationAllowsMenuModules(conversation: {
+  channel?: ChannelId | string | null;
+  external_namespace?: string | null;
+  chat_type?: string | null;
+  channel_context?: string | null;
+}, channel: ChannelId | null, connection: ChannelConnection | null = null): boolean {
+  if (conversationAllowsModules(conversation, channel, connection)) return true;
+  if (!channelAllowsMenuModules(channel)) return false;
+  if (conversation.channel != null && conversation.channel !== channel) return false;
+  if (conversation.external_namespace?.startsWith("app:")) return false;
+  if (conversation.chat_type != null && conversation.chat_type !== "direct") return false;
+  return conversationContext(conversation) === "direct";
+}
+
+/** Nome do canal da conversa para o cliente e para a equipe ("pelo Instagram").
+ * Conversa aberta por aplicação de integração (chat do site) é "site". */
+export function conversationChannelLabel(conversation: {
+  channel?: ChannelId | string | null;
+  external_namespace?: string | null;
+}): string {
+  if (conversation.channel != null && isChannelId(conversation.channel))
+    return CHANNEL_REGISTRY[conversation.channel].label;
+  if (conversation.external_namespace?.startsWith("app:")) return "site";
+  return "WhatsApp";
+}
+
+const CHANNEL_REFUSALS = new Set(["unsupported_content", "channel_not_ready", "cannot_initiate", "window_closed", "human_only"]);
+
+/** Resposta em palavras quando uma ação do menu esbarra num limite do canal. */
+export function channelRefusalText(conversation: {
+  channel?: ChannelId | string | null;
+  external_namespace?: string | null;
+}, error: { code?: string; message?: string }): string {
+  const label = conversationChannelLabel(conversation);
+  if (error.code === "window_closed" || error.code === "human_only")
+    return `Pelo ${label}, as respostas automáticas só podem ser enviadas por um tempo depois da sua última mensagem. Envie MENU para ver as opções de novo.`;
+  if (CHANNEL_REFUSALS.has(error.code || ""))
+    return `Esta opção ainda não funciona pelo ${label}. Envie MENU para ver as outras opções ou fale com a gente pelo WhatsApp.`;
+  return `${error.message || "Esta opção não está disponível agora."} Envie MENU para ver as opções.`;
+}
+
 /** Projeção das chaves legadas: não importa transporte, não lê D1 e não muda
  * a seleção de recursos de QR v1/v2 ou da conexão oficial existente. */
 function whatsappCapabilities(conn: ChannelConnection, context: ChannelContext) {

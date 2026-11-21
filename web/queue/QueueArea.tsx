@@ -55,6 +55,22 @@ const sourceLabel: Row = {
   kiosk: "Totem",
   staff: "Balcão",
 };
+/** Canal da conversa de onde a senha veio (ticket.channel, migração 0305). */
+const channelLabel: Row = {
+  whatsapp: "WhatsApp",
+  instagram: "Instagram",
+  facebook: "Facebook",
+  telegram: "Telegram",
+  tiktok: "TikTok",
+  app: "Site",
+};
+const chatChannel = (t: Row) =>
+  !!t.channel && t.channel !== "whatsapp" && !!channelLabel[t.channel];
+/** Origem para a equipe: o canal da conversa ou totem/balcão. */
+const ticketOrigin = (t: Row) =>
+  (t.source === "whatsapp" && channelLabel[t.channel]) ||
+  sourceLabel[t.source] ||
+  t.source;
 const minutesSince = (at: number) =>
   Math.max(0, Math.round((Date.now() - at) / 60000));
 
@@ -592,14 +608,16 @@ export function QueueArea() {
                   <TicketCode ticket={t} />
                   <div className="queue-row-info">
                     <span>
-                      {t.queue_name} · {sourceLabel[t.source] || t.source}
+                      {t.queue_name} · {ticketOrigin(t)}
                       {t.target_counter_id ? " · transferida para guichê" : ""}
                     </span>
                     <small>
                       esperando há {minutesSince(t.created_at)} min
                       {t.phone && !t.window_open
                         ? " · fora da janela do WhatsApp"
-                        : ""}
+                        : !t.phone && chatChannel(t) && !t.window_open
+                          ? ` · fora da janela do ${channelLabel[t.channel]}: o aviso de chamada não chega`
+                          : ""}
                     </small>
                   </div>
                   <div className="queue-row-actions">

@@ -161,7 +161,12 @@ function QueueDialog({
       <fieldset className="queue-checks">
         <legend>Onde o cliente retira senha</legend>
         {[
-          ["whatsapp", "WhatsApp"],
+          // "whatsapp" vale para todos os canais de conversa (src/queue.ts,
+          // queueTakesConversations).
+          [
+            "whatsapp",
+            "Conversa: WhatsApp, Instagram, Facebook, Telegram, TikTok e chat do site",
+          ],
           ["kiosk", "Totem Senhapp"],
         ].map(([value, label]) => (
           <label key={value}>
@@ -1003,7 +1008,9 @@ export function QueueSettingsPage() {
               "Canais",
               (q) =>
                 q.channels
-                  .map((c: string) => (c === "kiosk" ? "Totem" : "WhatsApp"))
+                  .map((c: string) =>
+                    c === "kiosk" ? "Totem" : "Conversa (todos os canais)",
+                  )
                   .join(", ") || "—",
             ],
             [

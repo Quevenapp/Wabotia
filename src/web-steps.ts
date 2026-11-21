@@ -39,6 +39,7 @@ import { LICENSE_NAME, sourceInfo } from "./source";
 import { webStepHook, webStepValidator, webStepBeforeCompleteHook, isObjectOpeningWebStep } from "./modules/hooks";
 import type { Establishment } from "./establishment";
 import { interactiveLine, sendInteractive } from "./line-service";
+import { conversationAllowsMenuModules, isChannelId } from "./channels";
 import { flowToken } from "./whatsapp-interactive";
 import {
   cartPage,
@@ -504,8 +505,11 @@ export async function openWebStep(env: Env, input: OpenWebStepInput) {
       "Referência da abertura com objeto deve conter somente definição, modelo e revisão.",
     );
   }
-  if (c.channel != null && c.channel !== "whatsapp")
-    throw new ApiError(422, "unsupported_content", "Passos de módulos estão disponíveis somente no WhatsApp.");
+  // O link do passo vai como texto fora do WhatsApp (sendInteractive), em
+  // todo canal com conversa direta (conversationAllowsMenuModules).
+  if (c.channel != null && c.channel !== "whatsapp" &&
+      !(isChannelId(c.channel) && conversationAllowsMenuModules(c, c.channel)))
+    throw new ApiError(422, "unsupported_content", "Passos de módulos não estão disponíveis neste tipo de conversa.");
   const old = await one(
     env,
     "SELECT * FROM web_steps WHERE source_key=?",
