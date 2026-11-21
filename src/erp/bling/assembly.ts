@@ -12,6 +12,7 @@ import { createBlingAuthorization, createBlingOAuthProvider, blingCallbackUrl, b
 import { createBlingVault, type BlingVault } from "./vault.ts";
 import { createCollectionStore } from "./repository.ts";
 import { createBlingDataClient, sha256Bytes } from "./client.ts";
+import { createBlingWriter } from "./writer.ts";
 import { createBlingWake, createBlingArchiveWake } from "./wake.ts";
 import { createXmlArchive, type BlingXmlMedia } from "./xml.ts";
 import { createArchivePurge } from "./purge.ts";
@@ -39,6 +40,28 @@ function adoptionPending(storage: DurableObjectStorage): boolean {
   try { return storage.sql.exec("SELECT 1 AS pending FROM wb_bling_cutover_item WHERE kind='package' AND state='running' LIMIT 1").toArray().length > 0; }
   catch { return false; }
 }
+/** Mão dupla (versão 19): próxima varredura local, com algum interruptor ligado e o corte confirmado. Sem tabela, null. */
+function twoWayScanAt(storage: DurableObjectStorage): number | null {
+  try {
+    const row = storage.sql.exec(`SELECT coalesce((SELECT CAST(json_extract(scan,'$.next_at') AS INTEGER) FROM wb_bling_twoway WHERE id=1), 0) AS next_at
+      WHERE EXISTS(SELECT 1 FROM wb_bling_twoway_setting WHERE enabled=1) AND EXISTS(SELECT 1 FROM wb_bling_cutover WHERE id=1)`).toArray()[0] as { next_at?: number } | undefined;
+    return row ? Number(row.next_at ?? 0) : null;
+  } catch { return null; }
+}
+/** Mão dupla: próximo envio ou conferência da fila de saída. Desligado, pendente não conta. */
+function twoWayOutboxAt(storage: DurableObjectStorage): number | null {
+  try {
+    const row = storage.sql.exec(`SELECT min(o.not_before) AS due FROM wb_bling_twoway_outbox o WHERE o.state IN ('sending','uncertain')
+      OR (o.state='pending' AND EXISTS(SELECT 1 FROM wb_bling_twoway_setting s WHERE s.entity=o.entity AND s.direction='outbound' AND s.enabled=1))`).toArray()[0] as { due?: number | null } | undefined;
+    return row?.due == null ? null : Number(row.due);
+  } catch { return null; }
+}
+/** Ritmo da coleta contínua configurado na mão dupla (ms). Sem linha ou sem tabela, null (padrão de 15 min). */
+function twoWayPace(db: SqlDriver): number | null {
+  try { const row = db.exec("SELECT pace_minutes FROM wb_bling_twoway WHERE id=1").rows[0]; return row ? Number(row.pace_minutes) * 60_000 : null; }
+  catch { return null; }
+}
+const earliest = (...values: (number | null | undefined)[]) => { const list = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v)); return list.length ? Math.min(...list) : null; };
 
 export const BLING_AUTHORIZATION_HEADER = "x-erp-bling-authorization";
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -70,6 +93,8 @@ export interface BlingAssembly {
   api: BlingApiPort;
   wake: BlingWakePort;
   data: BlingDataPort;
+  /** Mão dupla: um envio ou uma conferência da fila de saída (uma chamada HTTP). */
+  twoWay(ctx: BlingContext, deadline: number): Promise<{ worked: boolean; nextWake: number | null; requests: 0 | 1 }>;
 }
 /** Somente meios externos são injetados. Todas as portas de negócio são reais. */
 export interface MountedBlingOptions {
@@ -125,11 +150,23 @@ export function createMountedBlingAssembly(options: MountedBlingOptions): BlingA
   const deps = { db, profile, collection, data, authorization, archive, readParts: options.readParts, revalidate,
     randomId, hash, resources, databaseSize: options.databaseSize };
   const archiveWake = createBlingArchiveWake({ ...deps, xml, purge, media: options.media });
-  const wake = createBlingWake({ ...deps, archiveWake });
+  const wake = createBlingWake({ ...deps, archiveWake, pace: () => twoWayPace(db) });
   const api = createBlingApi(deps, { profile, resources, resource_version: BLING_RESOURCE_VERSION,
     callback_url: options.publicOrigin ? blingCallbackUrl(options.publicOrigin, profile) : undefined,
     session: options.session, beforeApplicationSave: authorization.recoverRestoredApplication });
-  return { authorization, collection, archive, data, wake, api };
+  // Escrita de volta: o token sai do cofre na hora, conferido contra o estado da conta.
+  const authStore = new BlingAuthStore(db, profile);
+  const writer = createBlingWriter({ fetch: options.fetch, baseUrl: options.baseUrl, async accessToken(ctx) {
+    await requireBase(ctx);
+    const expected = authStore.control(ctx).expected;
+    return (await authorization.privateCredential(ctx, expected)).access_token;
+  } });
+  async function twoWay(ctx: BlingContext, deadline: number) {
+    await requireBase(ctx);
+    const { runTwoWayOutboundUnit } = await import("./two-way.ts");
+    return runTwoWayOutboundUnit({ db, profile, now: ctx.clock.now, parts: ctx.identity.parts!, writer, ctx, deadline });
+  }
+  return { authorization, collection, archive, data, wake, api, twoWay };
 }
 
 async function installationOrigin(env: Env): Promise<string> {
@@ -323,10 +360,23 @@ export async function nextBlingWake(profile: string, dependencies: BlingAssembly
   if (!(await dependencies.readParts())?.customers) return null;
   // Lote de adoção em andamento volta logo, mas depois do trabalho operacional.
   if (adoptionPending(dependencies.storage)) return notBefore;
-  if (!wake && !hasBlingWork(dependencies)) return null;
+  // Mão dupla: varredura local e fila de saída têm horário próprio.
+  const twoWay = earliest(twoWayScanAt(dependencies.storage), twoWayOutboxAt(dependencies.storage));
+  if (!wake && !hasBlingWork(dependencies)) return twoWay === null ? null : Math.max(notBefore, twoWay);
   wake ??= await mountedWake(dependencies, profile, 1000);
-  const due = await wake.nextWake({ profile, clock, identity: { actor: null, people: null }, origin: "internal" });
+  const due = earliest(await wake.nextWake({ profile, clock, identity: { actor: null, people: null }, origin: "internal" }), twoWay);
   return due === null ? null : Math.max(notBefore, due);
+}
+
+async function mountedTwoWay(dependencies: BlingAssemblyDependencies, profile: string, ctx: BlingContext, deadline: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const assembly = await Promise.race([
+      createBlingAssembly({ ...dependencies, profile }),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new BlingError("BLING_RETRY_WAIT")), Math.max(1, Math.min(1000, deadline - ctx.clock.now()))); }),
+    ]);
+    return await assembly.twoWay(ctx, deadline);
+  } finally { if (timer !== undefined) clearTimeout(timer); }
 }
 
 /** Orçamento da costura; HTTP e transação continuarão nas portas próprias. */
@@ -346,19 +396,37 @@ export async function runBlingWake(profile: string, dependencies: BlingAssemblyD
     if (adopted.worked) return { worked: true, nextWake: options.clock.now() + 1_000, requests: 0 as const };
   }
   const context: BlingContext = { profile, clock: options.clock, identity: { actor: null, people: null }, origin: "internal" };
-  if (!wake && !hasBlingWork(dependencies)) return idle();
+  // Mão dupla (versão 19): primeiro a parte local (aplicar o que veio do Bling e
+  // varrer o ERP), depois um envio ou conferência da fila de saída.
+  if (options.eligible && !wake && dependencies.readSnapshot && deadline - options.clock.now() >= 1_000) {
+    const scanAt = twoWayScanAt(dependencies.storage);
+    if (scanAt !== null && scanAt <= options.clock.now()) {
+      const { runTwoWayWake } = await import("./adoption-api.ts");
+      const local = await runTwoWayWake(profile, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot, now: options.clock.now });
+      if (local.worked) return { worked: true, nextWake: options.clock.now() + 1_000, requests: 0 as const };
+    }
+    const outAt = twoWayOutboxAt(dependencies.storage);
+    if (outAt !== null && outAt <= options.clock.now() && deadline - options.clock.now() >= 1_000) {
+      const sent = await mountedTwoWay(dependencies, profile, context, deadline);
+      if (sent.worked) return { worked: true, nextWake: earliest(sent.nextWake, options.clock.now() + 1_000), requests: sent.requests };
+    }
+  }
+  // O que a coleta devolver ainda respeita o próximo horário da mão dupla.
+  const twoWayNext = () => { const at = earliest(twoWayScanAt(dependencies.storage), twoWayOutboxAt(dependencies.storage)); return at === null ? null : Math.max(at, options.clock.now() + 1_000); };
+  const withTwoWay = <T extends { nextWake: number | null }>(result: T): T => ({ ...result, nextWake: earliest(result.nextWake, twoWayNext()) });
+  if (!wake && !hasBlingWork(dependencies)) return withTwoWay(idle());
   if (deadline - options.clock.now() < 1000) return { ...idle(), nextWake: options.clock.now() + 1000 };
   wake ??= await mountedWake(dependencies, profile, Math.min(1000, deadline - options.clock.now()));
   const due = await wake.nextWake(context);
-  if (due === null) return idle();
+  if (due === null) return withTwoWay(idle());
   const now = options.clock.now();
-  if (!options.eligible) return { ...idle(), nextWake: Math.max(due, now + 1_000) };
-  if (due > now) return { ...idle(), nextWake: due };
+  if (!options.eligible) return withTwoWay({ ...idle(), nextWake: Math.max(due, now + 1_000) });
+  if (due > now) return withTwoWay({ ...idle(), nextWake: due });
   if (deadline - now < 1_000) return { ...idle(), nextWake: now + 1_000 };
   if (!(await dependencies.readParts())?.customers) return idle();
   const result = await wake.runOne(context, { deadline, nextOperationalAt: options.nextOperationalAt, maxGets: 1 });
   if (!(await dependencies.readParts())?.customers) return idle();
-  return result;
+  return withTwoWay(result);
 }
 
 /** Correspondência exata de método/caminho, derivada do descritor único. */
@@ -383,9 +451,10 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
     if (!url.pathname.startsWith(prefix + "/")) throw new BoundaryError(404, "not_found");
     const relative = url.pathname.slice(prefix.length);
-    // Adoção (B1 e B2) e o corte (fatia C): mesmo despacho, mesmas regras.
+    // Adoção (B1 e B2), o corte (fatia C) e a mão dupla: mesmo despacho, mesmas regras.
     if (relative === "/v1/receber-bling/adotar" || relative.startsWith("/v1/receber-bling/adotar/")
-      || relative === "/v1/receber-bling/corte" || relative.startsWith("/v1/receber-bling/corte/"))
+      || relative === "/v1/receber-bling/corte" || relative.startsWith("/v1/receber-bling/corte/")
+      || relative === "/v1/receber-bling/mao-dupla" || relative.startsWith("/v1/receber-bling/mao-dupla/"))
       return await forwardAdoption(env, profile, actor, identity, request, url, relative.slice("/v1/receber-bling".length));
     const match = matchBlingOperation(request.method, relative);
     if (!match) throw new BoundaryError(404, "not_found");

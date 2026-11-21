@@ -15,10 +15,12 @@ Há três conceitos distintos:
 | Adotado | Cadastro do ERP criado, ligado ou atualizado a partir do acervo, com revisão. Só cadastros nesta entrega (fatia B1, abaixo). |
 
 Coletar não cria cadastros, pedidos, títulos, baixas, saldos, notas ou efeitos.
-`erp_sync__settings.enabled` continua falso. Não há envio de alterações ao
-Bling. A adoção dos cadastros é um passo separado, pedido pela pessoa (seção
-"Adotar cadastros"); a escrita contínua futura terá contratos e autorizações
-próprios; uma passagem concluída não encerra a coleta nem constitui migração.
+`erp_sync__settings.enabled` continua falso. A adoção dos cadastros é um passo
+separado, pedido pela pessoa (seção "Adotar cadastros"); uma passagem concluída
+não encerra a coleta nem constitui migração. Envio de alterações ao Bling e
+aplicação automática do que muda lá só existem na **Mão dupla** (seção própria),
+depois do corte, com interruptores por tipo de registro que começam
+desligados.
 
 ## Adotar cadastros (fatia B1)
 
@@ -301,7 +303,9 @@ depois do corte**, com as duas versões; o lote nunca sobrescreve. A pessoa
 escolhe **manter o ERP** (marca a versão como vista) ou, nos cadastros que
 aceitam atualização (contatos, produtos, categorias, depósitos e categorias
 financeiras), **usar a versão nova do Bling** pela RPC da tela. Documentos e
-contas só se mantêm (ajuste no ERP).
+contas só se mantêm (ajuste no ERP). Com **Receber do Bling** ligado na aba
+Mão dupla, o que a coleta trouxer depois de ligar é aplicado sozinho (ou vira
+conflito); o que veio antes continua nesta lista.
 
 **Partes.** Data, conflitos e conferência exigem a Base; contas e saldos, o
 Financeiro; estoque, Produtos e serviços e Estoque; notas e pacote, o Fiscal.
@@ -349,6 +353,141 @@ direto (sem índice próprio): com centenas de milhares de registros a consulta
 fica mais lenta. Os campos de lançamentos de caixa e de custo do produto foram
 lidos pelo formato conhecido do sistema original e precisam ser conferidos
 com uma conta real.
+
+## Mão dupla: coleta contínua e escrita de volta (versão 19)
+
+Aba **Mão dupla** da mesma tela. Depois do corte, a empresa mantém a conta do
+Bling viva (marketplace e loja virtual) e os dois lados ficam iguais. Cada tipo
+de registro tem **dois interruptores**, um por sentido, e **todos começam
+desligados**: com eles desligados nada muda no ERP sozinho e nada é escrito no
+Bling. Ligar exige administrador, o corte confirmado, a parte do ERP ligada e
+o **aviso confirmado** na tela; ligar e desligar ficam registrados com quem e
+quando (`wb_bling_twoway_audit`, imutável). Código em `src/erp/bling/two-way.ts`
+(motor), `two-way-map.ts` (ERP → Bling e conferências), `writer.ts` (escrita
+HTTP) e `two-way-contracts.ts`; tela em `web/erp/app/components/TwoWayBling.tsx`.
+
+| Tipo de registro | Receber do Bling | Escrever no Bling | Partes |
+|---|---|---|---|
+| Contatos | atualiza o cadastro ligado; adota os novos | `POST /contatos`, `PUT /contatos/{id}` | Cadastros |
+| Produtos | idem | `POST /produtos`, `PUT /produtos/{id}` (só produto simples novo) | Produtos e serviços |
+| Propostas, pedidos de venda e de compra | `erp_document_save` no documento ligado; adota os novos | `POST`/`PUT` em `/propostas-comerciais`, `/pedidos/vendas`, `/pedidos/compras` | Vendas ou Compras, e Produtos |
+| Contas a receber e a pagar (com baixas) | `title_update` e, o que foi pago no Bling, baixa na conta financeira do portador | `POST`/`PUT` em `/contas/receber` e `/contas/pagar`; baixa por `POST /contas/.../{id}/baixar` | Financeiro |
+| Saldos de estoque | ajuste (`erp_stock_post`) para o saldo físico do Bling, por depósito ligado | balanço (`POST /estoques`, operação `B`) com o saldo do ERP | Produtos e Estoque |
+
+**Nunca** nota fiscal nem ordem de serviço: não estão na lista de entidades (o
+CHECK das tabelas também as recusa) e o cliente de escrita não tem caminho para
+elas. Também não vão ao Bling: exclusões, cancelamentos, estorno de baixa (a API
+do Bling não tem) e mudança de situação de documentos; viram pendência "faça
+também no Bling".
+
+**1. Coleta contínua (Receber do Bling).** A coleta já segue pela pista
+"recente" com o filtro de data de alteração ou de emissão que cada recurso
+oferece e 15 minutos de sobreposição. O **ritmo** entre as passagens é
+configurável na aba (5 min a 24 h, padrão 15; `wb_bling_twoway.pace_minutes`,
+lido pelo alarme da coleta) e segue o mesmo limite de chamadas por dia e o
+intervalo mínimo da conta. A cada acordada, para os tipos com o interruptor
+ligado, o que a coleta gravou depois da marca d'água (a hora de ligar) é
+aplicado: registro já ligado recebe a versão nova pelas mesmas funções da
+adoção (`applyBlingUpdate`, `applyB2Update`); registro novo é adotado pelas
+regras do lote (`adoptCollected`), inclusive pendências. Registro que a própria
+mão dupla criou no Bling é ligado ao mesmo cadastro, sem adotar de novo. O que
+a coleta trouxe antes de ligar continua em "Mudanças no Bling depois do corte"
+(fatia C). Limite: recursos que a API só filtra pela data de emissão (por
+exemplo, propostas e pedidos de compra) só trazem mudanças de documentos dessa
+janela recente.
+
+**2. Escrever no Bling.** Uma varredura no alarme compara, registro a
+registro, a **impressão** (hash) do que seria enviado com a da última
+sincronização (`wb_bling_twoway_state`). Não há gatilho nas tabelas do ERP. Na
+primeira vez, o ERP de agora vale como ponto de partida: ligar não reenvia o
+que já está igual. Mudou, vira item da fila. Registros criados no ERP depois do
+corte (sem vínculo) vão como criação. A atualização parte do último detalhe
+lido do Bling e sobrepõe só os campos que o ERP mantém (regra do sistema
+original: o PUT substitui o registro inteiro). Documento ou conta cujo contato
+ou produto ainda não existe no Bling espera o envio dele (se a escrita desse
+tipo estiver ligada) ou vira pendência dizendo o que falta.
+
+**3. Fila de saída retomável** (`wb_bling_twoway_outbox`), no alarme do
+`Coordinator`, sem classe nova nem fila da Cloudflare. Cada mudança tem **id
+estável** (operação, entidade, registro e impressão; a baixa, o id da baixa).
+Uma chamada HTTP por acordada, dentro do mesmo limite diário e intervalo mínimo
+da coleta (contadores de `wb_bling_control`), com o token do cofre lido na
+hora. Antes de enviar, o item é gravado como "enviando". Resultado:
+
+- gravou → feito; a linha de base passa a ser a enviada e o eco que a coleta
+  trouxer depois não vira conflito nem reenvio;
+- recusa definitiva (400, 404, 409, 422 ou falta de permissão de escrita) →
+  **pendência com o motivo em palavras**, incluindo o texto do Bling; não é
+  repetida sozinha (Tentar de novo ou Deixar como está);
+- limite de taxa (429) → espera o `Retry-After`;
+- **incerto** (tempo esgotado, queda de conexão, erro 5xx ou redirecionamento
+  depois do envio) → **nunca é repetido às cegas**: o próximo passo é um GET no
+  Bling. Atualização: o registro lido já tem o que mandamos? Criação: a lista
+  filtrada pela chave natural (CPF/CNPJ, código, número; na conta, contato e
+  vencimento) tem exatamente um registro? Baixa: o saldo da conta é o de depois
+  da baixa? Saldo: o saldo físico já é o do ERP? Entrou → feito; não entrou →
+  volta para a fila e só então é reenviado; não dá para saber (sem chave,
+  mais de um parecido, saldo que não bate nem antes nem depois, ou seis
+  conferências sem resposta) → pendência para a pessoa dizer se entrou
+  (informando o id, numa criação) ou mandar de novo.
+- **queda do objeto** no meio do envio: o item que ficou "enviando" vira
+  conferência na acordada seguinte, sem reenviar.
+
+Desligar a escrita depois de enfileirar deixa o pendente parado (nada sai);
+conferências já em curso, que só leem, continuam. Envio que ficou velho (o
+registro mudou de novo no ERP) é substituído pela mudança mais nova.
+
+**4. Conflito.** Quando o mesmo registro mudou nos dois lados desde a última
+sincronização (impressão do ERP diferente da linha de base **e** versão do
+Bling maior que a sincronizada), **nada é sobrescrito**: vira pendência com os
+dois resumos lado a lado (`wb_bling_twoway_issue`, tipo conflito) e o envio da
+fila, se houver, fica parado. A pessoa escolhe **Usar a do Bling** (aplica no
+ERP pelas mesmas funções e descarta o envio) ou **Usar a do ERP** (vai para a
+fila; com a escrita desligada, o ERP só fica como está). **Sem conflito, a
+mudança mais recente vence**: só o Bling mudou → entra no ERP; só o ERP mudou →
+vai ao Bling.
+
+**5. Tela.** Aba Mão dupla: interruptores por tipo e sentido (com o motivo
+quando a parte está desligada e o aviso ao ligar), ritmo da coleta, última
+rodada em cada sentido com os totais, fila de saída com a situação e o motivo
+de cada envio, pendências e conflitos com os dois lados e os botões, e quem
+ligou ou desligou. Sem a data de corte, a aba diz para confirmá-la em Passar a
+operar aqui. Os três estados do dado (bruto, espelho histórico, adotado)
+continuam como na tabela do início.
+
+**6. Bots** (grupo `bling`): `erp_bling_twoway_status` (GET `/mao-dupla`, não
+sensível), `erp_bling_twoway_queue` (GET `/mao-dupla/fila`, sensível),
+`erp_bling_twoway_issues` (GET `/mao-dupla/pendencias`, sensível) e
+`erp_bling_twoway_resolve` (POST `/mao-dupla/pendencias/resolver`, sensível,
+com proposta confirmada pela pessoa). **Ligar ou desligar**
+(`erp_bling_twoway_switch`, POST `/mao-dupla/interruptor`) e o **ritmo**
+(`erp_bling_twoway_pace`, POST `/mao-dupla/ritmo`) são só do administrador
+pela tela: ficam fora do inventário dos bots e a chamada de um bot é recusada
+(`BLING_ADOPTION_SCOPE_REQUIRED`).
+
+**Esquema versão 19** (18→19, só tabelas novas; 17 e 18 são de outras
+frentes): `wb_bling_twoway` (ritmo, cursor da varredura e últimas rodadas),
+`wb_bling_twoway_setting` (interruptor por entidade e sentido, desde quando e a
+marca d'água), `wb_bling_twoway_state` (linha de base), `wb_bling_twoway_outbox`
+(fila), `wb_bling_twoway_issue` (pendências e conflitos) e
+`wb_bling_twoway_audit`. Envio pendente impede apagar o acervo da entidade.
+Nenhuma migração de D1.
+
+**Testes:** `tests/erp/org/mao-dupla.test.mjs` (contra o Bling simulado com
+escrita: zero escritas com os interruptores desligados, nenhuma repetição às
+cegas, conflito vira pendência, retomada depois de queda, recusa com motivo,
+criação conferida pela chave natural, baixa conferida pelo saldo, saldo de
+estoque nos dois sentidos) e `tests/erp/org/mao-dupla-painel.test.mjs`.
+
+**Antes de ligar com uma conta real.** Os caminhos e formatos de escrita vêm
+do sistema original e da documentação conhecida da API v3; precisam de
+conferência oficial (corpos, filtros de lista usados na conferência —
+`numeroDocumento`, `codigos[]`, `numero`, `idContato` com `tipoFiltroData=V` —,
+códigos de resposta e se o PUT devolve corpo). O aplicativo do Bling precisa
+dos escopos de **escrita** dos tipos ligados; sem eles a recusa aparece como
+pendência ("sem permissão para gravar"). A situação de pedidos e propostas
+não é enviada nesta entrega; forma de pagamento, categoria e portador só vão
+quando estão ligados ao Bling pela adoção.
 
 ## Antes de usar uma conta real
 

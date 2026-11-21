@@ -101,6 +101,7 @@ const STEPS: Record<number, (sql: Sql) => number> = {
   15: (sql) => createEngineTables(sql, 16),
   16: (sql) => createEngineTables(sql, 17),
   17: (sql) => createEngineTables(sql, 18),
+  18: (sql) => createEngineTables(sql, 19),
 };
 
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */

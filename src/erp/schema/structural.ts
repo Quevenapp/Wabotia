@@ -216,4 +216,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fiscal, depois da nota autorizada: a carta de correção e a inutilização vão pelo cofre da NFapi, e a devolução de venda vira uma NF-e de devolução (finalidade 4, nota referenciada) emitida pelo cofre, com entrada no estoque e efeito nas contas uma vez só.",
     replaced_by: "Versão 18 aditiva (17→18): order_correction (cartas da NF-e do pedido, sequência de 1 a 20, texto e XML do evento), void_range (inutilizações de NF-e e NFC-e por série e faixa) e order_return (devolução de venda: itens e quantidades, corpo da NF-e de devolução, resultado do cofre e o estado de cada efeito, estoque e financeiro, que só muda de pendente para aplicado uma vez). Número, assinatura e transmissão continuam no cofre.",
   },
+  {
+    id: "mao-dupla-bling",
+    oracle: "Mão dupla do coletor externo (erp_sync: settings, link, outbox, inbox, issue, run, stock_pair), com gatilhos nas tabelas do ERP que enfileiravam toda alteração e um executor externo que reivindicava a fila.",
+    reason: "Mão dupla com o Bling depois do corte: a coleta incremental aplica no ERP, pelas mesmas funções da adoção, o que mudou no Bling, e o que muda no ERP volta ao Bling por uma fila retomável no alarme do Coordinator, sem gatilho nas tabelas do domínio. Interruptor por entidade e sentido, todos desligados; resposta incerta nunca é repetida sem conferir no Bling; conflito dos dois lados vira pendência; nunca nota fiscal nem ordem de serviço.",
+    replaced_by: "Versão 19 aditiva (18→19): wb_bling_twoway (ritmo e últimas rodadas), wb_bling_twoway_setting (interruptor por entidade e sentido), wb_bling_twoway_state (linha de base de cada registro: impressão do ERP e versão do Bling na última sincronização), wb_bling_twoway_outbox (fila de saída com id estável, conferência por GET), wb_bling_twoway_issue (pendências e conflitos com os dois lados) e wb_bling_twoway_audit (quem ligou ou desligou, imutável). A mudança no ERP é achada pela impressão do que seria enviado, sem gatilho.",
+  },
 ];

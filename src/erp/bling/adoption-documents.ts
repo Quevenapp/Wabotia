@@ -16,7 +16,7 @@ import { preference } from "../domains/documents/internal.ts";
 import { normalize } from "../domains/documents/normalize.ts";
 import { numberEditable } from "../domains/documents/save-checks.ts";
 import {
-  BLING_ADOPTION_SINGULAR, BLING_HISTORY_READONLY, BLING_HISTORY_SCOPES, BlingAdoptionError, isAdoptionAccount,
+  BLING_ADOPTION_REASONS, BLING_ADOPTION_SINGULAR, BLING_HISTORY_READONLY, BLING_HISTORY_SCOPES, BlingAdoptionError, isAdoptionAccount,
   type BlingAdoptionB2Entity, type BlingAdoptionHistoryDocument, type BlingAdoptionHistoryItem, type BlingAdoptionMissing,
   type BlingAdoptionOperationMap, type BlingAdoptionReason, type BlingAdoptionRecordEntity, type BlingAdoptionSummary, type BlingHistoryScope,
 } from "./adoption-contracts.ts";
@@ -369,6 +369,62 @@ export function adoptB2Record(ctx: RpcContext, step: B2Step, options: { force?: 
   db.exec("DELETE FROM wb_bling_adoption_history WHERE entity=? AND source_id=?", entity, raw.source_id);
   return { outcome: "adopted", record_id: id };
 }
+
+/** Mão dupla (versão 19): aplica num documento ou conta já ligado a versão
+ * nova do Bling, pelo mesmo mapeamento da adoção e pelas RPCs das telas
+ * (erp_document_save e erp_finance_execute). O número e as observações
+ * internas do ERP ficam; situação e itens seguem as regras do domínio (um
+ * documento que o ERP não deixa editar recusa, e a recusa vira pendência).
+ * Numa conta, o que foi pago no Bling e ainda não no ERP vira baixa na conta
+ * financeira ligada ao portador; estorno feito no Bling não é desfeito aqui. */
+export function applyB2Update(ctx: RpcContext, entity: BlingAdoptionB2Entity, raw: AdoptionRaw, record: string, actor: string, salt: string): void {
+  const db = ctx.db;
+  const refuse = (detail: string): never => { throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", detail); };
+  if (raw.deleted) refuse("O registro foi excluído no Bling. Exclua ou cancele também no ERP, se quiser.");
+  const situation = classifyB2(entity, raw);
+  if (situation.scope === "unknown") refuse(`A situação vinda do Bling não é conhecida (${clip(situation.label, 80)}).`);
+  if (isAdoptionAccount(entity)) {
+    const m = mapAccount(db, entity, raw);
+    if (m.missing.length) refuse(clip(`Falta adotar: ${m.missing.map(x => `${BLING_ADOPTION_SINGULAR[x.entity]} (id ${x.source_id})`).join("; ")}.`, 300)!);
+    if (m.blocked) refuse(m.blocked.detail ?? BLING_ADOPTION_REASONS[m.blocked.reason]);
+    const title = db.exec(`SELECT version, amount_cents, settled_cents, cancelled, account_id, issued_on FROM erp_finance__title WHERE id=?`, record).rows[0];
+    if (!title) refuse("A conta não existe mais no ERP.");
+    if (Number(title!.cancelled) === 1) refuse("A conta está cancelada no ERP.");
+    const amount = String(m.data.total_cents), installment = (m.data.installments as Json[])[0];
+    const data: Json = { id: record, expected_version: Number(title!.version), description: m.data.description, source_reference: m.data.source_reference, due_on: installment.due_on, category_id: m.data.category_id ?? null };
+    if (amount !== String(title!.amount_cents)) data.amount_cents = amount;
+    invokeRpc(ctx, "erp_finance_execute", { p_user_id: actor, p_command_id: commandUuid("bling-twoway-title", entity, raw.source_id, String(raw.version), salt), p_action: "title_update", p_data: data });
+    // Pago no Bling: valor menos saldo (pago e confirmado: o valor inteiro).
+    const total = centsOf(raw.payload.valor), saldo = centsOf(raw.payload.saldo), code = text(raw.payload.situacao);
+    const paid = typeof total === "bigint" ? code === "2" || code === "7" ? total : typeof saldo === "bigint" ? total - saldo : 0n : 0n;
+    const fresh = db.exec(`SELECT version, settled_cents, account_id, issued_on FROM erp_finance__title WHERE id=?`, record).rows[0]!;
+    const delta = paid - BigInt(String(fresh.settled_cents));
+    if (delta < 0n) refuse("No Bling a baixa desta conta foi desfeita (estorno). Desfaça também no ERP, em Financeiro.");
+    if (delta > 0n) {
+      const account = optional(db, "ledger_accounts", raw.payload.portador) ?? (fresh.account_id ? String(fresh.account_id) : null);
+      if (!account) refuse("A conta foi paga no Bling, mas o portador não está ligado a uma conta financeira do ERP. Adote a conta financeira ou dê a baixa no ERP.");
+      const today = todaySaoPaulo();
+      invokeRpc(ctx, "erp_finance_execute", { p_user_id: actor, p_command_id: commandUuid("bling-twoway-settle", entity, raw.source_id, String(raw.version), salt), p_action: "settle",
+        p_data: { id: record, expected_version: Number(fresh.version), account_id: account, posted_on: dateOf(raw.payload.dataPagamento) && dateOf(raw.payload.dataPagamento)! >= String(fresh.issued_on) ? dateOf(raw.payload.dataPagamento) : today < String(fresh.issued_on) ? String(fresh.issued_on) : today,
+          principal_cents: delta.toString(), note: BLING_TWO_WAY_SETTLE_NOTE } });
+    }
+    return;
+  }
+  const m = mapDocument(db, entity as BlingDocumentEntity, raw, situation.label);
+  if (m.missing.length) refuse(clip(`Falta adotar: ${m.missing.map(x => `${BLING_ADOPTION_SINGULAR[x.entity]} (id ${x.source_id})`).join("; ")}.`, 300)!);
+  if (m.blocked) refuse(m.blocked.detail ?? BLING_ADOPTION_REASONS[m.blocked.reason]);
+  const current = db.exec(`SELECT version, body FROM erp_documents__document WHERE id=? AND kind=? AND deleted_at IS NULL`, record, entity).rows[0];
+  if (!current) refuse("O documento não existe mais no ERP.");
+  let body: Json = {};
+  try { body = JSON.parse(String(current!.body ?? "{}")) as Json; } catch { body = {}; }
+  const data: Json = { ...m.data };
+  delete data.number;
+  if (typeof body.internal_notes === "string") data.internal_notes = body.internal_notes;
+  invokeRpc(ctx, "erp_document_save", { p_user_id: actor, p_kind: entity, p_id: record, p_expected_version: Number(current!.version),
+    p_command_id: commandUuid("bling-twoway-document", entity, raw.source_id, String(raw.version), salt), p_body: data });
+}
+/** Nota da baixa que veio do Bling: a mão dupla não a devolve ao Bling. */
+export const BLING_TWO_WAY_SETTLE_NOTE = "Baixa registrada no Bling";
 
 // ---------------------------------------------------------------------------
 // Consultas do histórico

@@ -9,10 +9,11 @@ import './receive-bling.css';
 import { AdoptBling } from './AdoptBling';
 import { HistoryBling } from './HistoryBling';
 import { CutoverBling } from './CutoverBling';
+import { TwoWayBling } from './TwoWayBling';
 import type { AdoptBlingClient } from './adopt-bling-client';
 import type { BlingAdoptionB2Entity } from '../../../../src/erp/bling/adoption-contracts';
 
-const TABS = ['Configuração', 'Progresso e cobertura', 'Acervo', 'Histórico fiscal', 'Adotar cadastros', 'Histórico do Bling', 'Passar a operar aqui'] as const;
+const TABS = ['Configuração', 'Progresso e cobertura', 'Acervo', 'Histórico fiscal', 'Adotar cadastros', 'Histórico do Bling', 'Passar a operar aqui', 'Mão dupla'] as const;
 const HISTORICAL = 'Consulta histórica — não opera no ERP';
 const time = (value: string | number | null) => value === null || !Number.isFinite(new Date(value).getTime()) ? 'Desconhecido' : new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value));
 const bytes = (value: number) => `${new Intl.NumberFormat('pt-BR').format(value)} bytes`;
@@ -123,7 +124,7 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
   const scope = (): BlingPurgeScope => purgeScope === 'all' ? { all: true, entities: [] } : { all: false, entities: [...new Set((resources?.resources ?? []).filter(r => selected.some(s => s.key === r.key)).map(r => r.entity))] };
   return <section className="receive-bling" aria-label="Receber dados do Bling" aria-busy={busy || loading}>
     <header className="rb-heading"><div><h1>Receber dados do Bling</h1><p>{HISTORICAL}</p></div><button type="button" disabled={busy || loading} onClick={() => guard.confirmLeave(() => void task(() => reload()))}>Atualizar dados</button></header>
-    <p className="rb-intro">O bruto preserva os dados recebidos. O espelho apresenta uma interpretação histórica. Receber não cria cadastros, pedidos, títulos, saldos, notas ou efeitos no ERP e só consulta a API de dados. Transformar contatos, produtos e demais cadastros, e as propostas, pedidos e contas em aberto no Bling, em registros do ERP é uma etapa separada, com revisão, na aba Adotar cadastros. O que já está encerrado no Bling fica na aba Histórico do Bling, só para consulta. Para o ERP passar a valer a partir de uma data, use a aba Passar a operar aqui.</p>
+    <p className="rb-intro">O bruto preserva os dados recebidos. O espelho apresenta uma interpretação histórica. Receber não cria cadastros, pedidos, títulos, saldos, notas ou efeitos no ERP e só consulta a API de dados. Transformar contatos, produtos e demais cadastros, e as propostas, pedidos e contas em aberto no Bling, em registros do ERP é uma etapa separada, com revisão, na aba Adotar cadastros. O que já está encerrado no Bling fica na aba Histórico do Bling, só para consulta. Para o ERP passar a valer a partir de uma data, use a aba Passar a operar aqui. Depois do corte, a aba Mão dupla mantém o ERP e o Bling iguais, com um interruptor por tipo de registro e sentido, todos desligados até você ligar.</p>
     <div role="status" aria-live="polite">{loading ? 'Carregando configuração…' : status ? `Estado: ${STATE_LABELS[status.state]}. Próximo horário: ${time(status.next_wake)}.` : 'Função indisponível nesta instalação. Nenhuma coleta foi iniciada.'}{notice && <p>{notice}</p>}</div>
     {error && <p role="alert">{error}</p>}
     {commands.pending && <aside className="rb-warning" role="status"><p>Há uma solicitação sem resultado confirmado. Consulte o recibo antes de qualquer novo comando.</p><p>Comando: <code>{commands.pending.command_id}</code></p><button type="button" disabled={busy} onClick={() => void task(async () => { const result = await commands.resume(life.current.signal); if (current()) { await reload(); const refusal = receiptFailure(result.receipt); if (refusal) throw refusal; setNotice(result.receipt ? 'Recibo consultado. Confira o estado atual.' : result.phase === 'absent' ? 'Nenhuma reserva ou recibo deste comando foi encontrado. Aguarde e consulte novamente; a solicitação não foi repetida.' : 'Solicitação ainda pendente; nenhum comando foi repetido.'); } })}>Consultar recibo e retomar</button></aside>}
@@ -208,6 +209,7 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
       {tab === 4 && <AdoptBling controller={controller} administrator={administrator} client={adoptionClient} onHistory={entity => { setHistoryEntity(entity); switchTab(5); }} />}
       {tab === 5 && <HistoryBling controller={controller} administrator={administrator} client={adoptionClient} entity={historyEntity} />}
       {tab === 6 && <CutoverBling controller={controller} administrator={administrator} client={adoptionClient} onAdopt={() => switchTab(4)} />}
+      {tab === 7 && <TwoWayBling controller={controller} administrator={administrator} client={adoptionClient} onCutover={() => switchTab(6)} />}
     </section>
   </section>;
 }
