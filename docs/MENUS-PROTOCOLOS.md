@@ -6,6 +6,8 @@ Na Meta, até três opções com títulos de até 20 caracteres usam botões de 
 
 As respostas dos botões identificam uma opção da apresentação enviada, da conversa e da sessão. A apresentação expira após 24 horas. Botões antigos, de outra conversa ou de uma opção removida/desabilitada não executam ações: o cliente recebe a orientação para enviar **MENU**. Reordenar opções no painel não muda o significado de um botão já enviado. Nos menus de texto, os números seguem a ordem da apresentação enviada enquanto ela estiver ativa.
 
+Desde 21/11 o menu da área, inclusive os itens de módulo (entrar na fila, agendar, minha mensalidade, reserva, pedido, ordem de serviço…), aparece em toda conversa direta de WhatsApp, Instagram, Facebook, Telegram, TikTok e do chat do site (`app:`), na forma que cada canal aceita: botões ou respostas rápidas no Instagram e no Facebook, botões do bot no Telegram (com o texto numerado junto), texto numerado nos demais. A pessoa responde o número ou o nome da opção. Links de módulo (passo web) saem como texto com o endereço. Quando o canal recusa algo (formato, janela de 24 h do Instagram/Facebook), a resposta diz em palavras o motivo e manda enviar MENU. Ficam de fora o e-mail, comentários e avaliações públicas; Flow, catálogo da Meta, localização e as ferramentas de cliente do bot continuam só no WhatsApp (e nas conversas de aplicação). A fila por canal está em [FILA-SENHAS.md](FILA-SENHAS.md#outros-canais-desde-2111).
+
 ## Cadastrar a hierarquia
 
 1. Clique **Adicionar item** e escolha **Submenu** para organizar opções, por exemplo **Suporte Técnico**. Ele pode ser salvo antes dos filhos.
