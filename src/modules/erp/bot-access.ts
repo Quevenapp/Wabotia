@@ -4,6 +4,7 @@ import { one } from "../../db";
 import { ApiError, json, type Actor, type Env } from "../../types";
 import { COM1_OPERATIONS } from "../../erp/commercial-nfe/metadata.ts";
 import { NFCE_OPERATIONS } from "../../erp/commercial-nfe/nfce-metadata.ts";
+import { OS_NOTE_OPERATIONS } from "../../erp/commercial-nfe/os-notes-metadata.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
 import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
@@ -77,6 +78,10 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Cupom fiscal do balcão (NFC-e): emitir, consultar e cancelar mexem na nota (sensíveis).
   ...NFCE_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
     group: "nfe", description: `${op.summary}. Exige Caixa / PDV e Fiscal ligados.${op.sensitive ? " Mexe no cupom fiscal: a pessoa com o papel confirma." : " Só consulta, sem mudar o cupom."}`,
+    params: { type: "object" as const, properties: {}, required: [] } })),
+  // Notas da ordem de serviço (NFS-e e NF-e das peças): emitir, consultar, cancelar e configurar mexem na nota (sensíveis).
+  ...OS_NOTE_OPERATIONS.map(op => ({ id: op.name, method: op.method, path: `erp-comercial-nfe/${op.path}`, summary: op.summary, sensitive: op.sensitive,
+    group: "nfe", description: `${op.summary}. Exige a parte Fiscal ligada e o cofre configurado (a nota de peças também Vendas e Produtos).${op.sensitive ? " Mexe na nota fiscal: a pessoa com o papel fiscal confirma." : " Só consulta, sem mudar a nota."}`,
     params: { type: "object" as const, properties: {}, required: [] } })),
   { id: "erp_preferences_import_jobs", method: "GET", path: "erp/v1/importacoes", summary: "Consultar importações por planilha", sensitive: false, group: "importacao",
     description: "Lista as importações por planilha da área, com situação e contagem de linhas criadas, alteradas e recusadas. Só consulta.",

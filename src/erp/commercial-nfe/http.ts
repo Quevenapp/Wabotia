@@ -10,6 +10,8 @@ import type { CommercialConnectionCheck } from "../domains/fiscal/comnfe/setting
 import type { CommercialNfeHttpContext } from "./routes.ts";
 import type { CommercialNfeHttpHandler } from "./slots.ts";
 import { createNfceService, type NfceService, type NfceVaultStatus } from "./nfce-service.ts";
+import { createOsNotesService, OS_NOTE_MESSAGES, type NfseVaultStatus, type OsNotesService } from "./os-notes-service.ts";
+import type { NfseCancelReason } from "./contracts.ts";
 import type {
   CommercialSettings, ConfigSaveInput, EffectInput, EffectView, EmissionPage, EmissionView,
   ListInput, PreparationResult, PrepareInput, ReadInput,
@@ -44,6 +46,16 @@ export interface CommercialNfeHttpDependencies {
   service(context: CommercialNfeHttpContext): CommercialNfeService | Promise<CommercialNfeService>;
   /** Cupom do balcão (NFC-e); ausente, as operações nfce.* recusam como não habilitadas. */
   nfce?(context: CommercialNfeHttpContext): NfceService | Promise<NfceService>;
+  /** Notas da ordem de serviço (NFS-e e NF-e das peças); ausente, osnota.* e nfse.* recusam como não habilitadas. */
+  osNotes?(context: CommercialNfeHttpContext): OsNotesService | Promise<OsNotesService>;
+}
+
+/** O que o último "Testar conexão" trouxe do cofre para a NFS-e (sem nova ida ao cofre). */
+export async function nfseVaultStatus(context: CommercialNfeHttpContext): Promise<NfseVaultStatus> {
+  const view = await emissorView(context.env, context.profile), checked = view.checked;
+  const state = checked?.ok ? checked.state : null;
+  return { configured: !!view.configured && !!checked?.ok, checked_at: checked?.at ?? null,
+    nfse: state ? state.documents.nfse === true : null, environments: state ? [...state.key.environments] : [] };
 }
 
 /** O que o último "Testar conexão" trouxe do cofre para a NFC-e (sem nova ida ao cofre). */
@@ -84,7 +96,12 @@ export function createDefaultCommercialNfeHttp(): CommercialNfeHttpHandler {
   };
   const once = (context: CommercialNfeHttpContext) => { let built = services.get(context); if (!built) { built = build(context); services.set(context, built); } return built; };
   return createCommercialNfeHttp({ service: context => once(context).service,
-    nfce: context => { const { bridge, service } = once(context); return createNfceService({ bridge, base: service, vaultStatus: () => nfceVaultStatus(context) }); } });
+    nfce: context => { const { bridge, service } = once(context); return createNfceService({ bridge, base: service, vaultStatus: () => nfceVaultStatus(context) }); },
+    osNotes: context => { const { bridge, service } = once(context); return createOsNotesService({ bridge, base: service,
+      // Carregada só aqui: a ponte da ordem lê o D1 do módulo (registro de módulos).
+      order: async orderId => (await import("../../modules/os/fiscal/notes.ts")).osOrderFiscalState(context.env, context.profile, orderId),
+      vaultStatus: () => nfseVaultStatus(context),
+      remember: async (orderId, notes) => (await import("../../modules/os/fiscal/notes.ts")).rememberOsNotes(context.env, context.profile, orderId, notes) }); } });
 }
 
 function defaultService(context: CommercialNfeHttpContext, bridge: ReturnType<typeof createCommercialNfeBridge>) {
@@ -248,11 +265,46 @@ async function handleNfce(context: CommercialNfeHttpContext, nfce: NfceService):
   }
 }
 
+/** Notas da ordem: o resultado é a visão da ordem (o que pode ser emitido e as notas). */
+async function handleOsNotes(context: CommercialNfeHttpContext, service: OsNotesService): Promise<{ result: unknown; status: number }> {
+  const input = context.input, id = context.params.id!, kind = input.kind === "nfe" ? "nfe" : "nfse";
+  const command = String(input.command_id ?? "");
+  switch (context.operation.name) {
+    case "osnota.list": return { result: await service.overview(id), status: 200 };
+    case "osnota.emit": {
+      const done = await service.emit(id, kind, command);
+      const section = done.overview.notes.find(note => note.kind === kind);
+      return { result: done.overview, status: done.blocked ? 422 : section?.emission && ["enviando", "processando", "incerta"].includes(section.emission.status) ? 202 : 200 };
+    }
+    case "osnota.consult": return { result: await service.consult(id, kind, command), status: 200 };
+    case "osnota.cancel": return { result: await service.cancel(id, kind, command, String(input.justification).trim(),
+      typeof input.reason === "string" ? input.reason as NfseCancelReason : undefined), status: 200 };
+    case "osnota.xml": return { result: await service.file(id, kind, "xml"), status: 200 };
+    case "osnota.pdf": return { result: await service.file(id, kind, "pdf"), status: 200 };
+    case "osnota.cancel.xml": return { result: await service.file(id, kind, "cancellation"), status: 200 };
+    case "nfse.config.get": return { result: await service.config(), status: 200 };
+    case "nfse.config.save": return { result: await service.saveConfig(input), status: 200 };
+    default: throw new ApiError(404, "not_found", "Operação das notas da ordem não encontrada.");
+  }
+}
+
 /** Instalar com installCommercialNfeHttp; não altera registros de produção ao importar. */
 export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependencies): CommercialNfeHttpHandler {
   return async context => {
     const counter = context.operation.name.startsWith("nfce.");
+    const orderNotes = context.operation.name.startsWith("osnota.") || context.operation.name.startsWith("nfse.");
     try {
+      if (orderNotes) {
+        if (!dependencies.osNotes) throw new ErpError("0A000", "com1_not_ready");
+        const { result, status } = await handleOsNotes(context, await dependencies.osNotes(context));
+        if (result instanceof Response) {
+          const headers = new Headers(result.headers);
+          for (const [key, value] of Object.entries(PRIVATE_HEADERS)) headers.set(key, value);
+          return new Response(result.body, { status: result.status, headers });
+        }
+        const masked = !!(context.actor.via || context.identity.actor?.is_agent || context.identity.actor?.is_technical) && context.actor.via?.masked !== false;
+        return Response.json(createPiiMask(masked).maskValue(result), { status, headers: PRIVATE_HEADERS });
+      }
       if (counter) {
         if (!dependencies.nfce) throw new ErpError("0A000", "com1_not_ready");
         const result = await handleNfce(context, await dependencies.nfce(context));
@@ -296,6 +348,13 @@ export function createCommercialNfeHttp(dependencies: CommercialNfeHttpDependenc
         context.operation.name === "com1.prepare" && (result as PreparationResult).blockers.length > 0;
       return Response.json(dto, { status: blocked ? 422 : awaiting(result) ? 202 : 200, headers: PRIVATE_HEADERS });
     } catch (error) {
+      if (orderNotes && (error instanceof ApiError || error instanceof CommercialNfeError || error instanceof ErpError)) {
+        const code = error instanceof ErpError ? (/^[a-z][a-z0-9_]{1,100}$/.test(error.message) ? error.message : "fiscal_operation_failed") : error.code;
+        const status = error instanceof ErpError ? (error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409) : error.status;
+        return Response.json({ code, message: OS_NOTE_MESSAGES[code] ?? (error instanceof ErpError
+          ? "A nota da ordem não pôde ser concluída agora. Abra as notas da ordem de novo e confira a situação antes de tentar outra vez." : error.message) },
+          { status, headers: PRIVATE_HEADERS });
+      }
       if (counter && (error instanceof ApiError || error instanceof CommercialNfeError || error instanceof ErpError)) {
         const code = error instanceof ErpError ? (/^[a-z][a-z0-9_]{1,100}$/.test(error.message) ? error.message : "fiscal_operation_failed") : error.code;
         const status = error instanceof ErpError ? (error.code === "42501" ? 403 : error.code === "22023" ? 400 : error.code === "P0002" ? 404 : 409) : error.status;

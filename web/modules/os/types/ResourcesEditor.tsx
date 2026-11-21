@@ -2,6 +2,7 @@ import React from "react";
 import { Field } from "../../../ui";
 import type { CustomWorkType, Os2AiAccess } from "../work-contracts";
 import "../object-types/object-types.css";
+import { useIntegrationHost } from "../../integrations/visibility";
 export function ResourcesEditor({
   type,
   onChange,
@@ -17,6 +18,9 @@ export function ResourcesEditor({
     onChange({ ...type, features: { ...type.features, ...features } });
   const quote = type.features.quote;
   const access = aiAccess ?? { enabled: false, internal: false, sensitive: false };
+  // OS5: a marca da nota só aparece com o ERP e a parte Fiscal ligados.
+  const host = useIntegrationHost();
+  const fiscal = !!host?.context.statusLoaded && host.context.modules.erp === true && host.context.modules["erp-fiscal"] === true;
   return (
     <>
       {onAiAccessChange && <fieldset className="os2-ai-access">
@@ -67,6 +71,16 @@ export function ResourcesEditor({
           onChange={(value) => update({ [key]: Number(value) })}
         />
       ))}
+      {fiscal && (
+        <label className="os-work-check">
+          <input
+            type="checkbox"
+            checked={type.features.require_invoice_to_deliver === true}
+            onChange={(event) => update({ require_invoice_to_deliver: event.target.checked || undefined })}
+          />
+          Exigir nota fiscal autorizada para entregar (sem marcar, a ordem nunca espera a nota)
+        </label>
+      )}
       <Field
         label="Termos"
         value={type.terms || ""}

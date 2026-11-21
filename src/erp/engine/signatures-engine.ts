@@ -31,6 +31,11 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_com1_nfce_config_get: [["p_user_id", "u"]],
   erp_com1_nfce_config_save: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_nfce_sale_cancel: [["p_user_id", "u"], ["p_input", "j"]],
+  // Notas da ordem de serviço (NFS-e e NF-e das peças): src/erp/domains/fiscal/comnfe/os-notes.ts.
+  erp_com1_os_notes: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_os_prepare: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_com1_nfse_config_get: [["p_user_id", "u"]],
+  erp_com1_nfse_config_save: [["p_user_id", "u"], ["p_input", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

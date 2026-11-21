@@ -15,7 +15,7 @@ import {
   COM1_TABLES, com1Hash, com1Uuid, finishCommand, getEffects,
   getStoredEmission, getStoredRevision, replayCommand, saveEffect, startCommand, transferEffect,
 } from "./store.ts";
-import { withCom1Compensation } from "./effect-policy.ts";
+import { COM1_MODULE_EFFECTS, com1ModuleDocument, withCom1Compensation } from "./effect-policy.ts";
 import { BANK_WRITEOFF_ACTION, liveBankCollection } from "../../finance/internal.ts";
 
 export interface Com1EffectPorts {
@@ -264,6 +264,15 @@ export function createCom1EffectHandlers(ports: Partial<Com1EffectPorts> = {}) {
         return finish({ ...effect, state:"pendente", reason, person_id:ctx.identity.actor!.user_id, command_id:command.id,
           result:{reason,responsible_role:effect.responsible_role,corrective_action:"Corrigir a pendência na área responsável e iniciar um novo comando."} });
       };
+      // Nota da ordem de serviço (documento da fase 3): estoque e financeiro
+      // são os da ordem. A nota não lança de novo e cancelá-la não estorna:
+      // o efeito fica registrado como "pulado" com o motivo, sem compensação.
+      if (com1ModuleDocument(ctx, emission.document_id)) {
+        if (reverse) return finish({ ...effect, state: old?.state ?? "pulado", reason: old?.reason ?? COM1_MODULE_EFFECTS,
+          compensation_state: null, compensation_result: { reason: COM1_MODULE_EFFECTS, kept: true } });
+        return finish({ ...effect, state: "pulado", reason: COM1_MODULE_EFFECTS, origin: null, command_id: command.id,
+          result: { reason: COM1_MODULE_EFFECTS, explanation: "Estoque e financeiro são lançados pela ordem de serviço, não pela nota." } });
+      }
       if (!reverse && old?.state === "pulado" && input.intent !== "apply_skipped") return finish(old);
       if (!reverse && !ctx.parts[input.axis] && !old?.fingerprint) return finish({ ...effect,state:"pulado",reason:"part_disabled",command_id:command.id,result:{reason:"part_disabled",explicit_retry_required:true} });
       if (!allowed) return fail("local_role_required");

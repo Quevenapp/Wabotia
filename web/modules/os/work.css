@@ -137,3 +137,24 @@
 .os4-slots + .os4-slots {
   margin-top: 0.5rem;
 }
+
+/* OS5: notas fiscais da ordem (nota de serviço e nota de peças). */
+.work-invoices .work-invoice + .work-invoice {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line, #e5e7eb);
+}
+.work-invoice-data {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.work-invoice-data dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.work-invoice-data .mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}

@@ -198,4 +198,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia C: a pessoa escolhe a data a partir da qual o ERP vale; contas parciais pelo saldo, saldos de abertura das contas financeiras, estoque de abertura por depósito, notas emitidas no Bling só para consulta, pacote do contador e conferência final que só conclui sem pendência não justificada.",
     replaced_by: "Versão 15 aditiva (14→15): wb_bling_cutover (data de corte confirmada por um administrador, conclusão e fotografia da conferência) e wb_bling_cutover_item (o que cada etapa gravou: parcial adotada, saldo de abertura, estoque de abertura por depósito, pacote do contador e suas partes no R2, justificativas e conflitos decididos). Os lançamentos passam pelas RPCs das telas (erp_finance_title_execute, erp_finance_cash_execute, erp_stock_post).",
   },
+  {
+    id: "nota-servico-os",
+    oracle: "A ordem de serviço do ERP não emite NFS-e; a nota de serviço é feita fora do sistema.",
+    reason: "Ordem de serviço, parte 5: a ordem com orçamento aprovado emite a NFS-e do Sistema Nacional (serviços) e a NF-e modelo 55 (peças) pelo cofre da NFapi, pela mesma máquina da NF-e comercial, sem lançar estoque nem financeiro de novo (os efeitos são os da fase 3).",
+    replaced_by: "Versão 16 aditiva (15→16): service_emission, service_revision, service_command, service_cancel, service_effect e service_audit em erp_fiscal_vault, com o DDL da versão 10 e os limites da NFS-e (série de até 5 dígitos, número da DPS de até 15, chave nacional de até 50 caracteres e o número da NFS-e na coluna protocol), e service_settings (código de tributação, NBS, ISS e município de prestação, com exceções por serviço). Inscrição municipal, série da DPS e regime especial ficam no cofre.",
+  },
 ];

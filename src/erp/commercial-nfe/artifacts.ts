@@ -28,7 +28,7 @@ export function requireVaultBinding(emission: StoredEmission, vault: CommercialV
 
 /** Verifica a identidade também nas leituras: nunca usar a referência como ID do provedor. */
 export function matchesCommercialResult(emission: StoredEmission, result: FiscalResult | null): boolean {
-  return !!result && result.kind === (emission.model === "nfce" ? "nfce" : "nfe") && result.environment === emission.environment &&
+  return !!result && result.kind === (emission.model ?? "nfe") && result.environment === emission.environment &&
     result.reference === emission.reference && typeof result.provider_ref === "string" && !!result.provider_ref &&
     (!emission.provider_id || result.provider_ref === emission.provider_id) &&
     (!emission.access_key || result.access_key === emission.access_key);
@@ -46,8 +46,30 @@ function parseXml(xml: string) {
   } catch { return invalidFile(); }
 }
 
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+/** Evento de cancelamento da NFS-e (Sistema Nacional). O leiaute do evento é
+ * outro (chNFSe, sem cStat da SEFAZ); confere chave, ambiente e lê o número
+ * e a data do registro do evento, sem depender do namespace. */
+function parseServiceCancellationXml(xml: string, emission: StoredEmission): { protocol: string; event_at: string } {
+  const doc = parseXml(xml);
+  const first = (...names: string[]) => {
+    for (const name of names) {
+      const nodes = doc.getElementsByTagNameNS("*", name);
+      if (nodes.length > 1) invalidFile();
+      if (nodes.length === 1) return nodes.item(0)!.textContent?.trim() ?? "";
+    }
+    return null;
+  };
+  const key = first("chNFSe"), environment = first("tpAmb", "ambGer");
+  if ((emission.access_key && key !== emission.access_key) || (environment !== null && environment !== (emission.environment === "producao" ? "1" : "2"))) invalidFile();
+  const protocol = first("nProt", "nDFe"), instant = first("dhRegEvento", "dhProc", "dhEvento");
+  if (!protocol || !/^[0-9A-Za-z._-]{1,100}$/.test(protocol) || !instant || !INSTANT.test(instant) || !Number.isFinite(Date.parse(instant))) invalidFile();
+  return { protocol: protocol!, event_at: String(BigInt(Date.parse(instant!)) * 1000n) };
+}
+
 /** Só extrai metadados do retorno do evento; nunca usa o protocolo de autorização. */
 export function parseCancellationXml(xml: string, emission: StoredEmission): { protocol: string; event_at: string } {
+  if (emission.model === "nfse") return parseServiceCancellationXml(xml, emission);
   const doc = parseXml(xml);
   const returns = doc.getElementsByTagNameNS("http://www.portalfiscal.inf.br/nfe", "retEvento");
   if (returns.length !== 1) invalidFile();
@@ -62,7 +84,7 @@ export function parseCancellationXml(xml: string, emission: StoredEmission): { p
   if (value("chNFe") !== emission.access_key || value("tpAmb") !== (emission.environment === "producao" ? "1" : "2") ||
     value("tpEvento") !== "110111" || value("nSeqEvento") !== "1" || !["135", "155"].includes(value("cStat"))) invalidFile();
   const protocol = value("nProt"), instant = value("dhRegEvento");
-  if (!/^\d{1,100}$/.test(protocol) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(instant) || !Number.isFinite(Date.parse(instant))) invalidFile();
+  if (!/^\d{1,100}$/.test(protocol) || !INSTANT.test(instant) || !Number.isFinite(Date.parse(instant))) invalidFile();
   return { protocol, event_at: String(BigInt(Date.parse(instant)) * 1000n) };
 }
 
@@ -82,7 +104,10 @@ export function privateFiscalFile(emissionId: string, kind: "danfe" | "xml" | "c
 export async function commercialArtifact(emission: StoredEmission, vault: CommercialVaultSession, kind: "danfe" | "xml",
   copy?: "consumer" | "establishment"): Promise<Response> {
   requireVaultBinding(emission, vault);
-  const counter = emission.model === "nfce", document = counter ? "nfce" : "nfe";
+  // O contrato do cofre não gera o PDF da NFS-e (DANFSE): só o XML.
+  if (emission.model === "nfse" && kind === "danfe")
+    throw new CommercialNfeError(409, "fiscal_nfse_pdf_unavailable", "O cofre não gera o PDF da nota de serviço. Baixe o XML ou consulte a nota no Portal Nacional da NFS-e pela chave.");
+  const counter = emission.model === "nfce", document = emission.model === "nfse" ? "nfse" : counter ? "nfce" : "nfe";
   const contingency = counter && emission.status === "processando" && emission.provider_status === "contingency";
   if (!emission.provider_id || (!emission.environment_confirmed && !contingency) || (!["autorizada", "cancelada"].includes(emission.status) && !contingency))
     throw new CommercialNfeError(409, "fiscal_artifact_unavailable", "O arquivo aguarda a confirmação da emissão no cofre.");
@@ -96,6 +121,12 @@ export async function commercialArtifact(emission: StoredEmission, vault: Commer
     return privateFiscalFile(emission.id, kind, file.body);
   }
   const xml = await vault.provider.xml(vault.context, document, emission.provider_id);
+  if (document === "nfse") {
+    // Leiaute nacional da NFS-e: XML bem formado e com a chave da nota.
+    parseXml(xml);
+    if (emission.access_key && !xml.includes(emission.access_key)) invalidFile();
+    return privateFiscalFile(emission.id, kind, new TextEncoder().encode(xml));
+  }
   const doc = parseXml(xml), ns = "http://www.portalfiscal.inf.br/nfe";
   const invoices = doc.getElementsByTagNameNS(ns, "infNFe"), environments = doc.getElementsByTagNameNS(ns, "tpAmb");
   if (invoices.length !== 1 || (!contingency && invoices.item(0)!.getAttribute("Id") !== `NFe${emission.access_key}`) || !environments.length) invalidFile();

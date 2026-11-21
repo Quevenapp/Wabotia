@@ -3,9 +3,10 @@ import type { FiscalProvider, FiscalResult } from "../emissor/provider.ts";
 import type { CommercialNfeHttpContext } from "./routes.ts";
 import type { CommercialNfeBridge } from "./bridge.ts";
 import type {
-  CancelRecordInput, ClaimResult, CommandReceipt, ConfigSaveInput, EffectInput, EmissionView,
-  JsonObject, JsonValue, ListInput, PrepareInput, ReadInput, RecordInput,
+  CancelClaimResult, CancelRecordInput, ClaimResult, CommandReceipt, ConfigSaveInput, EffectInput, EmissionView,
+  JsonObject, JsonValue, ListInput, NfseCancelReason, PrepareInput, ReadInput, RecordInput,
 } from "./contracts.ts";
+import { NFSE_CANCEL_REASONS } from "./contracts.ts";
 import {
   commercialArtifact, commercialLookupIdentity, matchesCommercialResult, parseCancellationXml, privateFiscalFile,
   requireVaultBinding, CommercialNfeError as ApiError, type CommercialVaultSession,
@@ -15,7 +16,7 @@ export interface CommercialEmitInput extends ReadInput {
   command_id: string; expected_version: number; body_revision: number; body_hash: string;
 }
 export type CommercialResumeInput = Omit<CommercialEmitInput, "body_hash">;
-export interface CommercialCancelInput extends ReadInput { command_id: string; expected_version: number; justification: string }
+export interface CommercialCancelInput extends ReadInput { command_id: string; expected_version: number; justification: string; reason?: NfseCancelReason }
 export interface CommercialNfeServiceDependencies {
   bridge: CommercialNfeBridge;
   /** Resolve no servidor e captura conexão/credencial. Nunca aceita configuração do navegador. */
@@ -23,8 +24,12 @@ export interface CommercialNfeServiceDependencies {
   uuid?: () => string;
 }
 
-/** Documento do cofre da emissão: NFC-e no balcão, NF-e no pedido. */
-export const commercialKind = (emission: { model?: string }): "nfe" | "nfce" => emission.model === "nfce" ? "nfce" : "nfe";
+/** Documento do cofre da emissão: NFC-e no balcão, NFS-e na nota de serviço
+ * da ordem, NF-e no pedido (e nas peças da ordem). */
+export const commercialKind = (emission: { model?: string }): "nfe" | "nfce" | "nfse" =>
+  emission.model === "nfce" ? "nfce" : emission.model === "nfse" ? "nfse" : "nfe";
+/** A nota da ordem de serviço não lança efeitos: nada a tentar depois. */
+const MODULE_EFFECTS = "module_origin_effects";
 const hash = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 const fail = (code: string, message: string): never => { throw new ApiError(409, code, message); };
 
@@ -45,7 +50,7 @@ export function freezeCommercialVaultSession(context: CommercialNfeHttpContext, 
     const request = new Request(resource, init), target = new URL(request.url);
     if (target.origin !== origin) fail("fiscal_connection_changed", "Restabeleça a conexão original desta emissão.");
     // Também isola versões antigas do provedor cujo find não recebia ambiente.
-    if ((target.pathname === "/v1/nfe" || target.pathname === "/v1/nfce") && request.method === "GET") target.searchParams.set("ambiente", environment);
+    if ((target.pathname === "/v1/nfe" || target.pathname === "/v1/nfce" || target.pathname === "/v1/nfse") && request.method === "GET") target.searchParams.set("ambiente", environment);
     const headers = new Headers(request.headers);
     headers.set("Authorization", `Bearer ${credential}`);
     const response = await transport(new Request(target, new Request(request, { headers, redirect: "manual" })));
@@ -71,6 +76,15 @@ function externalFailure(error: unknown): { result: FiscalResult | null; error: 
     // sanitiza suas chaves antes de persistir, sem publicá-la no DTO/auditoria.
     evidence: { transport_error: code, retryable: details.retryable === true,
       ...(details.unverified_emission != null ? { unverified_emission: details.unverified_emission as JsonValue } : {}) } };
+}
+
+/** Pedido de cancelamento a partir do corpo persistido no claim. A NFS-e leva
+ * também o motivo (erro_emissao, servico_nao_prestado ou outros). */
+function cancelPayload(claim: CancelClaimResult): { justification: string; reason?: NfseCancelReason } {
+  const text = claim.command.request?.body_text;
+  const body = typeof text === "string" ? JSON.parse(text) as Record<string, unknown> : {};
+  const reason = NFSE_CANCEL_REASONS.find(value => value === body.motivo);
+  return { justification: claim.cancellation.justification, ...(claim.emission.model === "nfse" ? { reason: reason ?? "outros" } : {}) };
 }
 
 function capability(emissionId: string, command: CommandReceipt) {
@@ -121,6 +135,8 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
     // record; falha ou revogação aqui não desfaz nem esconde o resultado fiscal.
     for (const axis of ["stock", "finance"] as const) {
       const existing = emission.effects.find(effect => effect.axis === axis);
+      // Nota da ordem de serviço: estoque e financeiro são os da fase 3.
+      if (existing?.reason === MODULE_EFFECTS) continue;
       if (emission.status === "autorizada" && existing && ["aplicado", "reconhecido", "pulado"].includes(existing.state)) continue;
       if (emission.status === "cancelada" && ["revertido", "transferido"].includes(existing?.compensation_state ?? "")) continue;
       try {
@@ -172,8 +188,10 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       // recebida não pode ser substituída por um erro fictício do provedor.
       // O replay revalida papel/portão/partes antes de outra chamada externa.
       await bridge.call("erp_com1_claim", claimInput);
+      // NFS-e: o contrato não tem consulta ao governo; repetir o pedido com a
+      // mesma referência faz o cofre consultar a SEFIN antes de reenviar.
       try { record = { ...cap, connection_fingerprint: vault.fingerprint,
-        result: foundAbsent
+        result: foundAbsent || kind === "nfse"
           ? await vault.provider.emit(vault.context, kind, body, key, options)
           : await vault.provider.reconcile(vault.context, kind, record.result!.provider_ref, commercialLookupIdentity(claim.emission)) }; }
       catch (error) { record = { ...cap, connection_fingerprint: vault.fingerprint, ...externalFailure(error) }; }
@@ -228,7 +246,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
         JSON.parse(request.body_text).justificativa !== claim.cancellation.justification)
         fail("com1_persisted_request_invalid", "A intenção de cancelamento precisa ser reconciliada.");
       if (claim.disposition === "send") {
-        record.result = await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission));
+        record.result = await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, cancelPayload(claim), commercialLookupIdentity(claim.emission));
       } else {
         record.result = await vault.provider.get(vault.context, kind, claim.emission.provider_id!, commercialLookupIdentity(claim.emission));
         retryCancellation = matchesCommercialResult(claim.emission, record.result) && record.result!.status === "authorized";
@@ -244,7 +262,7 @@ export function createCommercialNfeService(_context: CommercialNfeHttpContext, d
       await bridge.call("erp_com1_cancel_claim", claimInput);
       try {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto",
-          result: await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, { justification: claim.cancellation.justification }, commercialLookupIdentity(claim.emission)) };
+          result: await vault.provider.cancel(vault.context, kind, claim.emission.provider_id!, cancelPayload(claim), commercialLookupIdentity(claim.emission)) };
         record.state = record.result?.status === "cancelled" ? "registrado" : record.result?.status === "authorized" ? "recusado" : "incerto";
       } catch (error) {
         record = { ...cap, connection_fingerprint: vault.fingerprint, state: "incerto", ...externalFailure(error) };
