@@ -103,7 +103,7 @@ describe("OS2 regras: barreira única e efeitos atômicos", () => {
       { extra_json: JSON.stringify({ ...json(committed.order.extra_json), km: null }) }, "integration:test",
       "os.updated", ["km"], uid()))).rejects.toMatchObject({ code: "missing_fields" });
     expect(await effects(f, order.id)).toEqual(committed);
-    order = await f.call(`/service-orders/${order.id}/stage`, "POST", { version: order.version, transition_id: "retornar" });
+    order = await f.call(`/service-orders/${order.id}/stage`, "POST", { version: order.version, transition_id: "retornar", note: "Conferir de novo" });
     const returned = await effects(f, order.id);
     await f.call(`/service-orders/${order.id}`, "PATCH", { version: order.version, extra: { conferido: null } }, uid(), 409);
     expect(await effects(f, order.id)).toEqual(returned);
@@ -125,7 +125,7 @@ describe("OS2 regras: barreira única e efeitos atômicos", () => {
     const before = await effects(f, order.id);
     await f.call(`/service-orders/${order.id}/status`, "POST", { status: "in_progress", version: order.version }, uid(), 409);
     expect(await effects(f, order.id)).toEqual(before);
-    const cancelled = await f.call(`/service-orders/${order.id}/status`, "POST", { status: "cancelled", version: order.version });
+    const cancelled = await f.call(`/service-orders/${order.id}/status`, "POST", { status: "cancelled", version: order.version, note: "Cliente desistiu" });
     expect(cancelled.status).toBe("cancelled");
     expect(json((await row(f, order.id)).stage_required_json, [])).toEqual([]);
     const initial = ruledType();

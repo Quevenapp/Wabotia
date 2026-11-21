@@ -154,12 +154,35 @@ export interface FieldIndexState {
   updated: number;
 }
 export interface FieldIndexRebuildRequest { generation?: string; cursor_number?: number }
+/** OS6: item do checklist de uma etapa do modelo. */
+export interface WorkChecklistItem {
+  id: string;
+  label: string;
+  /** A etapa só avança com este item marcado. */
+  required: boolean;
+  /** Marcar exige uma foto anexada aos documentos da ordem. */
+  photo_required: boolean;
+}
 export interface WorkStage {
   id: string;
   label: string;
   base_status: BaseStatus;
   message: string;
+  /** OS6: ausente ou vazio, a etapa não tem checklist. */
+  checklist?: WorkChecklistItem[];
 }
+/** OS6: marcação de um item do checklist na ordem. */
+export interface ChecklistMark { done: boolean; photo_document_id: string | null; by: string; at: number }
+/** OS6: checklist de uma etapa como a ordem mostra (definição fixada + marcações). */
+export interface OrderChecklistStage {
+  stage_id: string;
+  stage_label: string;
+  current: boolean;
+  items: Array<WorkChecklistItem & { done: boolean; photo_document_id: string | null; by: string | null; at: number | null }>;
+  /** Obrigatórios ainda sem marca (ou sem a foto pedida). */
+  missing: string[];
+}
+export interface ChecklistMarkRequest { version: number; item_id: string; done: boolean; photo_document_id?: string | null }
 export interface TransitionBase {
   id: string;
   from: string;
@@ -193,6 +216,8 @@ export interface WorkFeatures {
   stale_days: number;
   /** OS5: só entrega com nota fiscal autorizada (de serviço ou de peças). Ausente: a ordem nunca espera a nota. */
   require_invoice_to_deliver?: boolean;
+  /** OS6: o cliente vê o resumo do checklist da etapa no acompanhamento pelo WhatsApp. Ausente: não vê. */
+  checklist_customer_summary?: boolean;
 }
 export interface WorkLabels {
   singular: string;
@@ -416,6 +441,10 @@ export interface Order extends WorkOrderAdditions {
   created: number;
   updated: number;
   history?: OrderHistory[];
+  /** OS6: checklist das etapas do modelo que têm checklist (vazio sem checklist). */
+  checklist?: OrderChecklistStage[];
+  /** OS6: ligação com a ordem reaberta e com a ordem antiga do ERP. */
+  links?: Array<{ kind: "reopened_as" | "reopened_from" | "erp_document"; other_id: string; reason: string; created: number }>;
 }
 export interface OrderList extends Page<Order> {
   counts: Partial<Record<BaseStatus, number>>;
@@ -488,14 +517,49 @@ export interface DecisionRequest {
   detail?: { by_name: string; at?: number; channel?: DecisionDetail["channel"] };
 }
 /** OS3: reabrir o orçamento aprovado (com motivo, fica no histórico). */
-export interface QuoteReopenRequest { version: number; reason: string }
+/** OS6: undo_erp=true confirma desfazer no ERP (cancelar o documento e as contas em aberto) e seguir numa ordem nova. */
+export interface QuoteReopenRequest { version: number; reason: string; undo_erp?: boolean }
+/** OS6: o que existe no ERP para a ordem e o que reabrir vai fazer (GET quote/reopen). */
+export interface QuoteReopenPreview {
+  id: string; version: number;
+  /** local: volta para análise na mesma ordem; erp: desfaz no ERP e continua numa ordem nova; blocked: não reabre agora. */
+  mode: "local" | "erp" | "blocked";
+  can_reopen: boolean;
+  erp: { document: boolean; document_number: string | null; titles: number; stock_posted: boolean; settlements: number; pending_sends: number };
+  notes: Array<{ kind: "nfse" | "nfe"; status: string; number: string | null }>;
+  received_cents: number;
+  open_charges: number;
+  /** O que reabrir vai desfazer, em palavras. */
+  effects: string[];
+  /** Por que não reabre agora e o que fazer antes, em palavras. */
+  blockers: string[];
+}
 export type ReceiptMethod = "cash" | "pix" | "card" | "other" | "unknown";
 export interface ReceiptRequest { amount_cents: number; method: ReceiptMethod; occurred_at?: number; note?: string }
+/** OS6: estorno de um recebimento feito pela ordem. */
+export interface ReceiptReverseRequest { receipt_key: string; reason: string }
 export interface ChargeRequestInput { method: "pix" | "link"; amount_cents?: number }
 export interface OrderReceipt {
   receipt_key: string; kind: "receive" | "reverse"; evidence: "provider" | "manual";
   amount_cents: number; method: ReceiptMethod; occurred_ms: number; actor_id: string | null;
+  /** OS6: recebimento original que este estorno desfaz (só nos estornos). */
+  reverses_key?: string | null;
+  /** OS6: o recebimento já foi estornado. */
+  reversed?: boolean;
 }
+/** OS6: prévia de "Trazer para a ordem de serviço" de uma ordem antiga do ERP. */
+export interface ErpLegacyPreview {
+  document_id: string; number: string | null; status: string; status_label: string; date: string | null;
+  customer: { contact_id: string | null; name: string | null; found: boolean };
+  item: string; problem: string;
+  items: Array<{ description: string; quantity: number; unit_cents: number; unit: string }>;
+  total_cents: number;
+  /** Já trazida: a ordem nova que ficou ligada. */
+  migrated: { order_id: string; display_number: string } | null;
+  can_import: boolean;
+  blockers: string[];
+}
+export interface ErpLegacyImportRequest { type_id?: string }
 export interface OrderCharge {
   id: string; method: string; status: string; amount_cents: number; url: string | null;
   pix_code: string | null; expires_at: number | null; created: number;

@@ -137,10 +137,18 @@ export function createWorkApi(api: Api, root: string) {
     // OS3: comercial da ordem.
     reopenQuote: (id: string, body: C.QuoteReopenRequest) =>
       send<C.Order>(order(id) + "/quote/reopen", "POST", body),
+    // OS6: o que reabrir vai desfazer no ERP, estorno, checklist e ordens antigas do ERP.
+    reopenPreview: (id: string) => get<C.QuoteReopenPreview>(order(id) + "/quote/reopen"),
     payments: (id: string) => get<C.OrderPayments>(order(id) + "/payments"),
     receipt: (id: string, body: C.ReceiptRequest) =>
       send<C.OrderPayments>(order(id) + "/receipts", "POST", body),
-    charge: (id: string, body: C.ChargeRequestInput) =>
+    reverseReceipt: (id: string, body: C.ReceiptReverseRequest) =>
+      send<C.OrderPayments>(order(id) + "/receipts/reverse", "POST", body),
+    markChecklist: (id: string, body: C.ChecklistMarkRequest) =>
+      send<C.Order>(order(id) + "/checklist", "POST", body),
+    erpLegacy: (documentId: string) => get<C.ErpLegacyPreview>(base + "/erp-legacy/" + encodeURIComponent(documentId)),
+    importErpLegacy: (documentId: string, body: C.ErpLegacyImportRequest) =>
+      send<C.Order>(base + "/erp-legacy/" + encodeURIComponent(documentId) + "/import", "POST", body),    charge: (id: string, body: C.ChargeRequestInput) =>
       send<{ charge: C.OrderCharge; payments: C.OrderPayments }>(order(id) + "/charges", "POST", body),
     /** Vínculo de catálogo da linha, pela rota da fase 3 (mesmo lote da ordem). */
     linkCatalog: (id: string, line: string, value: { erp_item_id: string | null; version: number }) =>

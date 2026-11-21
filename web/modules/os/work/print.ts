@@ -99,6 +99,10 @@ export function buildPrintHtml(input: PrintInput, kind: PrintKind, format: Print
     : `<p>Sem itens no orçamento.</p>`;
   const conditions = quote ? conditionsLines(order) : [];
   const warranty = warrantyLine(order);
+  // OS6: checklist das etapas na impressão da ordem (não no orçamento).
+  const checklist = kind === "order" && !reserved ? (order.checklist ?? []).filter(stage => stage.items.length) : [];
+  const checklistHtml = checklist.length ? `<h2>Checklist</h2>${checklist.map(stage => `<div><strong>${escape(stage.stage_label)}</strong></div>${stage.items.map(item =>
+    `<div>${item.done ? "[x]" : "[ ]"} ${escape(item.label)}${item.done && item.at ? ` · ${escape(day(item.at))}` : ""}${item.photo_document_id ? " · com foto" : ""}</div>`).join("")}`).join("")}` : "";
   const css = format === "a4"
     ? `@page{size:A4;margin:14mm}body{font:12px/1.45 system-ui,Arial,sans-serif;color:#111;margin:0}h1{font-size:18px;margin:0 0 2px}h2{font-size:15px;margin:14px 0 6px;border-bottom:1px solid #999;padding-bottom:3px}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border-bottom:1px solid #ccc;padding:4px;text-align:left;vertical-align:top}.n{text-align:right;white-space:nowrap}dl{display:grid;grid-template-columns:max-content 1fr;gap:2px 12px;margin:0}dt{font-weight:600}dd{margin:0}.totals{margin-left:auto;width:45%}.totals div{display:flex;justify-content:space-between}.totals div:last-child{font-weight:700}.sign{margin-top:48px;display:flex;gap:32px}.sign div{flex:1;border-top:1px solid #111;padding-top:4px;text-align:center}footer{margin-top:18px;color:#555;font-size:11px}`
     : `@page{size:80mm auto;margin:3mm}body{font:11px/1.35 ui-monospace,Menlo,Consolas,monospace;color:#000;margin:0;width:74mm}h1{font-size:13px;margin:0;text-align:center}header div{text-align:center}h2{font-size:12px;margin:8px 0 4px;border-top:1px dashed #000;padding-top:4px}dl{margin:0}dt{font-weight:700;display:inline}dt::after{content:": "}dd{display:inline;margin:0}dd::after{content:"";display:block}.item{margin:2px 0}.row,.totals div{display:flex;justify-content:space-between}.totals div:last-child{font-weight:700}.sign{margin-top:28px}.sign div{border-top:1px solid #000;padding-top:2px;text-align:center;margin-top:24px}footer{margin-top:8px;text-align:center}`;
@@ -111,6 +115,7 @@ ${totals.length ? `<div class="totals">${totals.map(([k, v]) => `<div><span>${es
 ${conditions.length ? `<h2>Condições</h2>${conditions.map(line => `<div>${escape(line)}</div>`).join("")}` : ""}
 ${quote?.note && !reserved ? `<h2>Observação</h2><div>${escape(quote.note)}</div>` : ""}
 ${warranty ? `<h2>Garantia</h2><div>${escape(warranty)}</div>` : ""}
+${checklistHtml}
 <div class="sign"><div>${escape(kind === "quote" ? "De acordo do cliente" : "Assinatura do cliente")}</div><div>Data: ____/____/______</div></div>
 ${company?.footer ? `<footer>${escape(company.footer)}</footer>` : ""}
 </body></html>`;

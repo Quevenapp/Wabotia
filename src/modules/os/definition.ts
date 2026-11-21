@@ -102,6 +102,8 @@ export const osModule: ModuleDefinition = {
     "os.contract.covered",
     "os.contract.adjustment_due",
     "os.scheduled",
+    // OS6: marcação do checklist da etapa.
+    "os.checklist_marked",
   ],
   settings: [
     { key: "os_work_types", description: "Tipos personalizados de trabalho." },
@@ -133,8 +135,9 @@ export const osModule: ModuleDefinition = {
   ],
   // OS3: dinheiro e aprovação só por proposta que a pessoa confirma.
   // OS4: criar, editar e encerrar contrato, abrir a visita e marcar/desmarcar a ordem coberta também.
-  bot: { sensitive: ["os.quote.save", "os.quote.reopen", "os.decide", "os.receipt.create", "os.charge.create", "os.commercial.update",
-    "os.contract.create", "os.contract.update", "os.contract.status", "os.contract.visit", "os.contract.cover", "os.contract.release"], deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private."] },
+  // OS6: estornar recebimento também (reabrir já estava); marcar checklist não é sensível.
+  bot: { sensitive: ["os.quote.save", "os.quote.reopen", "os.decide", "os.receipt.create", "os.receipt.reverse", "os.charge.create", "os.commercial.update",
+    "os.contract.create", "os.contract.update", "os.contract.status", "os.contract.visit", "os.contract.cover", "os.contract.release"], deny: ["os.private", "service-orders/:id/private-fields", "os.document.upload", "service-orders/:id/private-tasks", "service-orders/:id/private-documents", "os.person.", "os.entry.", "service-orders/objects/:object_id/private-fields", "os.objects.private.", "os.erp_legacy.", "service-orders/erp-legacy/:document_id"] },
 };
 
 // REGISTRO RESERVADO F0/I — acrescentar eventos, grants e bot.deny das filhas.

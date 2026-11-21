@@ -1292,7 +1292,55 @@ function serviceOrderSchemas() {
       properties: {
         version: { type: "integer", minimum: 1 },
         reason: { type: "string", minLength: 1, maxLength: 500, description: "Motivo; fica no histórico da ordem." },
+        undo_erp: { type: "boolean", description: "OS6: confirma desfazer no ERP (cancelar o documento e as contas em aberto) e seguir com o orçamento numa ordem nova." },
       },
+    },
+    ServiceOrderQuoteReopenPreview: {
+      type: "object",
+      properties: {
+        id: { type: "string" }, version: { type: "integer" },
+        mode: { enum: ["local", "erp", "blocked"] }, can_reopen: { type: "boolean" },
+        erp: { type: "object", properties: { document: { type: "boolean" }, document_number: { type: ["string", "null"] }, titles: { type: "integer" },
+          stock_posted: { type: "boolean" }, settlements: { type: "integer" }, pending_sends: { type: "integer" } } },
+        notes: { type: "array", items: { type: "object", properties: { kind: { enum: ["nfse", "nfe"] }, status: { type: "string" }, number: { type: ["string", "null"] } } } },
+        received_cents: { type: "integer" }, open_charges: { type: "integer" },
+        effects: { type: "array", items: { type: "string" } },
+        blockers: { type: "array", items: { type: "string" } },
+      },
+    },
+    ServiceOrderReceiptReverse: {
+      type: "object",
+      required: ["receipt_key", "reason"],
+      properties: {
+        receipt_key: { type: "string", description: "Recebimento a estornar (receipts[].receipt_key de GET payments)." },
+        reason: { type: "string", minLength: 1, maxLength: 200, description: "Motivo; fica no histórico da ordem." },
+      },
+    },
+    ServiceOrderChecklistMark: {
+      type: "object",
+      required: ["version", "item_id", "done"],
+      properties: {
+        version: { type: "integer", minimum: 1 },
+        item_id: { type: "string", description: "Item do checklist da etapa atual." },
+        done: { type: "boolean" },
+        photo_document_id: { type: ["string", "null"], description: "Foto já anexada aos documentos da ordem; obrigatória quando o item pede foto." },
+      },
+    },
+    ServiceOrderErpLegacyPreview: {
+      type: "object",
+      properties: {
+        document_id: { type: "string" }, number: { type: ["string", "null"] }, status: { type: "string" }, status_label: { type: "string" }, date: { type: ["string", "null"] },
+        customer: { type: "object", properties: { contact_id: { type: ["string", "null"] }, name: { type: ["string", "null"] }, found: { type: "boolean" } } },
+        item: { type: "string" }, problem: { type: "string" },
+        items: { type: "array", items: { type: "object", properties: { description: { type: "string" }, quantity: { type: "number" }, unit_cents: { type: "integer" }, unit: { type: "string" } } } },
+        total_cents: { type: "integer" },
+        migrated: { type: ["object", "null"], properties: { order_id: { type: "string" }, display_number: { type: "string" } } },
+        can_import: { type: "boolean" }, blockers: { type: "array", items: { type: "string" } },
+      },
+    },
+    ServiceOrderErpLegacyImport: {
+      type: "object",
+      properties: { type_id: { type: "string", description: "Modelo da ordem nova; em branco, a ordem de serviço padrão." } },
     },
     ServiceOrderReceiptInput: {
       type: "object",
@@ -3545,8 +3593,35 @@ function workMotorContract(): WorkOperation[] {
     [
       "post", `${o}/quote/reopen`, "Ordem de serviço: reabrir orçamento aprovado", "ServiceOrderQuoteReopen", "ServiceOrder",
       "409 quote_not_approved;409 quote_reopen_blocked;409 version_conflict;400 invalid_request", [],
-      "Volta o orçamento aprovado (antes de iniciar o serviço) para Em análise, com o motivo no histórico; a aprovação deixa de valer e o orçamento precisa ser enviado e aprovado de novo. Com documento de venda já criado no ERP, recusa com quote_reopen_blocked. Pelo bot é sensível: a pessoa confirma a proposta.",
+      "Volta o orçamento aprovado (antes de iniciar o serviço) para Em análise, com o motivo no histórico; a aprovação deixa de valer e o orçamento precisa ser enviado e aprovado de novo. Com documento já criado no ERP, sem undo_erp recusa com quote_reopen_blocked; com undo_erp=true desfaz pela compensação da fase 3: a ordem é cancelada com o motivo (o pedido não faturado e as contas em aberto no ERP são cancelados pela fila) e o orçamento segue numa ordem nova em análise, ligada à antiga (a resposta é a ordem nova). Com nota autorizada, conta paga, recebimento, cobrança em aberto ou envio com pendência, recusa com quote_reopen_erp_blocked e diz o que fazer antes. Pelo bot é sensível: a pessoa confirma a proposta.",
       "os.quote.reopen",
+    ],
+    [
+      "get", `${o}/quote/reopen`, "Orçamento aprovado: o que reabrir vai desfazer no ERP", null, "ServiceOrderQuoteReopenPreview", "", [],
+      "Mostra o que existe no ERP (documento, contas a receber, baixa de estoque, baixas, notas fiscais), o recebido e as cobranças em aberto; effects diz em palavras o que reabrir vai desfazer e blockers, por que não reabre agora e o que fazer antes.",
+      "os.quote.reopen.preview",
+    ],
+    [
+      "post", `${o}/receipts/reverse`, "Ordem de serviço: estornar recebimento", "ServiceOrderReceiptReverse", "ServiceOrderPayments",
+      "422 reason_required;409 already_reversed;409 provider_receipt;403 forbidden;403 mfa_required;404 not_found", [],
+      "Estorna um recebimento registrado à mão pela ordem, com motivo no histórico. Mesmas guardas do Financeiro do ERP: pessoa da equipe com segundo fator financeiro e, com o Financeiro ligado, papel administrador ou financeiro. Com conta a receber no ERP, o estorno da baixa segue pela fila da fase 3 no mesmo lote; a ordem volta a ter saldo a receber. Recebimento pela Cobrança (Pix ou link pago) se devolve pelo provedor. Pelo bot é sensível: a pessoa confirma a proposta.",
+      "os.receipt.reverse",
+    ],
+    [
+      "post", `${o}/checklist`, "Checklist da etapa: marcar ou desmarcar item", "ServiceOrderChecklistMark", "ServiceOrder",
+      "409 checklist_unavailable;409 order_closed;422 photo_required;404 photo_not_found;409 version_conflict", [],
+      "Marca ou desmarca um item do checklist da etapa atual (definido no modelo). Item com foto obrigatória pede photo_document_id de uma imagem já anexada aos documentos. Cada marcação entra no histórico. A etapa só avança (POST stage ou status) com os itens obrigatórios marcados: senão, 409 checklist_required com os itens que faltam; cancelar e voltar etapa não dependem do checklist.",
+      "os.checklist.mark",
+    ],
+    [
+      "get", `${b}/erp-legacy/{document_id}`, "Ordem de serviço: prévia de ordem antiga do ERP", null, "ServiceOrderErpLegacyPreview", "404 not_found;403 forbidden;409 module_disabled", [],
+      "Com o módulo Ordem de Serviço ligado, a ordem de serviço antiga do ERP fica só leitura. Esta prévia mostra cliente, itens, situação e se já foi trazida. Só pessoas da equipe; fora do catálogo do bot.",
+      "os.erp_legacy.preview",
+    ],
+    [
+      "post", `${b}/erp-legacy/{document_id}/import`, "Ordem de serviço: trazer ordem antiga do ERP", "ServiceOrderErpLegacyImport", "ServiceOrder", "409 erp_legacy_blocked;409 object_required;404 not_found", [],
+      "Copia cliente, itens (como orçamento em análise) e a situação (no histórico e nas observações) para uma ordem nova, liga as duas e marca a antiga como migrada; uma ordem do ERP vira no máximo uma ordem nova. Nada muda no ERP. Só pessoas da equipe; fora do catálogo do bot.",
+      "os.erp_legacy.import",
     ],
     [
       "get", `${o}/payments`, "Ordem de serviço: cobrança e recebimentos", null, "ServiceOrderPayments", "", [],

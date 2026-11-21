@@ -12,15 +12,18 @@ import { cents, money } from "../shared";
 import { dateTimeInput, dateTimeValue, instantLabel, useWorkApi, useWorkResource } from "../work-hooks";
 import { QuoteEditor } from "./QuoteEditor";
 import { buildPrintHtml, conditionsLines, openPrint, type PrintFormat, type PrintKind } from "./print";
+import { useIntegrationHost } from "../../integrations/visibility";
+import { navigate } from "../../../lib/routes";
 
-/** Mesma regra do servidor: cancelar e voltar etapa pedem motivo. */
+/** OS6: ordem dos estados de base, a mesma do servidor (model.ts, needsMoveReason). */
+const RANK: Record<string, number> = { received: 0, analyzing: 1, quoted: 2, approved: 3, declined: 3, in_progress: 4, ready: 5, delivered: 6, cancelled: 7 };
+/** Mesma regra do servidor: cancelar e voltar etapa (estado anterior) pedem motivo. */
 export function needsReason(from: string, to: string) {
-  return to === "cancelled" ||
-    (from === "ready" && to === "in_progress") ||
-    (["quoted", "approved", "declined"].includes(from) && to === "analyzing");
+  return (to === "cancelled" && from !== "cancelled") || (to !== "cancelled" && (RANK[to] ?? 99) < (RANK[from] ?? -1));
 }
 export function reasonTitle(from: string, to: string) {
-  return to === "cancelled" ? "Motivo do cancelamento" : from === "ready" ? "Motivo do retrabalho" : "Motivo para voltar à análise";
+  return to === "cancelled" ? "Motivo do cancelamento" : from === "ready" && to === "in_progress" ? "Motivo do retrabalho"
+    : to === "analyzing" ? "Motivo para voltar à análise" : "Motivo para voltar a etapa";
 }
 
 /** Pede o motivo antes de enviar; o motivo vai para o histórico da ordem. */
@@ -35,6 +38,59 @@ export function ReasonDialog({ title, help, submitLabel = "Confirmar", danger, o
   }}>
     <Field label="Motivo" type="textarea" required maxLength={500} value={reason} onChange={setReason}
       help={help || "Fica no histórico da ordem, com quem fez e quando."} />
+  </FormDialog>;
+}
+
+/**
+ * OS6: reabrir o orçamento aprovado mostrando antes o que existe no ERP. Sem
+ * documento no ERP, volta para análise na mesma ordem; com documento, a
+ * ordem é cancelada (o pedido e as contas em aberto no ERP também) e o
+ * orçamento continua numa ordem nova. Com nota autorizada ou conta paga, não
+ * reabre e diz o que fazer antes.
+ */
+function ReopenDialog({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: (result: Order) => void }) {
+  const app = useApp(), api = useWorkApi();
+  const preview = useWorkResource(`${app.root}/os6-reopen/${order.id}/${order.version}`, () => api.reopenPreview(order.id));
+  const [reason, setReason] = useState("");
+  const facts = preview.data;
+  return <FormDialog title="Reabrir orçamento aprovado" submitLabel={facts?.mode === "erp" ? "Desfazer no ERP e reabrir" : "Reabrir"}
+    danger={facts?.mode === "erp"} disabled={!facts || !facts.can_reopen} onClose={onClose} onSubmit={async () => {
+      if (!reason.trim()) throw new Error("Informe o motivo. Ele fica no histórico da ordem.");
+      const result = await api.reopenQuote(order.id, { version: order.version, reason: reason.trim(), ...(facts?.mode === "erp" ? { undo_erp: true } : {}) });
+      onDone(result);
+    }}>
+    {!facts && !preview.error && <p role="status">Conferindo o que existe no ERP…</p>}
+    {preview.error ? <Notice tone="error">{(preview.error as Error).message || "Não deu para ler o que existe no ERP agora."} <Button secondary onClick={preview.reload}>Tentar de novo</Button></Notice> : null}
+    {facts && <>
+      {facts.erp.document && <ul className="os-reopen-facts" aria-label="O que existe no ERP">
+        <li>Documento da ordem no ERP: sim</li>
+        {facts.erp.titles > 0 && <li>Contas a receber: {facts.erp.titles}</li>}
+        {facts.erp.stock_posted && <li>Baixa de estoque das peças: sim</li>}
+        {facts.erp.settlements > 0 && <li>Pagamentos baixados no Financeiro: {facts.erp.settlements}</li>}
+        {facts.notes.map(note => <li key={note.kind}>{note.kind === "nfse" ? "Nota de serviço" : "Nota de peças"}: {note.status}{note.number ? ` (nº ${note.number})` : ""}</li>)}
+        {facts.received_cents > 0 && <li>Recebido nesta ordem: {money(facts.received_cents)}</li>}
+      </ul>}
+      {facts.blockers.length > 0 && <Notice tone="error"><strong>Não dá para reabrir agora.</strong>
+        <ul>{facts.blockers.map(text => <li key={text}>{text}</li>)}</ul></Notice>}
+      {facts.can_reopen && <>
+        <p>Ao reabrir:</p>
+        <ul>{facts.effects.map(text => <li key={text}>{text}</li>)}</ul>
+        <Field label="Motivo" type="textarea" required maxLength={400} value={reason} onChange={setReason}
+          help="Fica no histórico da ordem, com quem fez e quando." />
+      </>}
+    </>}
+  </FormDialog>;
+}
+
+/** OS6: estorno de um recebimento feito pela ordem, com motivo. */
+function ReverseDialog({ receipt, onClose, onSubmit }: { receipt: OrderPayments["receipts"][number]; onClose: () => void; onSubmit: (reason: string) => Promise<unknown> }) {
+  const [reason, setReason] = useState("");
+  return <FormDialog title="Estornar recebimento" submitLabel="Estornar" danger onClose={onClose} onSubmit={async () => {
+    if (!reason.trim()) throw new Error("Informe o motivo do estorno. Ele fica no histórico da ordem.");
+    await onSubmit(reason.trim());
+  }}>
+    <p>Estornar {money(receipt.amount_cents)} recebidos em {instantLabel(receipt.occurred_ms)}. O valor volta para o saldo a receber da ordem e, com o Financeiro do ERP ligado, a baixa é estornada lá também.</p>
+    <Field label="Motivo" type="textarea" required maxLength={200} value={reason} onChange={setReason} help="Fica no histórico da ordem." />
   </FormDialog>;
 }
 
@@ -108,8 +164,12 @@ export function WorkQuoteCommercial({ order, onChanged, editable }: {
   const app = useApp(), api = useWorkApi();
   const payments = useWorkResource(`${app.root}/os3-payments/${order.id}/${order.version}`, () => api.payments(order.id));
   const [editing, setEditing] = useState(false), [reopen, setReopen] = useState(false), [receipt, setReceipt] = useState(false);
+  const [reversing, setReversing] = useState<OrderPayments["receipts"][number]>();
+  const host = useIntegrationHost();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const data = payments.data, quote = order.quote;
+  // OS6: mesma guarda do Financeiro do ERP; sem o Financeiro ligado, quem registra estorna.
+  const canReverse = !data?.finance.enabled || ["admin", "financeiro"].includes(host?.context.erpRole ?? "");
   const run = async (action: () => Promise<unknown>, success: string) => {
     setBusy(true); setError("");
     try { await action(); toast(success); onChanged(); payments.reload(); }
@@ -143,15 +203,19 @@ export function WorkQuoteCommercial({ order, onChanged, editable }: {
     </> : <p className="muted">Nenhum orçamento ainda.</p>}
     <div className="card-actions">
       {editable && <Button secondary onClick={() => setEditing(true)}>{quote ? "Editar orçamento" : "Montar orçamento"}</Button>}
-      {order.status === "approved" && <Button secondary disabled={busy} onClick={() => setReopen(true)}>Reabrir orçamento</Button>}
+      {(order.status === "approved" || (order.status === "in_progress" && !!quote)) && <Button secondary disabled={busy} onClick={() => setReopen(true)}>Reabrir orçamento</Button>}
       <Button secondary onClick={() => void print("quote", "a4")} disabled={!quote}>Imprimir orçamento (A4)</Button>
       <Button secondary onClick={() => void print("order", "a4")}>Imprimir ordem (A4)</Button>
       <Button secondary onClick={() => void print(order.status === "quoted" || order.status === "analyzing" ? "quote" : "order", "cupom")}>Cupom 80 mm</Button>
     </div>
     {payable && data && <div className="os-quote-payments">
       <p>Total {money(data.total_cents)} · Recebido {money(data.received_cents)} · Saldo <strong>{money(data.balance_cents)}</strong></p>
+      {data.balance_cents > 0 && data.received_cents > 0 && <p className="muted">A receber: {money(data.balance_cents)}</p>}
       {data.receipts.length > 0 && <ul>{data.receipts.map((r) => <li key={r.receipt_key}>
         {r.kind === "reverse" ? "Estorno" : "Recebido"} {money(r.amount_cents)} · {RECEIPT_LABELS[r.method] || r.method} · {instantLabel(r.occurred_ms)}{r.evidence === "provider" ? " · pela Cobrança" : ""}
+        {r.kind === "receive" && r.reversed ? " · estornado" : null}
+        {r.kind === "receive" && !r.reversed && r.evidence === "manual" && canReverse &&
+          <> · <Button secondary size="sm" disabled={busy} onClick={() => setReversing(r)}>Estornar</Button></>}
       </li>)}</ul>}
       {data.charges.length > 0 && <ul>{data.charges.map((c) => <li key={c.id}>
         {c.method === "pix" ? "Pix" : "Link"} de {money(c.amount_cents)} · {CHARGE_STATUS[c.status] || c.status}
@@ -173,12 +237,17 @@ export function WorkQuoteCommercial({ order, onChanged, editable }: {
     {error && <Notice tone="error">{error}</Notice>}
     {editing && <QuoteEditor order={order} links={data?.catalog_links} products={data?.parts.products} finance={data ? data.parts.finance : false}
       reserved={data?.privacy === "reserved"} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); onChanged(); payments.reload(); }} />}
-    {reopen && <ReasonDialog title="Reabrir orçamento aprovado" submitLabel="Reabrir"
-      help="A aprovação deixa de valer: o orçamento volta para análise e precisa ser enviado e aprovado de novo. O motivo fica no histórico."
-      onClose={() => setReopen(false)} onSubmit={async (reason) => {
-        await api.reopenQuote(order.id, { version: order.version, reason });
-        setReopen(false); toast("Orçamento reaberto."); onChanged();
-      }} />}
+    {reopen && <ReopenDialog order={order} onClose={() => setReopen(false)} onDone={(result) => {
+      setReopen(false);
+      if (result.id === order.id) { toast("Orçamento reaberto."); onChanged(); return; }
+      // OS6: com documento no ERP, o orçamento continua na ordem nova.
+      toast(`Orçamento reaberto na ordem ${result.display_number}. A ordem ${order.display_number} foi cancelada.`);
+      navigate({ area: "admin", page: "work", typeId: result.type_id, id: result.id });
+    }} />}
+    {reversing && <ReverseDialog receipt={reversing} onClose={() => setReversing(undefined)} onSubmit={async (reason) => {
+      await api.reverseReceipt(order.id, { receipt_key: reversing.receipt_key, reason });
+      setReversing(undefined); toast("Recebimento estornado. O valor voltou para o saldo a receber."); onChanged(); payments.reload();
+    }} />}
     {receipt && data && <ReceiptDialog payments={data} onClose={() => setReceipt(false)} onSubmit={async (body) => {
       await api.receipt(order.id, body);
       setReceipt(false); toast("Recebimento registrado."); onChanged(); payments.reload();

@@ -11,6 +11,7 @@ import { aliasStatements, commandId, eventKey, integrationStatements, readIntegr
 import { allocationKey, allocationStatements, commercialReceiptStatements, manualReceiptKey, reverseReceiptKey, type CommercialReceipt } from "../../../integrations/receipts";
 import { hash } from "../../../integrations/keys";
 import { requireFinancialAal } from "../../../mfa";
+import { erpRoleOf } from "../../erp/identity";
 import { commercialReceiptFromEvidence, optionalCommercialPaymentEvidence } from "../../../payments-commercial-evidence";
 import type { Payment } from "../../../payments";
 import { authorizedOrder } from "../public";
@@ -163,6 +164,51 @@ export async function recordManualReceipt(ctx: ModuleContext, actor: Actor, id: 
   return paymentsView(ctx, actor, id);
 }
 
+/**
+ * OS6: estorno de um recebimento feito pela ordem, com motivo. Mesmas guardas
+ * do Financeiro do ERP: pessoa da equipe (o bot só propõe), segundo fator
+ * financeiro e, com o Financeiro ligado, papel administrador ou financeiro no
+ * ERP. O estorno é o fato "reverse" da fase 3: desfaz a alocação nas parcelas
+ * e, com a conta a receber no ERP, enfileira o estorno da baixa no mesmo lote.
+ * A ordem volta a "a receber" pelo saldo.
+ */
+export async function reverseOrderReceipt(ctx: ModuleContext, actor: Actor, id: string, data: { receipt_key?: unknown; reason?: unknown }, requestId: string) {
+  requireCommercialWriter(actor);
+  requireFinancialAal(actor);
+  const { row } = await authorizedOrder(ctx, actor, id, { write: true });
+  const key = `os-receipt-reverse:${actor.id}:${requestId}`;
+  const done = await mutationHistory(ctx, key);
+  if (done) {
+    if (done.order_id !== id) throw new ApiError(409, "idempotency_conflict", "Esta chave já identifica outro comando.");
+    return paymentsView(ctx, actor, id);
+  }
+  if (typeof data.reason !== "string" || !data.reason.trim()) throw new ApiError(422, "reason_required", "Informe o motivo do estorno. Ele fica no histórico da ordem.");
+  const reason = Array.from(data.reason.trim()).slice(0, 200).join("");
+  const state = await readIntegrationActivation(ctx.env, ctx.profile, "os");
+  const finance = !!(state.states.os && state.snapshot.parts.customers && state.snapshot.parts.finance);
+  if (finance && !["admin", "financeiro"].includes(erpRoleOf(actor) ?? ""))
+    throw new ApiError(403, "forbidden", "Estornar recebimento é do Financeiro: peça a quem é administrador ou do Financeiro no ERP.");
+  if (typeof data.receipt_key !== "string") throw new ApiError(400, "invalid_request", "Escolha o recebimento a estornar.");
+  const original = await one<CommercialReceipt>(ctx.env, "SELECT * FROM module_commercial_receipts WHERE profile_id=? AND owner_module='os' AND source_id=? AND receipt_key=?", ctx.profile, id, data.receipt_key);
+  if (!original || original.kind !== "receive") throw new ApiError(404, "not_found", "Recebimento não encontrado nesta ordem. Atualize a tela.");
+  if (original.evidence !== "manual")
+    throw new ApiError(409, "provider_receipt", "Este recebimento veio da Cobrança (Pix ou link pago). Devolva o pagamento pelo provedor da Cobrança: o estorno chega à ordem sozinho.");
+  const reverse = reverseReceiptKey(original.receipt_key);
+  if (await one(ctx.env, "SELECT 1 FROM module_commercial_receipts WHERE profile_id=? AND receipt_key=?", ctx.profile, reverse))
+    throw new ApiError(409, "already_reversed", "Este recebimento já foi estornado.");
+  const receipt: CommercialReceipt = { ...original, receipt_key: reverse, kind: "reverse", reverses_key: original.receipt_key,
+    occurred_ms: Math.max(now(), original.occurred_ms), actor_id: actor.id, evidence_hash: hash(["os", id, original.receipt_key, "reverse", actor.id]) };
+  await commitReceipt(ctx, row, receipt, actor.id, key, (await workPrivacy(ctx, row)) === "adult_payer_only" ? "" : `motivo: ${reason}`);
+  return paymentsView(ctx, actor, id);
+}
+
+/** Estorno pedido pela rota comum da fase 3 (Financeiro do ERP): o mesmo caminho da ordem. */
+export async function reverseOsReceipt(env: ModuleContext["env"], actor: Actor, original: CommercialReceipt, input: { reason_code: string; command: string }) {
+  const { modulesApi } = await import("../../api");
+  return reverseOrderReceipt(modulesApi(env, original.profile_id, "os"), actor, original.source_id,
+    { receipt_key: original.receipt_key, reason: `estorno pelo Financeiro (${input.reason_code})` }, input.command);
+}
+
 /** POST service-orders/:id/charges: Pix ou link de pagamento pela Cobrança da área. */
 export async function createOrderCharge(ctx: ModuleContext, actor: Actor, id: string, data: { method?: unknown; amount_cents?: unknown }, requestId: string) {
   requireCommercialWriter(actor);
@@ -197,7 +243,9 @@ export async function paymentsView(ctx: ModuleContext, actor: Actor, id: string)
   const { row } = await authorizedOrder(ctx, actor, id);
   const integration = await readWorkIntegration(ctx, row);
   const [receipts, charges, links, state, provider, privacy] = await Promise.all([
-    all(ctx.env, "SELECT receipt_key,kind,evidence,amount_cents,method,occurred_ms,actor_id FROM module_commercial_receipts WHERE profile_id=? AND owner_module='os' AND source_id=? ORDER BY occurred_ms,receipt_key", ctx.profile, id),
+    all(ctx.env, `SELECT receipt_key,kind,evidence,amount_cents,method,occurred_ms,actor_id,reverses_key,
+      EXISTS(SELECT 1 FROM module_commercial_receipts x WHERE x.profile_id=r.profile_id AND x.reverses_key=r.receipt_key) reversed
+      FROM module_commercial_receipts r WHERE profile_id=? AND owner_module='os' AND source_id=? ORDER BY occurred_ms,receipt_key`, ctx.profile, id),
     all(ctx.env, "SELECT id,method,status,amount_cents,url,pix_code,expires_at,created FROM payments WHERE profile_id=? AND module_id='os' AND ref_id=? ORDER BY created DESC LIMIT 20", ctx.profile, id),
     all(ctx.env, "SELECT component,erp_item_id,version FROM module_erp_catalog_links WHERE profile_id=? AND module_id='os' AND record_kind='quote_item' AND record_id=?", ctx.profile, id),
     readIntegrationActivation(ctx.env, ctx.profile, "os"),
@@ -208,7 +256,7 @@ export async function paymentsView(ctx: ModuleContext, actor: Actor, id: string)
   const received = receipts.reduce((sum, r) => sum + (r.kind === "receive" ? 1 : -1) * r.amount_cents, 0);
   const parts = state.snapshot.parts, base = !!(state.states.os && parts.customers);
   return { id, version: row.row_version ?? 1, total_cents: total, received_cents: received, balance_cents: Math.max(0, total - received),
-    receipts: receipts as OrderPayments["receipts"], charges: charges.map(chargeView),
+    receipts: receipts.map(r => ({ ...r, reversed: !!r.reversed })) as OrderPayments["receipts"], charges: charges.map(chargeView),
     provider: { ready: provider.ready, message: provider.message ?? "", methods: [...provider.methods] },
     finance: { enabled: base && !!parts.finance, obligation: financeObligation(integration) },
     parts: { products: base && !!parts.products, finance: base && !!parts.finance },

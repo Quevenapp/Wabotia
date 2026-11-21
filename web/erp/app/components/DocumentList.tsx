@@ -134,7 +134,7 @@ export default function DocumentList(props: DocumentListProps) {
     <a href="/app/erp/modulos/trabalhos">Abrir trabalhos</a>
     <button type="button" className="secondary-button" onClick={() => props.onNavigate('/documentos-empresa?tipo=service_orders&acao=relatorios')}>Relatórios de serviço</button>
     <button type="button" className="secondary-button" onClick={() => props.onApply({ ...EMPTY_LIST_FILTERS })}>Consultar todas as situações</button>
-    <ul>{props.page?.items.map(row => <li key={row.id}><button type="button" className="text-button" onClick={() => props.onOpen(row.id, {})}>{row.number} · {row.date} · {row.status}</button>{origins.origins.filter(origin => origin.document_id === row.id).map(origin => <DocumentOriginNotice key={origin.document_id} origin={origin} />)}</li>)}</ul>
+    <ul>{props.page?.items.map(row => <li key={row.id}><button type="button" className="text-button" onClick={() => props.onOpen(row.id, {})}>{row.number} · {row.date} · {row.status}</button>{origins.origins.filter(origin => origin.document_id === row.id).map(origin => <DocumentOriginNotice key={origin.document_id} origin={origin} />)}{!origins.origins.some(origin => origin.document_id === row.id) && <> · <a href={'/app/erp/modulos/trabalhos?erp_document=' + encodeURIComponent(row.id)}>Trazer para a ordem de serviço</a></>}</li>)}</ul>
     {props.loading && <p>Consultando documentos…</p>}
     <button type="button" disabled={props.listPage <= 1 || props.loading} onClick={() => props.onPage(props.listPage - 1)}>Anterior</button>
     <button type="button" disabled={!props.page || props.listPage >= pageCount(props.page.total_count) || props.loading} onClick={() => props.onPage(props.listPage + 1)}>Próxima</button>

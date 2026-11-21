@@ -3,6 +3,37 @@ import { Button, Field } from "../../../ui";
 import type { CustomWorkType, BaseStatus } from "../work-contracts";
 import { statusOrder, statusLabels } from "../shared";
 import { labelIdentifier, messagePreview, renameStage } from "./type-draft";
+
+type Stage = CustomWorkType["stages"][number];
+/** OS6: itens do checklist da etapa (texto, obrigatório, foto obrigatória). */
+function ChecklistEditor({ stage, documents, onChange }: { stage: Stage; documents: boolean; onChange: (stage: Stage) => void }) {
+  const items = stage.checklist ?? [];
+  const set = (next: NonNullable<Stage["checklist"]>) => {
+    const { checklist: _old, ...rest } = stage;
+    onChange(next.length ? { ...rest, checklist: next } : rest);
+  };
+  if (["delivered", "cancelled"].includes(stage.base_status)) return null;
+  return <details open={items.length > 0}>
+    <summary>Checklist da etapa ({items.length})</summary>
+    <p>A etapa só avança com os itens obrigatórios marcados. Cancelar e voltar etapa não dependem do checklist.</p>
+    {items.map((item, index) => <div key={index} className="os-checklist-edit">
+      <Field label={`Item ${index + 1}`} value={item.label} required maxLength={120}
+        onChange={(label) => set(items.map((entry, i) => i !== index ? entry : {
+          ...entry, label, id: !entry.id || entry.id === labelIdentifier(entry.label, items.filter((_, j) => j !== index).map(other => other.id))
+            ? labelIdentifier(label, items.filter((_, j) => j !== index).map(other => other.id)) : entry.id,
+        }))} />
+      <label className="os-work-check"><input type="checkbox" checked={item.required}
+        onChange={(event) => set(items.map((entry, i) => i === index ? { ...entry, required: event.target.checked } : entry))} /> Obrigatório</label>
+      <label className="os-work-check"><input type="checkbox" checked={item.photo_required} disabled={!documents && !item.photo_required}
+        onChange={(event) => set(items.map((entry, i) => i === index ? { ...entry, photo_required: event.target.checked } : entry))} /> Com foto obrigatória</label>
+      <Button secondary size="sm" onClick={() => set(items.filter((_, i) => i !== index))}>Remover item</Button>
+    </div>)}
+    {!documents && <small>Para pedir foto, ligue Documentos nos recursos do modelo.</small>}
+    <Button secondary size="sm" disabled={items.length >= 20}
+      onClick={() => set([...items, { id: "", label: "", required: true, photo_required: false }])}>Adicionar item ao checklist</Button>
+  </details>;
+}
+
 export function StagesEditor({
   type,
   onChange,
@@ -27,6 +58,12 @@ export function StagesEditor({
         onChange={(initial_stage) => onChange({ ...type, initial_stage })}
         required
       />
+      {/* OS6: resumo do checklist da etapa no acompanhamento pelo WhatsApp. */}
+      <label className="os-work-check"><input type="checkbox" checked={type.features.checklist_customer_summary === true}
+        onChange={(event) => {
+          const { checklist_customer_summary: _old, ...features } = type.features;
+          onChange({ ...type, features: event.target.checked ? { ...features, checklist_customer_summary: true } : features });
+        }} /> Mostrar ao cliente o resumo do checklist da etapa no acompanhamento pelo WhatsApp</label>
       {type.stages.map((stage, index) => (
         <fieldset key={index}>
           <legend>Etapa {index + 1}</legend>
@@ -71,6 +108,8 @@ export function StagesEditor({
               })
             }
           />
+          <ChecklistEditor stage={stage} documents={type.features.documents}
+            onChange={(next) => onChange({ ...type, stages: type.stages.map((s, i) => i === index ? next : s) })} />
           <div className="card-actions">
             <Button
               secondary

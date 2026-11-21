@@ -51,6 +51,14 @@ export const MANUAL_TRANSITIONS: Record<OsStatus, readonly OsStatus[]> = {
   delivered: [],
   cancelled: [],
 };
+/** OS6: ordem dos estados de base para saber se a mudança volta etapa. */
+const BASE_RANK: Record<OsStatus, number> = {
+  received: 0, analyzing: 1, quoted: 2, approved: 3, declined: 3, in_progress: 4, ready: 5, delivered: 6, cancelled: 7,
+};
+/** OS6: voltar etapa é ir para um estado de base anterior (cancelar não conta). */
+export const isBackward = (from: OsStatus, to: OsStatus) => to !== "cancelled" && BASE_RANK[to] < BASE_RANK[from];
+/** OS6: cancelar e voltar etapa pedem motivo em todas as telas (o motivo vai ao histórico). */
+export const needsMoveReason = (from: OsStatus, to: OsStatus) => (to === "cancelled" && from !== "cancelled") || isBackward(from, to);
 /** Estados de onde o orçamento pode ser salvo e enviado. */
 export const QUOTABLE: readonly OsStatus[] = [
   "received",
