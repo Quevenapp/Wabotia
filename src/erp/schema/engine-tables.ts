@@ -2016,6 +2016,212 @@ const IMPORT_TABLES: readonly EngineTable[] = [
     since: 28, owner: "planilha-fiscal", structural: "importacao-fiscal",
   },
 ];
+/** Versão 31: Contratos de serviço (parte Contratos; src/erp/domains/contracts/).
+ * O contrato (cliente, objeto, vigência, periodicidade, vencimento, forma,
+ * categoria, vendedor, reajuste e renovação), as linhas com validade (o
+ * aditivo e o reajuste fecham as linhas de antes e abrem as novas a partir de
+ * uma data), a fatura de cada período (uma só por período: a chave única
+ * impede a repetição quando o alarme roda de novo) ligada à conta a receber do
+ * Financeiro, o histórico, a tabela de índices que a pessoa mantém, os anexos
+ * (o arquivo fica no R2 da área), os avisos (renovação e reajuste), o vínculo
+ * com o contrato do Bling e os comandos. Valores em centavos; quantidades na
+ * escala 6; percentuais na escala 4 (texto). */
+const K_CONTRACT = "erp_contract__contract", K_ITEM = "erp_contract__item", K_INVOICE = "erp_contract__invoice", K_EVENT = "erp_contract__event";
+const K_RATE = "erp_contract__index_rate", K_FILE = "erp_contract__attachment", K_NOTICE = "erp_contract__notice", K_BLING = "erp_contract__bling_link";
+const K_COMMAND = "erp_contract__command";
+const K_DATE = (c: string, nullable = false) => `(${nullable ? `${c} IS NULL OR ` : ""}${DATE10(c)})`;
+const K_PCT = (c: string) => `((${c} GLOB '[0-9]*.${DIGITS(4)}' OR ${c} GLOB '-[0-9]*.${DIGITS(4)}') AND ${c} NOT GLOB '*[^0-9.-]*')`;
+const K_CENTS = (c: string) => `(${c} BETWEEN 0 AND 99999999999)`;
+const contract = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 31, owner: "contratos", structural: "contratos" });
+const CONTRACT_TABLES: readonly EngineTable[] = [
+  contract(K_CONTRACT, [
+    `CREATE TABLE "${K_CONTRACT}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "number" INTEGER NOT NULL,
+  "contact_id" TEXT NOT NULL,
+  "object" TEXT NOT NULL,
+  "starts_on" TEXT NOT NULL,
+  "ends_on" TEXT,
+  "term_months" INTEGER,
+  "periodicity" TEXT NOT NULL,
+  "due_day" INTEGER NOT NULL,
+  "payment_method_id" TEXT,
+  "category_id" TEXT,
+  "seller_id" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'draft',
+  "billing_enabled" INTEGER NOT NULL DEFAULT 0,
+  "billing_send" INTEGER NOT NULL DEFAULT 0,
+  "billing_nfse" INTEGER NOT NULL DEFAULT 0,
+  "next_period_on" TEXT,
+  "adjustment_index" TEXT,
+  "adjustment_percent" TEXT,
+  "adjustment_month" INTEGER,
+  "adjustment_notify" INTEGER NOT NULL DEFAULT 0,
+  "last_adjustment_month" TEXT,
+  "renewal_notice_days" INTEGER NOT NULL DEFAULT 30,
+  "renewal_noticed_for" TEXT,
+  "ended_on" TEXT,
+  "end_reason" TEXT,
+  "notes" TEXT,
+  "origin" TEXT NOT NULL DEFAULT 'manual',
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "created_at" INTEGER NOT NULL,
+  "created_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${K_CONTRACT}_number_key" UNIQUE (number),
+  CONSTRAINT "${K_CONTRACT}_contact_fkey" FOREIGN KEY (contact_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${K_CONTRACT}_payment_fkey" FOREIGN KEY (payment_method_id) REFERENCES "erp_catalog__payment_method" (id),
+  CONSTRAINT "${K_CONTRACT}_category_fkey" FOREIGN KEY (category_id) REFERENCES "erp_finance__category" (id),
+  CONSTRAINT "${K_CONTRACT}_seller_fkey" FOREIGN KEY (seller_id) REFERENCES "erp_catalog__seller" (id),
+  CONSTRAINT "${K_CONTRACT}_status_check" CHECK (status IN ('draft','active','suspended','ended')),
+  CONSTRAINT "${K_CONTRACT}_periodicity_check" CHECK (periodicity IN ('monthly','bimonthly','quarterly','semiannual','annual')),
+  CONSTRAINT "${K_CONTRACT}_origin_check" CHECK (origin IN ('manual','bling')),
+  CONSTRAINT "${K_CONTRACT}_dates_check" CHECK (${K_DATE("starts_on")} AND ${K_DATE("ends_on", true)} AND (ends_on IS NULL OR ends_on >= starts_on) AND ${K_DATE("next_period_on", true)} AND ${K_DATE("ended_on", true)} AND ${K_DATE("renewal_noticed_for", true)}),
+  CONSTRAINT "${K_CONTRACT}_numbers_check" CHECK (number > 0 AND version > 0 AND due_day BETWEEN 1 AND 31 AND (term_months IS NULL OR term_months BETWEEN 1 AND 600) AND renewal_notice_days BETWEEN 0 AND 365),
+  CONSTRAINT "${K_CONTRACT}_flags_check" CHECK (billing_enabled IN (0,1) AND billing_send IN (0,1) AND billing_nfse IN (0,1) AND adjustment_notify IN (0,1)),
+  CONSTRAINT "${K_CONTRACT}_adjustment_check" CHECK ((adjustment_index IS NULL AND adjustment_month IS NULL AND adjustment_percent IS NULL) OR (adjustment_index IN ('ipca','igpm','inpc','fixed') AND adjustment_month BETWEEN 1 AND 12 AND ((adjustment_index = 'fixed') = (adjustment_percent IS NOT NULL)) AND (adjustment_percent IS NULL OR ${K_PCT("adjustment_percent")}))),
+  CONSTRAINT "${K_CONTRACT}_last_adjustment_check" CHECK (last_adjustment_month IS NULL OR last_adjustment_month GLOB '${DIGITS(4)}-${DIGITS(2)}'),
+  CONSTRAINT "${K_CONTRACT}_text_check" CHECK (length(object) BETWEEN 1 AND 4000 AND (notes IS NULL OR length(notes) <= 4000) AND (end_reason IS NULL OR length(end_reason) <= 400))
+) STRICT`,
+    `CREATE INDEX "${K_CONTRACT}_status_idx" ON "${K_CONTRACT}" (status, next_period_on)`,
+    `CREATE INDEX "${K_CONTRACT}_contact_idx" ON "${K_CONTRACT}" (contact_id)`,
+  ]),
+  contract(K_ITEM, [
+    `CREATE TABLE "${K_ITEM}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "position" INTEGER NOT NULL,
+  "product_id" TEXT,
+  "description" TEXT NOT NULL,
+  "quantity" TEXT NOT NULL,
+  "unit_cents" INTEGER NOT NULL,
+  "valid_from" TEXT NOT NULL,
+  "valid_until" TEXT,
+  "event_id" TEXT,
+  CONSTRAINT "${K_ITEM}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_ITEM}_product_fkey" FOREIGN KEY (product_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${K_ITEM}_value_check" CHECK (${QTY6("quantity")} AND ${K_CENTS("unit_cents")} AND position > 0 AND length(description) BETWEEN 1 AND 400),
+  CONSTRAINT "${K_ITEM}_dates_check" CHECK (${K_DATE("valid_from")} AND ${K_DATE("valid_until", true)} AND (valid_until IS NULL OR valid_until >= valid_from))
+) STRICT`,
+    `CREATE INDEX "${K_ITEM}_contract_idx" ON "${K_ITEM}" (contract_id, valid_from)`,
+  ]),
+  contract(K_INVOICE, [
+    `CREATE TABLE "${K_INVOICE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "period_start" TEXT NOT NULL,
+  "period_end" TEXT NOT NULL,
+  "due_on" TEXT NOT NULL,
+  "amount_cents" INTEGER NOT NULL,
+  "title_id" TEXT NOT NULL,
+  "origin" TEXT NOT NULL,
+  "charge_status" TEXT NOT NULL DEFAULT 'none',
+  "charge_sent_at" INTEGER,
+  "nfse_status" TEXT NOT NULL DEFAULT 'none',
+  "items" TEXT NOT NULL DEFAULT '[]',
+  "created_at" INTEGER NOT NULL,
+  "created_by" TEXT,
+  CONSTRAINT "${K_INVOICE}_period_key" UNIQUE (contract_id, period_start),
+  CONSTRAINT "${K_INVOICE}_title_key" UNIQUE (title_id),
+  CONSTRAINT "${K_INVOICE}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_INVOICE}_title_fkey" FOREIGN KEY (title_id) REFERENCES "erp_finance__title" (id),
+  CONSTRAINT "${K_INVOICE}_origin_check" CHECK (origin IN ('alarm','manual')),
+  CONSTRAINT "${K_INVOICE}_charge_check" CHECK (charge_status IN ('none','pending','sent')),
+  CONSTRAINT "${K_INVOICE}_nfse_check" CHECK (nfse_status IN ('none','pending','not_configured','issued')),
+  CONSTRAINT "${K_INVOICE}_value_check" CHECK (${K_CENTS("amount_cents")} AND amount_cents > 0 AND ${K_DATE("period_start")} AND ${K_DATE("period_end")} AND ${K_DATE("due_on")} AND period_end >= period_start AND ${JSON_OF("items", "array")})
+) STRICT`,
+    `CREATE INDEX "${K_INVOICE}_due_idx" ON "${K_INVOICE}" (due_on)`,
+  ]),
+  contract(K_EVENT, [
+    `CREATE TABLE "${K_EVENT}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "kind" TEXT NOT NULL,
+  "effective_on" TEXT,
+  "summary" TEXT NOT NULL,
+  "data" TEXT NOT NULL DEFAULT '{}',
+  "actor" TEXT,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${K_EVENT}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_EVENT}_kind_check" CHECK (kind IN ('created','edited','activated','suspended','resumed','ended','billing','invoice','adjustment','amendment','renewal','renewal_notice','adjustment_notice','attachment','bling')),
+  CONSTRAINT "${K_EVENT}_data_check" CHECK (${JSON_OF("data", "object")} AND ${K_DATE("effective_on", true)} AND length(summary) BETWEEN 1 AND 600)
+) STRICT`,
+    `CREATE INDEX "${K_EVENT}_contract_idx" ON "${K_EVENT}" (contract_id, created_at)`,
+  ]),
+  contract(K_RATE, [
+    `CREATE TABLE "${K_RATE}" (
+  "index_code" TEXT NOT NULL,
+  "month" TEXT NOT NULL,
+  "percent" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${K_RATE}_pkey" PRIMARY KEY (index_code, month),
+  CONSTRAINT "${K_RATE}_index_check" CHECK (index_code IN ('ipca','igpm','inpc')),
+  CONSTRAINT "${K_RATE}_value_check" CHECK (month GLOB '${DIGITS(4)}-${DIGITS(2)}' AND ${K_PCT("percent")})
+) STRICT`,
+  ]),
+  contract(K_FILE, [
+    `CREATE TABLE "${K_FILE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "filename" TEXT NOT NULL,
+  "size_bytes" INTEGER NOT NULL,
+  "sha256" TEXT NOT NULL,
+  "storage_key" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "created_by" TEXT NOT NULL,
+  "deleted_at" INTEGER,
+  "deleted_by" TEXT,
+  CONSTRAINT "${K_FILE}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_FILE}_value_check" CHECK (length(filename) BETWEEN 1 AND 200 AND size_bytes BETWEEN 1 AND 10485760 AND ${HEX64("sha256")} AND length(storage_key) BETWEEN 1 AND 400),
+  CONSTRAINT "${K_FILE}_deleted_check" CHECK ((deleted_at IS NULL) = (deleted_by IS NULL))
+) STRICT`,
+    `CREATE INDEX "${K_FILE}_contract_idx" ON "${K_FILE}" (contract_id)`,
+  ]),
+  contract(K_NOTICE, [
+    `CREATE TABLE "${K_NOTICE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "kind" TEXT NOT NULL,
+  "reference" TEXT NOT NULL,
+  "message" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'pending',
+  "created_at" INTEGER NOT NULL,
+  "closed_at" INTEGER,
+  "closed_by" TEXT,
+  CONSTRAINT "${K_NOTICE}_reference_key" UNIQUE (contract_id, kind, reference),
+  CONSTRAINT "${K_NOTICE}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_NOTICE}_kind_check" CHECK (kind IN ('renewal','adjustment_due','customer_adjustment')),
+  CONSTRAINT "${K_NOTICE}_status_check" CHECK (status IN ('pending','done','dismissed') AND ((status = 'pending') = (closed_at IS NULL))),
+  CONSTRAINT "${K_NOTICE}_text_check" CHECK (length(message) BETWEEN 1 AND 1000 AND length(reference) BETWEEN 1 AND 40)
+) STRICT`,
+    `CREATE INDEX "${K_NOTICE}_status_idx" ON "${K_NOTICE}" (status, created_at)`,
+  ]),
+  contract(K_BLING, [
+    `CREATE TABLE "${K_BLING}" (
+  "source_id" TEXT NOT NULL PRIMARY KEY,
+  "contract_id" TEXT NOT NULL,
+  "source_version" INTEGER NOT NULL,
+  "adopted_at" INTEGER NOT NULL,
+  "adopted_by" TEXT NOT NULL,
+  CONSTRAINT "${K_BLING}_contract_key" UNIQUE (contract_id),
+  CONSTRAINT "${K_BLING}_contract_fkey" FOREIGN KEY (contract_id) REFERENCES "${K_CONTRACT}" (id),
+  CONSTRAINT "${K_BLING}_source_check" CHECK (length(source_id) BETWEEN 1 AND 40 AND source_version > 0)
+) STRICT`,
+  ]),
+  contract(K_COMMAND, [
+    `CREATE TABLE "${K_COMMAND}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "action" TEXT NOT NULL,
+  "request_hash" TEXT NOT NULL,
+  "result" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${K_COMMAND}_result_check" CHECK (json_valid(result))
+) STRICT`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2091,6 +2297,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...STORE_TABLES,
   // Versão 28: o tipo das importações fiscal e de saldos iniciais (26 e 27 são de outras frentes).
   ...IMPORT_TABLES,
+  // Versão 31: contratos de serviço (parte Contratos; 29 e 30 são de outras frentes).
+  ...CONTRACT_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

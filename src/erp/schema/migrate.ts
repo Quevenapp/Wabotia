@@ -111,6 +111,11 @@ const STEPS: Record<number, (sql: Sql) => number> = {
   25: (sql) => createEngineTables(sql, 26),
   26: (sql) => createEngineTables(sql, 27),
   27: (sql) => createEngineTables(sql, 28),
+  // 29 e 30 são de outras frentes; nesta base os passos não criam tabela.
+  28: (sql) => createEngineTables(sql, 29),
+  29: (sql) => createEngineTables(sql, 30),
+  // 31: contratos de serviço (src/erp/domains/contracts/).
+  30: (sql) => createEngineTables(sql, 31),
 };
 
 /** Garante erp_meta e aplica o DDL e a semeadura quando a versão gravada é menor. */

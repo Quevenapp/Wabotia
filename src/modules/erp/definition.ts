@@ -7,6 +7,7 @@ import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
 import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
+import { ERP_CONTRATOS_MODULE_CONTRACT } from "../../erp/contratos/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -106,4 +107,11 @@ export const erpExpedicaoModule: ModuleDefinition = {
   routes: [...ERP_EXPEDICAO_MODULE_CONTRACT.routes],
   operations: [...ERP_EXPEDICAO_MODULE_CONTRACT.operations],
   bot: ERP_EXPEDICAO_MODULE_CONTRACT.definition.bot,
+};
+// Contratos de serviço (src/erp/contratos/contract.ts): vigência, faturamento recorrente, reajuste, renovação e aditivos.
+export const erpContratosModule: ModuleDefinition = {
+  ...definition("erp-contratos", "Contratos de serviço com o cliente: itens, vigência, periodicidade e vencimento; gera a conta a receber de cada período (a cobrança nasce desligada em cada contrato), reajusta por IPCA, IGP-M, INPC ou percentual fixo, avisa a renovação e registra aditivos. Precisa do Financeiro ligado."),
+  routes: [...ERP_CONTRATOS_MODULE_CONTRACT.routes],
+  operations: [...ERP_CONTRATOS_MODULE_CONTRACT.operations],
+  bot: ERP_CONTRATOS_MODULE_CONTRACT.definition.bot,
 };

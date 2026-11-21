@@ -21,7 +21,8 @@ describe("fase 2: contrato, entrega e portões", () => {
   it("nove módulos embutidos, padrões fechados e seis papéis somente na Base", () => {
     const defs = modules.filter(m => ERP_MODULE_IDS.includes(m.id as any));
     // + Produção (erp-producao) e Expedição (erp-expedicao), desligadas por padrão: onze módulos embutidos.
-    expect(defs).toHaveLength(11);
+    // + Contratos (erp-contratos), desligado por padrão: doze.
+    expect(defs).toHaveLength(12);
     expect(defs.every(m => m.builtin && !m.default_enabled)).toBe(true);
     expect(defs.find(m => m.id === "erp")?.grants).toHaveLength(6);
     expect(defs.filter(m => m.id !== "erp").every(m => !m.grants?.length)).toBe(true);

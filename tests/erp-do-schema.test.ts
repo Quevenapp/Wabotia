@@ -59,9 +59,10 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     // + 3 da versão 21 (as 2 tabelas do DRE e do pagamento da equipe e 1 índice); 475 tabelas.
     // + 11 da versão 25 (as 8 tabelas da Expedição e 3 índices).
     // + 1 da versão 28 (o tipo das importações fiscal, de naturezas e de saldos).
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1227, seedRows: 7586 });
+    // + 16 da versão 31 (as 9 tabelas dos contratos de serviço e 7 índices).
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1243, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(522);
+    expect(result.tables).toBe(531);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });

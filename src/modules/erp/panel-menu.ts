@@ -12,7 +12,7 @@ export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly Me
 export type ErpPart =
   | "cadastro" | "catalogo" | "vendas" | "compras" | "estoque"
   | "financeiro" | "fiscal" | "cobranca" | "pdv" | "servicos" | "expedicao"
-  | "resultados" | "sistema" | "producao";
+  | "resultados" | "sistema" | "producao" | "contratos";
 
 export interface ErpManagementItem extends ManagementItem {
   part: ErpPart;
@@ -419,6 +419,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/financeiro-empresa?area=faturamento-agrupado" },
     permission: { kind: "erp", roles: ["admin","consulta","financeiro"] },
   },
+  // Contratos de serviço (parte erp-contratos, com o Financeiro): contratos, faturas, reajuste, renovação e aditivos.
+  {
+    id: "erp.contracts", module: "erp-contratos", part: "contratos", primary: true,
+    ...ERP_MENU_GROUPS.financeiro, order: 425,
+    label: "Contratos",
+    target: { kind: "ported", to: "/contratos" },
+    permission: { kind: "erp", roles: ["admin","consulta","financeiro","vendas"] },
+  },
   // Relatórios do ERP: DRE gerencial e pagamento da equipe (Financeiro); relatórios em gráfico (cada um com a parte dele).
   {
     id: "erp.dre", module: "erp-financeiro", part: "financeiro",
@@ -562,6 +570,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.commissions"],
       legacyItems["erp.cash-control"],
       legacyItems["erp.grouped-billing"],
+      { ...legacyItems["erp.contracts"], homeShortcut: false },
     ] },
     { title: 'Relatórios e equipe', items: [
       { ...legacyItems["erp.dre"], homeShortcut: false },

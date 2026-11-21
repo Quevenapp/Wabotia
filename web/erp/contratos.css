@@ -1,0 +1,49 @@
+.fagoo-root .contratos { max-width: 1240px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .contratos h1 { margin-bottom: .35rem; }
+.fagoo-root .contratos h2 { font-size: 1.15rem; margin: 1.25rem 0 .6rem; }
+.fagoo-root .contratos p { line-height: 1.55; }
+.fagoo-root .contratos a { color: var(--link, #2454a6); text-underline-offset: .18em; }
+.fagoo-root .contratos button { font: inherit; padding: .5rem .8rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .contratos button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .contratos .contratos-primary { background: #2454a6; border-color: #2454a6; color: #fff; padding: .5rem .8rem; border-radius: .35rem; text-decoration: none; }
+.fagoo-root .contratos button:focus-visible, .fagoo-root .contratos a:focus-visible, .fagoo-root .contratos input:focus-visible, .fagoo-root .contratos select:focus-visible, .fagoo-root .contratos textarea:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .contratos label { display: block; margin: .6rem 0 .3rem; line-height: 1.5; }
+.fagoo-root .contratos select, .fagoo-root .contratos textarea, .fagoo-root .contratos input:not([type="checkbox"]) { display: block; max-width: 100%; padding: .45rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .contratos textarea { width: 100%; max-width: 44rem; min-height: 4.5rem; }
+.fagoo-root .contratos input[type="checkbox"] { margin-right: .4rem; }
+.fagoo-root .contratos fieldset { border: 1px solid var(--border, #d6dde7); border-radius: .4rem; padding: .5rem 1rem 1rem; margin: 1rem 0; }
+.fagoo-root .contratos-tabs, .fagoo-root .contratos-toolbar, .fagoo-root .contratos-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; margin: 1rem 0; }
+.fagoo-root .contratos-tabs a { padding: .4rem .2rem; font-weight: 600; text-decoration: none; border-bottom: 3px solid transparent; }
+.fagoo-root .contratos-tabs a[aria-current="page"] { border-bottom-color: #2454a6; }
+.fagoo-root .contratos-toolbar label { margin: 0; }
+.fagoo-root .contratos-inline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .5rem; margin: .5rem 0; }
+.fagoo-root .contratos-inline label { margin: 0; }
+.fagoo-root .contratos-table { width: 100%; border-collapse: collapse; margin: .5rem 0 1rem; }
+.fagoo-root .contratos-table caption { text-align: left; font-weight: 600; padding: .4rem 0; }
+.fagoo-root .contratos-table th, .fagoo-root .contratos-table td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--border, #d6dde7); vertical-align: top; }
+.fagoo-root .contratos-table th { font-weight: 600; background: var(--surface-alt, #f7f9fc); }
+.fagoo-root .contratos-error { color: #a12020; font-weight: 600; }
+.fagoo-root .contratos-notice { background: #eef5ff; border-left: 4px solid #2454a6; padding: .5rem .75rem; }
+.fagoo-root .contratos-hint { color: var(--text-muted, #4a5a70); font-size: .95rem; }
+.fagoo-root .contratos-facts { display: grid; grid-template-columns: minmax(9rem, max-content) 1fr; gap: .3rem 1rem; margin: 1rem 0; }
+.fagoo-root .contratos-facts dt { font-weight: 600; }
+.fagoo-root .contratos-facts dd { margin: 0; white-space: pre-wrap; }
+.fagoo-root .contratos-section { border-top: 1px solid var(--border, #d6dde7); margin-top: 1rem; }
+.fagoo-root .contratos-status { display: inline-block; padding: .1rem .55rem; border-radius: 1rem; font-weight: 600; background: #e9edf3; }
+.fagoo-root .contratos-status-active { background: #def3e4; color: #145c2c; }
+.fagoo-root .contratos-status-suspended { background: #fff2d6; color: #7a4f00; }
+.fagoo-root .contratos-status-ended { background: #eceff3; color: #4a5a70; }
+.fagoo-root .contratos-notices, .fagoo-root .contratos-bling, .fagoo-root .contratos-history { list-style: none; padding: 0; }
+.fagoo-root .contratos-notices > li, .fagoo-root .contratos-bling > li { border: 1px solid var(--border, #d6dde7); border-radius: .4rem; padding: .75rem 1rem; margin: .6rem 0; }
+.fagoo-root .contratos-history li { padding: .3rem 0; border-bottom: 1px dashed var(--border, #d6dde7); }
+.fagoo-root .contratos-history time { color: var(--text-muted, #4a5a70); margin-right: .5rem; }
+.fagoo-root .contratos-problems { color: #7a4f00; }
+.fagoo-root .contratos-item { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; padding: .5rem 0; border-bottom: 1px dashed var(--border, #d6dde7); }
+.fagoo-root .contratos-item label { margin: 0; }
+.fagoo-root .contratos-picker ul { list-style: none; padding: 0; margin: .3rem 0; }
+.fagoo-root .contratos-picker li button { margin: .15rem 0; text-align: left; }
+.fagoo-root .contratos-preview { border: 1px solid var(--border, #d6dde7); border-radius: .4rem; padding: .5rem 1rem; margin: .6rem 0; }
+@media (max-width: 720px) {
+  .fagoo-root .contratos-table { display: block; overflow-x: auto; }
+  .fagoo-root .contratos-facts { grid-template-columns: 1fr; }
+}

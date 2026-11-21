@@ -63,7 +63,8 @@ test("ausência e nove partes ligadas produzem os mesmos DTOs, erros e tabelas",
     } finally { lite.close(); }
   };
   // + Produção (production) e Expedição (shipping): onze partes.
-  assert.equal(ERP_PART_KEYS.length, 11);
+  // + Contratos (contracts): doze partes.
+  assert.equal(ERP_PART_KEYS.length, 12);
   assert.deepEqual(run(true), run(false));
 });
 

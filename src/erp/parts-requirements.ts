@@ -182,6 +182,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (path === "/producao") owner = R;
   // Expedição: separação, volumes, etiquetas, romaneio e devolução física (com Vendas e Estoque).
   else if (path === "/expedicao") owner = "erp-expedicao";
+  // Financeiro › Contratos: contratos de serviço, faturas, reajuste e renovação (com o Financeiro).
+  else if (path === "/contratos") owner = "erp-contratos";
   // Cadastros › Lojas: cadastro da Base; cada seção do relatório por loja confere a parte dela.
   else if (path === "/lojas") owner = B;
   else if (path === "/meu-negocio") { owner = S; if (q.get("painel")?.includes("margem")) extra.push(C, E); if (/previsao|cobertura/.test(q.get("painel") ?? "")) extra.push(E); }

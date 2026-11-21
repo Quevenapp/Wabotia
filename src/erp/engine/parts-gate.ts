@@ -36,6 +36,11 @@ const RPC_GROUPS = {
   shipping: `erp_shipping_overview erp_shipping_packages erp_shipping_package_save erp_shipping_pick_get erp_shipping_pick_create erp_shipping_pick_mark
     erp_shipping_pick_finish erp_shipping_pick_cancel erp_shipping_pending_resolve erp_shipping_order_get erp_shipping_pack erp_shipping_ship
     erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create`,
+  // Contratos de serviço: a parte Contratos (com o Financeiro, de que depende); Fiscal e Bling só mudam o que o RPC lê.
+  contracts: `erp_contract_options erp_contract_list erp_contract_get erp_contract_save erp_contract_status erp_contract_billing
+    erp_contract_bill_now erp_contract_invoices erp_contract_invoice_mark erp_contract_rates erp_contract_rate_save erp_contract_adjust_preview
+    erp_contract_adjust erp_contract_amend erp_contract_renew erp_contract_notices erp_contract_notice_close erp_contract_attachment_add
+    erp_contract_attachment_get erp_contract_attachment_remove erp_contract_bling_list erp_contract_bling_adopt`,
   // Lojas e filiais: cadastro da Base; cada seção da lista e do relatório por loja confere a parte dela dentro do RPC.
   stores: `erp_store_overview erp_store_save erp_store_person_set erp_store_select erp_store_assign erp_store_operations erp_store_report`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.
@@ -209,6 +214,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_effect: ["erp-fiscal"],
   inbound: ["erp-compras"],
   shipping: ["erp-expedicao"],
+  contracts: ["erp-contratos"],
   stores: ["erp"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
