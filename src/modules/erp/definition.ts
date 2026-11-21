@@ -6,6 +6,7 @@ import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts
 import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_MODULE_CONTRACT } from "../../erp/expedicao/contract.ts";
+import { ERP_REFORMA_MODULE_CONTRACT } from "../../erp/reforma/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -82,7 +83,8 @@ export const erpFinanceiroModule = definition("erp-financeiro", "Contas a pagar 
 export const erpFiscalModule: ModuleDefinition = {
   ...definition("erp-fiscal", "Documentos fiscais, naturezas, numeração e configuração do emissor, conforme as funcionalidades disponíveis."),
   // Para o contador (src/erp/contador/contract.ts): as operações nfe.contador.* já são do prefixo nfe.
-  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes, ...ERP_CONTADOR_MODULE_CONTRACT.routes],
+  // Reforma tributária (src/erp/reforma/contract.ts): só pela tela, fora do inventário dos bots.
+  routes: ["erp-emissor", "erp-fiscal-cofre", ...COM1_MODULE_CONTRACT.routes, ...ERP_CONTADOR_MODULE_CONTRACT.routes, ...ERP_REFORMA_MODULE_CONTRACT.routes],
   operations: COM1_MODULE_CONTRACT.operations,
   bot: {
     sensitive: [...COM1_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTADOR_MODULE_CONTRACT.definition.bot.sensitive],

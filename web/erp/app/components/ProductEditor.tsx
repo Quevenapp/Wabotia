@@ -1,6 +1,7 @@
 import { blockEnabled, operationEnabled, availablePayload } from '../../blocks';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import ProductVariations from './ProductVariations';
+import ProductReformSection from './ProductReformSection';
 import { Link } from 'react-router-dom';
 import { AccessError } from '../lib/real-access';
 import { invalidField } from '../lib/catalog-base';
@@ -347,6 +348,8 @@ function ProductForm(props: CatalogEditorProps & { taxonomies: Taxonomies; origi
         ? input(field.key, locked, { label: field.label, max: field.max, info: field.info, help: <a className="product-external" href={NFE_TABLES} target="_blank" rel="noreferrer noopener" title="Tabelas oficiais da NF-e (código de enquadramento legal do IPI)">Consultar</a> }) : input(field.key, locked))}
       {group === 'IPI' && ipiNote && <p className="real-help real-field-wide">{ipiNote}</p>}</>, DETAIL_FIELDS.some(field => field.group === group && Boolean(values[field.key])))}</div>)}
     {section('Dados adicionais', input('additional_info', locked), Boolean(values.additional_info))}
+    {/* Wabotia: reforma tributária (IBS/CBS e Imposto Seletivo), gravada à parte; só com o produto salvo e a parte Fiscal ligada. */}
+    {record?.id && blockEnabled('erp-fiscal') && <ProductReformSection productId={record.id} />}
   </>;
   const basicFields = (locked: boolean) => <fieldset disabled={locked} className="real-editor-fields product-basic-fields"><legend>Dados básicos</legend>
     {input('name', locked)}{input('code', locked, codeSpec)}{wizard ? <>{input('price', locked, { ...BASE.price, info: 'Valor que será cobrado ao cliente pelo produto.' })}{input('unit', locked, { ...BASE.unit, info: 'Unidade de medida do produto. Ex.: kg, un, etc.' })}

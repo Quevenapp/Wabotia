@@ -145,6 +145,15 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
       "Tabelas só do motor (schema/engine-tables.ts, versão 7): erp_fiscal_reform__nature_class (padrão e exceções por NCM, produto ou grupo de cada natureza; RPCs erp_fiscal_reform_nature_class_get e _save, só do motor) e erp_fiscal_reform__product_class (do produto, com NBS do serviço; a escrita é combinada com o Catálogo). Resolução: produto > exceção da natureza > padrão da natureza (domains/fiscal/reform.ts).",
   },
   {
+    id: "reforma-calculo",
+    oracle:
+      "Nada: o Fagoo não calcula IBS, CBS nem IS, não guarda alíquotas por ano da transição nem a opção do Simples pelo regime regular.",
+    reason:
+      "Reforma tributária do consumo: a partir de 2026 a NF-e leva o grupo IBS/CBS (informativo em 2026, alíquotas de teste de 0,9% e 0,1%) e as propostas e pedidos mostram os valores. O cofre da NFapi recebe os valores calculados pelo ERP.",
+    replaced_by:
+      "Tabelas só do motor (schema/engine-tables.ts, versão 26): erp_fiscal_reform__settings (opção do Simples pelo regime regular e alíquotas informadas para anos não publicados) e erp_fiscal_reform__product_selective (Imposto Seletivo do produto). Tabela de classificações e alíquotas por ano como dado em domains/fiscal/reform-table.ts; cálculo puro em domains/fiscal/reform-calc.ts; RPCs só do motor em domains/fiscal/reform.ts.",
+  },
+  {
     id: "emissao-cofre",
     oracle:
       "Emissão própria do Fagoo: erp_fiscal_authorization.attempt (hash assinado, envelope, impressão do certificado, nonce), as filas unsigned_*/signed_*, numbering_* e reconciliation_*; eventos em erp_fiscal_invoices.event_request, cujo CHECK aceita só environment='2' (homologação).",

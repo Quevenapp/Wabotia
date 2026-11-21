@@ -44,11 +44,14 @@
 // 25: oito tabelas da Expedição (erp_shipping: embalagens, situação do pedido
 //     na expedição, lista e linhas de separação, pendências, volumes,
 //     devoluções físicas e recibos; 24→25, somente adição).
+// 26: duas tabelas do cálculo da reforma tributária (erp_fiscal_reform:
+//     configuração da empresa e Imposto Seletivo do produto; 25→26, somente
+//     adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 25;
+export const ERP_DDL_VERSION = 26;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

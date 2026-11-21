@@ -1869,6 +1869,45 @@ const SHIPPING_TABLES: readonly EngineTable[] = [
 ) STRICT`,
   ]),
 ];
+/** Versão 26: o cálculo da reforma tributária (IBS, CBS e IS). A configuração
+ * da empresa (opção do Simples pelo regime regular e alíquotas informadas
+ * para os anos ainda não publicados) e o Imposto Seletivo do produto. A
+ * classificação de IBS/CBS continua nas tabelas da versão 7. */
+const R_SETTINGS = "erp_fiscal_reform__settings", R_SELECTIVE = "erp_fiscal_reform__product_selective";
+const reformCalc = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 26, owner: "reforma-tributaria", structural: "reforma-calculo" });
+const REFORM_CALC_TABLES: readonly EngineTable[] = [
+  reformCalc(R_SETTINGS, [
+    `CREATE TABLE "${R_SETTINGS}" (
+  "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "simples_regular" INTEGER NOT NULL DEFAULT 0,
+  "rates" TEXT NOT NULL DEFAULT '{}',
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${R_SETTINGS}_singleton_check" CHECK (id = 1),
+  CONSTRAINT "${R_SETTINGS}_version_check" CHECK (version BETWEEN 1 AND 2147483647),
+  CONSTRAINT "${R_SETTINGS}_simples_regular_check" CHECK (simples_regular IN (0,1)),
+  CONSTRAINT "${R_SETTINGS}_rates_check" CHECK (${JSON_OF("rates", "object")} AND length(CAST(rates AS BLOB)) <= 4096)
+) STRICT`,
+  ]),
+  reformCalc(R_SELECTIVE, [
+    `CREATE TABLE "${R_SELECTIVE}" (
+  "product_id" TEXT NOT NULL PRIMARY KEY,
+  "cst" TEXT NOT NULL,
+  "cclasstrib" TEXT NOT NULL,
+  "rate" TEXT NOT NULL,
+  "version" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${R_SELECTIVE}_cst_check" CHECK ((cst GLOB '${DIGITS(3)}')),
+  CONSTRAINT "${R_SELECTIVE}_cclasstrib_check" CHECK ((cclasstrib GLOB '${DIGITS(6)}')),
+  CONSTRAINT "${R_SELECTIVE}_rate_check" CHECK (length(rate) BETWEEN 1 AND 8 AND rate NOT GLOB '*[^0-9.]*'),
+  CONSTRAINT "${R_SELECTIVE}_version_check" CHECK ((("version" >= 1) AND ("version" <= 2147483647))),
+  CONSTRAINT "${R_SELECTIVE}_product_id_fkey" FOREIGN KEY ("product_id") REFERENCES "erp_catalog__product" ("record_id")
+) STRICT`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1938,6 +1977,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...EXTRA_TABLES,
   // Versão 25: Expedição (as versões 22 a 24 são de outras frentes).
   ...SHIPPING_TABLES,
+  // Versão 26: o cálculo da reforma tributária (configuração e Imposto Seletivo do produto).
+  ...REFORM_CALC_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

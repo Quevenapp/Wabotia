@@ -579,9 +579,12 @@ vault_outdated` com `min_version` e o alerta `vault_feature_outdated`
   Escritas são sensíveis, com confirmação por pessoa habilitada como padrão.
   Política única: `requireCom1SensitivePolicy`; catálogo e OpenAPI incluem
   as doze operações. Origem externa não pode usá-las.
-- **Tributação:** IBS/CBS/IS são omitidos, sem zeros artificiais. Operações
-  que os exijam ou não tenham representação fiel são bloqueadas. Revisão
-  do contador continua necessária. Não existe autorização pelo navegador.
+- **Tributação:** IBS/CBS/IS vão no item (`ibsCbs`, `impostoSeletivo`)
+  só quando o contrato servido pelo cofre os aceita (`reform-capability.ts`,
+  lido no Testar conexão e guardado em `checked.reform`); sem isso a nota sai
+  sem o grupo, sem zeros artificiais. Operações sem representação fiel são
+  bloqueadas. Revisão do contador continua necessária. Não existe
+  autorização pelo navegador.
 - **Próximas fatias:** `PedidoNfce`, `PedidoNfse`, OS/serviços, importação de
   recebidas, devolução, CC-e e relatórios do novo histórico exigem fluxos próprios.
 - **Flag de compatibilidade** se o cofre puder estar na mesma zona.

@@ -18,6 +18,7 @@ import { CONTRACT_VERSION } from "./contract/types.generated.ts";
 import { NfapiClient, olderThan } from "./nfapi.ts";
 import { fiscalError, NFAPI_PROVIDER_ID, stateFromCofre } from "./nfapi-provider.ts";
 import { FiscalError, type FiscalProviderState, type FiscalSeries } from "./provider.ts";
+import { vaultReformCapability, type VaultReformCapability } from "./reform-capability.ts";
 
 const secretId = (profile: string) => `erp-emissor:${profile}`;
 
@@ -37,6 +38,12 @@ export interface EmissorCheck {
     /** Diferenças de forma para a cópia versionada (até 50). */
     differences: string[];
   } | null;
+  /**
+   * O que o cofre aceita da reforma tributária (grupo IBS/CBS, Imposto
+   * Seletivo e finalidades), lido do contrato que ele serve. null: não leu o
+   * contrato; ausente: teste anterior a esta leitura (teste de novo).
+   */
+  reform?: VaultReformCapability | null;
 }
 
 interface Stored {
@@ -359,9 +366,11 @@ export async function testEmissor(
       compatible: servedCompatible(state.version) ? null : false,
       differences: [],
     };
+    let reform: VaultReformCapability | null = null;
     try {
       const served = (await api.openapi()).body as OpenApi;
       if (served && typeof served === "object" && served.info && served.paths && served.components) {
+        reform = vaultReformCapability(served);
         const differences = contractDiff(pinned, served);
         const vault = String(served.info.version);
         contract = {
@@ -374,7 +383,7 @@ export async function testEmissor(
     } catch {
       // Cofre sem /v1/openapi.json legível: fica a comparação pela versão.
     }
-    checked = { at: now(), ok: true, error: null, state, series, contract };
+    checked = { at: now(), ok: true, error: null, state, series, contract, reform };
   } catch (error) {
     const e = fiscalError(error);
     if (!(e instanceof FiscalError)) throw e;

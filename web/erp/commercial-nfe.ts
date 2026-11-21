@@ -212,6 +212,8 @@ export function correctionTarget(blocker: FiscalBlocker, documentId?: string): s
     settings: "/certificado-a1", emissor: "/certificado-a1", fiscal_settings: "/certificado-a1",
     documents: "/documentos-empresa?tipo=sales_orders", order: "/documentos-empresa?tipo=sales_orders", sales_orders: "/documentos-empresa?tipo=sales_orders",
     payments: "/documentos-empresa?tipo=sales_orders", transport: "/documentos-empresa?tipo=sales_orders",
+    // Reforma tributária: alíquotas do ano e opção do Simples.
+    reform: "/reforma-tributaria",
   };
   // As fontes usam company, contacts, products, sales_orders, fiscal_natures,
   // fiscal_parameters e fiscal_settings; aliases preservam revisões anteriores.

@@ -304,7 +304,7 @@ export const NFE_SETUP_CHECKLIST = [
   "Cliente com documento, endereço, município e condição de inscrição estadual.",
   "Produtos com NCM, origem, unidade e demais dados aplicáveis.",
   "Natureza e parâmetros revisados; regras cobrem todos os itens.",
-  "Contador conferiu a operação e a data, inclusive a omissão de IBS/CBS/IS.",
+  "Contador conferiu a operação e a data, inclusive IBS/CBS/IS (classificação dos produtos e o que o cofre recebe).",
   "Pagamentos, parcelas e total fiscal coincidem.",
   "Modalidade de frete e dados de transporte coerentes.",
   "Políticas de estoque e financeiro escolhidas.",
@@ -471,7 +471,7 @@ function CommercialNfeSettings({ port, connection, confirmIdentity }: {
           </select></label>)}
           <p className="real-help">Mudar a política não reverte lançamentos anteriores nem aplica efeitos pulados. Fiscal desligada preserva a venda sem nota; Estoque ou Financeiro desligados deixam o efeito explicitamente pulado.</p>
           <p className="real-help">A opção “somente na autorização fiscal” vale para pedidos de venda do próprio ERP. Fato vindo de módulo (Pedido, Mesas, Entrega e os demais) ainda não emite NF-e por aqui e é venda já acontecida: segue a automação da fase 3 e a intenção manual, sem esperar autorização fiscal.</p>
-          <label style={{ display: "block" }}><input style={{ width: "auto" }} type="checkbox" checked={taxReviewed} onChange={event => setTaxReviewed(event.target.checked)} /> O contador conferiu CRT, CFOP, regras, bases e alíquotas, inclusive a possibilidade de emitir sem IBS/CBS/IS nesta operação e data. Operações que exijam esses tributos continuam bloqueadas.</label>
+          <label style={{ display: "block" }}><input style={{ width: "auto" }} type="checkbox" checked={taxReviewed} onChange={event => setTaxReviewed(event.target.checked)} /> O contador conferiu CRT, CFOP, regras, bases e alíquotas, inclusive IBS/CBS/IS: o ERP os calcula e só os envia quando o cofre recebe a reforma tributária (sem isso a nota sai sem o grupo).</label>
           <label style={{ display: "block" }}><input style={{ width: "auto" }} type="checkbox" checked={setupReviewed} onChange={event => setSetupReviewed(event.target.checked)} /> Conferi empresa, CNPJ, série permitida pelo cofre e parametrização fiscal.</label>
           <label style={{ display: "block" }}><input style={{ width: "auto" }} type="checkbox" checked={productionConfirmed} onChange={event => setProductionConfirmed(event.target.checked)} /> Confirmo a produção: novas notas terão efeito fiscal real. Usarei novos pedidos; dados de homologação não serão promovidos ou apagados e seus efeitos comerciais precisam ser tratados conscientemente.</label>
           <div className="real-actions">

@@ -138,4 +138,18 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
     ["p_expected_hash", "t"],
     ["p_rules", "j"],
   ],
+  // src/erp/domains/fiscal/reform.ts, versão 26 (structural.ts, reforma-calculo)
+  erp_fiscal_reform_settings_get: [["p_user_id", "u"]],
+  erp_fiscal_reform_settings_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_expected_version", "i"], ["p_data", "j"]],
+  erp_fiscal_reform_product_get: [["p_user_id", "u"], ["p_product_id", "u"]],
+  erp_fiscal_reform_product_save: [
+    ["p_user_id", "u"],
+    ["p_command_id", "u"],
+    ["p_product_id", "u"],
+    ["p_expected_hash", "t"],
+    ["p_classification", "j", null],
+    ["p_selective", "j", null],
+  ],
+  erp_fiscal_reform_document_context: [["p_user_id", "u"], ["p_kind", "t"], ["p_contact_id", "u", null], ["p_product_ids", "j"]],
+  erp_fiscal_reform_report: [["p_user_id", "u"], ["p_from", "t"], ["p_to", "t"], ["p_environment", "t", null]],
 };

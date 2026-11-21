@@ -1306,6 +1306,13 @@ app.all("/api/v1/profiles/:profile/erp-relatorios/*", async (c: any) => {
   const { erpRelatoriosRoute } = await import("./erp/relatorios/routes");
   return erpRelatoriosRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Reforma tributária do ERP (IBS, CBS e IS: configuração, classificação do
+// produto e da natureza, bloco dos documentos e relatório do contador): parte
+// Fiscal ligada, só pela tela (src/erp/reforma/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-reforma/*", async (c: any) => {
+  const { erpReformaRoute } = await import("./erp/reforma/routes");
+  return erpReformaRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Expedição do ERP (separação, volumes, etiquetas, romaneio, entrega local e
 // devolução física): parte Expedição com Vendas e Estoque (src/erp/expedicao/routes.ts).
 app.all("/api/v1/profiles/:profile/erp-expedicao/*", async (c: any) => {

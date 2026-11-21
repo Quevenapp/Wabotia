@@ -96,7 +96,9 @@ export async function commercialConnectionCheck(context: CommercialNfeHttpContex
     company_matches: false, company_complete: false,
     environments: [...checked.state.key.environments],
     series: (checked.series ?? []).filter(series => series.kind === "nfe" && (!series.cnpj || series.cnpj === issuer))
-      .map(series => ({ environment: series.environment, series: series.series })) };
+      .map(series => ({ environment: series.environment, series: series.series })),
+    // Reforma tributária: o que o contrato do cofre aceita (só quando o teste leu o contrato).
+    ...(checked.reform !== undefined ? { reform: checked.reform } : {}) };
 }
 
 /** Montagem de produção; testes podem substituir somente as portas de I/O. */
