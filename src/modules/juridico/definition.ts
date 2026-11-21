@@ -14,5 +14,7 @@ export const juridicoModule: ModuleDefinition = {
     { id: "lawyer", label: "Advogado", description: "Calcula, confere e cumpre prazos da área. Exige também os:sensitive." },
     { id: "curator", label: "Curador de calendários", description: "Cadastra e revisa calendários da área. Exige também os:sensitive." },
   ],
+  // Fora do catálogo comum; cada operação vem de bot-grants.ts e só chega ao
+  // bot que o administrador liberou, com aviso (src/bot-actions/area.ts).
   bot: { deny: ["juridico", "juridico."], sensitive: ["juridico."] },
 };

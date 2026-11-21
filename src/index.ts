@@ -103,6 +103,7 @@ import {
   setFullPersonalData,
 } from "./bot-actions/actions";
 import { erpBotInventory } from "./modules/erp/bot-access";
+import { areaBotInventory } from "./bot-actions/area";
 import { mountAccount, mountAccountPublic } from "./account-routes";
 import { loginMfaNext, loginSecondFactor, mfaGate } from "./mfa";
 import { buildInfo } from "./build-info.generated";
@@ -1842,6 +1843,8 @@ const commands = [
   ["PUT", "connections/:id/state", "connection.state"],
   ["DELETE", "connections/:id", "connection.delete"],
   ["PATCH", "bots/:id", "bot.update"],
+  // Módulos de área para o bot (src/bot-actions/area.ts): ligar pede o aviso.
+  ["PUT", "bots/:id/area-grants", "bot.area_grant"],
   ["POST", "conversations", "conversation.create"],
   ["POST", "inbound", "inbound"],
   ["POST", "media/uploads", "upload.create"],
@@ -2335,6 +2338,16 @@ app.get("/api/v1/profiles/:profile/bots/erp-operations", async (c) => {
   access(actor, p, "bots:read");
   admin(actor);
   return c.json(erpBotInventory(await moduleStates(c.env, p)));
+});
+// Módulos de área (Saúde, Ensino, Jurídico, Condomínio) para um bot: as
+// operações, o que está ligado e o registro. Só administrador; mudar é em
+// PUT bots/:id/area-grants (bot.area_grant).
+app.get("/api/v1/profiles/:profile/bots/:id/area-grants", async (c) => {
+  const p = c.req.param("profile")!,
+    actor = c.get("actor");
+  access(actor, p, "bots:read");
+  admin(actor);
+  return c.json(await areaBotInventory(c.env, p, c.req.param("id")!, await moduleStates(c.env, p)), 200, { "Cache-Control": "no-store" });
 });
 const readLists: Record<string, [string, string]> = {
   bots: ["bots", "bots:read"],

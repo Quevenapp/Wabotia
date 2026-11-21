@@ -33,6 +33,7 @@ import { requireFinancialAal } from "../mfa";
 import { moduleById } from "../modules/registry";
 import { describeFields, describeWith } from "./describe";
 import { ERP_BOT_OPERATIONS, erpBotOperationGranted } from "../modules/erp/bot-access";
+import { areaBotGrants, areaGrantsFor, areaOperation, areaOperationByRoute, logAreaUse, personFor, stripSensitive } from "./area";
 
 /** Teto de chamadas de ferramenta por turno do bot. */
 export const MAX_TOOL_CALLS = 6;
@@ -257,6 +258,43 @@ async function findOperation(ctx: BotActionContext, name: unknown) {
 }
 
 /**
+ * Consulta ou escrita direta de módulo de área (src/bot-actions/area.ts): a
+ * concessão é relida agora; a chamada roda como a pessoa (o guarda do módulo
+ * confere os papéis dela) e o resultado volta sem os campos sensíveis, salvo
+ * a opção do bot para o módulo. Cada uso fica no registro.
+ */
+async function runAreaOperation(
+  ctx: BotActionContext,
+  op: CatalogOperation,
+  params: Record<string, any>,
+) {
+  const found = areaOperation(op.name);
+  const grants = await areaGrantsFor(ctx.env, ctx.actor, ctx.profile);
+  const direct = op.kind === "write";
+  if (!found || !grants.operations.has(op.name) || (direct && !grants.direct.has(op.name)))
+    throw new ApiError(403, "area_bot_grant_required", "Esta operação não está liberada para este bot. Peça ao administrador na página do bot.");
+  requireValue(params && typeof params === "object" && !Array.isArray(params), "Parâmetros inválidos.");
+  const call = buildCall(ctx.profile, op, params);
+  await logAreaUse(ctx.env, ctx.profile, ctx.run.bot_id, ctx.actor.id, found.module.module, op.name, direct ? "execução direta" : "consulta");
+  const response = await internalCall(
+    ctx.env,
+    personFor(ctx.actor),
+    call,
+    direct ? `area:${ctx.run.id}:${op.name}:${await digest(JSON.stringify(params))}` : undefined,
+  );
+  const body = await response.json<any>().catch(() => null);
+  if (!response.ok)
+    return toolError(body?.error?.message || `Falha HTTP ${response.status}.`);
+  const visible = stripSensitive(found.module, found.op, body, grants.sensitive.has(found.module.module));
+  return clip(sanitize(visible, !!ctx.actor.via?.masked));
+}
+
+async function digest(text: string) {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...bytes.slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Executa uma ferramenta pedida pelo modelo e devolve o texto do resultado.
  * Erros viram resultado de erro (o modelo explica à pessoa); nada lança.
  */
@@ -299,6 +337,7 @@ export async function runBotTool(
         return toolError(
           "Consulta desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.",
         );
+      if (op.area) return await runAreaOperation(ctx, op, input.parametros || {});
       const response = await internalCall(
         ctx.env,
         ctx.actor,
@@ -320,6 +359,11 @@ export async function runBotTool(
         return toolError(
           "Ação desconhecida ou fora do acesso da pessoa. Use buscar_operacoes.",
         );
+      // Escrita de módulo de área com execução direta liberada pelo administrador.
+      if (op.area && op.direct) {
+        state.proposals++;
+        return await runAreaOperation(ctx, op, input.parametros || {});
+      }
       const proposal = await createProposal(
         ctx,
         op,
@@ -426,6 +470,8 @@ export async function createProposal(
     if (!contract || !await erpBotOperationGranted(ctx.env, ctx.actor, ctx.profile, contract.id))
       throw new ApiError(403, "erp_bot_grant_required", "Esta operação do ERP não foi liberada para este bot na área.");
   }
+  if (op.area && !(await areaGrantsFor(ctx.env, ctx.actor, ctx.profile)).operations.has(op.name))
+    throw new ApiError(403, "area_bot_grant_required", "Esta operação não está liberada para este bot. Peça ao administrador na página do bot.");
   requireValue(
     params && typeof params === "object" && !Array.isArray(params),
     "Parâmetros inválidos.",
@@ -572,6 +618,11 @@ export async function confirmProposal(
   // conforme a política da instalação (src/mfa.ts). As operações financeiras
   // dos módulos pedem de novo no próprio guarda, com o ator abaixo.
   if (row.sensitive) requireFinancialAal(actor);
+  // Módulo de área: a concessão do administrador é relida agora; desligada
+  // depois da proposta, não roda.
+  const area = areaOperationByRoute(row.method, row.path);
+  if (area && !(await areaBotGrants(env, profile, row.bot_id)).operations.has(area.op.id))
+    throw new ApiError(403, "area_bot_grant_required", "O administrador desligou esta operação para o bot depois da proposta. Peça a ele na página do bot ou faça pela tela.");
   const claimedAt = now();
   const claimed = await exec(
     env,
@@ -595,17 +646,20 @@ export async function confirmProposal(
   let status = "done",
     result: any = null,
     error: string | null = null;
+  if (area) await logAreaUse(env, profile, row.bot_id, actor.id, area.module.module, area.op.id, "proposta confirmada pela pessoa");
   try {
     const response = await internalCall(
       env,
       // Nível, sessão e política de quem confirmou: os guardas do núcleo e
       // dos módulos (requireFinancialAal) valem como numa chamada da tela.
+      // Módulo de área: a pessoa confirmou e a concessão foi conferida; o
+      // guarda do módulo recusa toda chamada por bot e confere os papéis dela.
       {
         ...person,
         aal: actor.aal ?? 1,
         sessionId: actor.sessionId,
         mfa: actor.mfa ?? person.mfa,
-        via,
+        ...(area ? {} : { via }),
       } as Actor,
       // GET continua GET (leitura sensível proposta): parâmetros na consulta.
       buildCall(

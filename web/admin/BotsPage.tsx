@@ -10,6 +10,7 @@ import { BotLinesEditor } from "../ServicePanels";
 import { linkProps } from "../lib/routes";
 import { FormDialog } from "./shared";
 import { BotErpGrants, useErpOperations } from "./BotErpGrants";
+import { BotAreaGrants } from "./BotAreaGrants";
 
 function CapabilityDialog({ onClose }: { onClose: () => void }) {
   const app = useApp();
@@ -238,6 +239,7 @@ export function BotsPage() {
                   busy={busy}
                   save={save}
                 />
+                <BotAreaGrants bot={bot} />
               </>
             )}
             <div className="card-actions">
