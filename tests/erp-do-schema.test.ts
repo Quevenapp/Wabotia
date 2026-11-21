@@ -58,10 +58,10 @@ describe("ERP fase 0: esquema gerado no objeto", () => {
     // + 30 da versão 16 (as 7 tabelas da nota de serviço da ordem)
     // + 3 da versão 21 (as 2 tabelas do DRE e do pagamento da equipe e 1 índice); 475 tabelas.
     // + 11 da versão 25 (as 8 tabelas da Expedição e 3 índices).
-    // + 2 da versão 26 (as 2 tabelas do cálculo da reforma tributária).
-    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1210, seedRows: 7586 });
+    // + 16 da versão 27 (as 9 tabelas das lojas e filiais e 7 índices).
+    expect(result.first).toMatchObject({ status: "applied", version: ERP_DDL_VERSION, statements: 1226, seedRows: 7586 });
     expect(result.again).toMatchObject({ status: "current" });
-    expect(result.tables).toBe(512);
+    expect(result.tables).toBe(521);
     expect(result.triggers).toBeGreaterThan(148);
     expect(result.municipalities).toBe(5571);
   });

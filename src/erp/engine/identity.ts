@@ -53,6 +53,12 @@ export interface IdentityPort {
   customer_privacy?: { restricted_contact_ids: string[] };
   parts?: Readonly<ErpParts>;
   partsControl?: ErpPartsControl;
+  /**
+   * Lojas a que o bot por quem a pessoa age está limitado (opções do bot, lidas
+   * pelo Worker). O motor soma à restrição da própria pessoa (interseção);
+   * ausente = sem limite do bot (domains/stores/public.ts).
+   */
+  store_scope?: readonly string[];
 }
 
 export const NO_IDENTITY: IdentityPort = { actor: null, people: null };
@@ -74,7 +80,7 @@ function person(v: any): ErpPerson | null {
 /** Envelope recebido (JSON já decodificado) → porta validada; o que não confere vira ausente. */
 export function readIdentity(raw: unknown): IdentityPort {
   if (!raw || typeof raw !== "object") return NO_IDENTITY;
-  const r = raw as { actor?: any; people?: any; customer_privacy?: any; parts?: unknown; partsControl?: any; module_execution?: unknown };
+  const r = raw as { actor?: any; people?: any; customer_privacy?: any; parts?: unknown; partsControl?: any; module_execution?: unknown; store_scope?: unknown };
   const module_execution = readModuleEvidence(r.module_execution);
   if (r.module_execution !== undefined && !module_execution) return NO_IDENTITY;
   const restricted = r.customer_privacy?.restricted_contact_ids;
@@ -92,7 +98,12 @@ export function readIdentity(raw: unknown): IdentityPort {
   const people = Array.isArray(r.people) ? r.people.map(person).filter((p: ErpPerson | null): p is ErpPerson => p !== null) : null;
   // As duas extensões do envelope convivem: a restrição cadastral (fase 1) e
   // o estado das partes do ERP (fase 2).
-  const privacy = { ...(restricted ? { customer_privacy: { restricted_contact_ids: restricted as string[] } } : {}), ...(module_execution ? { module_execution } : {}) };
+  // Limite de lojas do bot: lista de ids; o que não confere fecha (lista vazia), nunca abre.
+  const scope = r.store_scope === undefined ? undefined
+    : Array.isArray(r.store_scope) && r.store_scope.length <= 200 && r.store_scope.every((id: unknown) => typeof id === "string" && UUID.test(id))
+      ? (r.store_scope as string[]) : [];
+  const privacy = { ...(restricted ? { customer_privacy: { restricted_contact_ids: restricted as string[] } } : {}), ...(module_execution ? { module_execution } : {}),
+    ...(scope ? { store_scope: scope } : {}) };
   const snapshot = readErpPartsSnapshot({ ...r.partsControl, parts: r.parts });
   if (!snapshot) return { actor, people, ...privacy };
   const { parts, ...partsControl } = snapshot;

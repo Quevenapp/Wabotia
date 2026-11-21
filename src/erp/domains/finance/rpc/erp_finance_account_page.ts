@@ -2,6 +2,7 @@
 // lista paginada e detalhe das Contas Financeiras.
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { storeFilter } from "../../stores/public.ts";
 import { accountView, byLowerThenId, btrim, charLength, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
 
 const TYPES = ["checking", "savings", "cash", "receiving", "other", "integration"];
@@ -34,12 +35,15 @@ export function erpFinanceAccountPage(ctx: RpcContext, a: RpcArgs) {
         types.some((t) => !TYPES.includes(t))))
   )
     raise("22023", "erp_finance_invalid_query");
+  const inStore = storeFilter(ctx, user);
   const rows = db
     .exec(
       'SELECT id, name, active, account_type, institution_name, institution_code, agency, account_number FROM "erp_finance__account" WHERE deleted_at IS NULL',
     )
     .rows.filter(
       (r) =>
+        // Lojas (versão 27): com duas lojas ou mais, só as contas (e caixas) das lojas que a pessoa vê.
+        (inStore === null || inStore.account(r.id)) &&
         (active === null || !!r.active === active) &&
         (types === null || types.includes(String(r.account_type))) &&
         (needle === null ||

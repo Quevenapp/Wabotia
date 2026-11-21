@@ -1,6 +1,6 @@
 import { ERP_PARTS_STATE_SQL, erpPartsStateOf, erpPartsEnvelope, readErpPartsState } from "./parts-state";
 import { readErpPartsSnapshot } from "../../erp/parts.ts";
-import { erpBotDelegation, erpBotOperation, erpBotOperationGranted } from "./bot-access.ts";
+import { erpBotDelegation, erpBotOperation, erpBotOperationGranted, erpBotStoreScope } from "./bot-access.ts";
 import { INTEGRATION_MODULES } from "../../erp/engine/module-origin.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
 // o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
@@ -312,6 +312,8 @@ export async function erpIdentity(
     },
     people,
     ...await erpPartsEnvelope(env, profile, state.snapshot),
+    // Lojas: pelo bot, o limite de lojas dele (o motor cruza com o da pessoa).
+    ...(actor.via ? await erpBotStoreScope(env, actor, profile) : {}),
   };
 }
 

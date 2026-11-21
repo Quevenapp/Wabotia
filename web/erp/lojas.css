@@ -1,0 +1,27 @@
+.fagoo-root .lojas { max-width: 1240px; margin: 0 auto; padding: 1.25rem; color: inherit; }
+.fagoo-root .lojas h1 { margin-bottom: .35rem; }
+.fagoo-root .lojas h2 { font-size: 1.15rem; margin: 0 0 .6rem; }
+.fagoo-root .lojas p { line-height: 1.55; }
+.fagoo-root .lojas-tabs, .fagoo-root .lojas-toolbar, .fagoo-root .lojas-actions { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; margin: 1rem 0; }
+.fagoo-root .lojas button, .fagoo-root .lojas-switcher select { font: inherit; padding: .5rem .8rem; border: 1px solid var(--border-strong, #8291a6); border-radius: .35rem; background: var(--surface-alt, #f7f9fc); color: var(--text, #18293d); cursor: pointer; }
+.fagoo-root .lojas button.lojas-primary { background: #23508f; border-color: #23508f; color: #fff; }
+.fagoo-root .lojas button[aria-pressed="true"] { background: #dbe7f8; border-color: #23508f; font-weight: 600; }
+.fagoo-root .lojas button:disabled { cursor: default; opacity: .55; }
+.fagoo-root .lojas button:focus-visible, .fagoo-root .lojas input:focus-visible, .fagoo-root .lojas select:focus-visible, .fagoo-root .lojas-switcher select:focus-visible { outline: 3px solid #4279ce; outline-offset: 3px; }
+.fagoo-root .lojas label { display: block; margin: 0 0 .3rem; line-height: 1.5; }
+.fagoo-root .lojas select, .fagoo-root .lojas input:not([type="checkbox"]) { display: block; max-width: 100%; padding: .45rem; border: 1px solid var(--border-strong, #aeb9c8); border-radius: .3rem; background: var(--surface, #fff); color: var(--text, #18293d); font: inherit; }
+.fagoo-root .lojas label.lojas-check { display: flex; align-items: center; gap: .45rem; margin: .25rem 0; }
+.fagoo-root .lojas fieldset { border: 1px solid var(--border, #cdd6e2); border-radius: .45rem; padding: .6rem .9rem; margin: .8rem 0; }
+.fagoo-root .lojas fieldset.lojas-inline { display: flex; flex-wrap: wrap; gap: .3rem 1rem; margin: 0; }
+.fagoo-root .lojas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .4rem 1rem; }
+.fagoo-root .lojas-card { border: 1px solid var(--border, #cdd6e2); border-radius: .55rem; padding: 1rem; margin: 1rem 0; background: var(--surface, #fff); }
+.fagoo-root .lojas-table { width: 100%; border-collapse: collapse; margin: .5rem 0; font-variant-numeric: tabular-nums; }
+.fagoo-root .lojas-table th, .fagoo-root .lojas-table td { text-align: left; vertical-align: top; padding: .5rem; border-bottom: 1px solid var(--border, #e3e8ef); }
+.fagoo-root .lojas-compare td { text-align: right; }
+.fagoo-root .lojas-table small { display: block; color: var(--text-muted, #5a6878); margin-top: .2rem; }
+.fagoo-root .lojas-help { color: var(--text-muted, #5a6878); }
+.fagoo-root .lojas-error { color: #8a1c1c; background: #fdecec; border-radius: .35rem; padding: .5rem .75rem; }
+.fagoo-root .lojas-notice { color: #174b32; background: #e8f4ed; border-radius: .35rem; padding: .5rem .75rem; }
+.fagoo-root .lojas-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.fagoo-root .lojas-switcher { display: flex; align-items: center; gap: .75rem; justify-content: flex-end; padding: .35rem 1.25rem; border-bottom: 1px solid var(--border, #e3e8ef); }
+.fagoo-root .lojas-switcher label { display: flex; align-items: center; gap: .5rem; margin: 0; }

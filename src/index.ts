@@ -1319,6 +1319,16 @@ app.all("/api/v1/profiles/:profile/erp-expedicao/*", async (c: any) => {
   const { erpExpedicaoRoute } = await import("./erp/expedicao/routes");
   return erpExpedicaoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Lojas e filiais do ERP (cadastro, limite da pessoa, loja em uso, operações e
+// relatório por loja): cadastro da Base (src/erp/lojas/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-lojas", async (c: any) => {
+  const { erpLojasRoute } = await import("./erp/lojas/routes");
+  return erpLojasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
+app.all("/api/v1/profiles/:profile/erp-lojas/*", async (c: any) => {
+  const { erpLojasRoute } = await import("./erp/lojas/routes");
+  return erpLojasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Sondas do ERP para a instalação de teste (só com ERP_PROBES=1 no deploy).
 app.post("/api/v1/profiles/:profile/erp-probe/:name", async (c) => {
   const profile = c.req.param("profile");
@@ -2492,6 +2502,7 @@ for (const [path, [table, scope]] of Object.entries(readLists))
           row.image_to_team = cfg.bot_options?.[row.remote_profile]?.image_to_team === true;
           row.erp_operations = cfg.bot_options?.[row.remote_profile]?.erp_operations ?? [];
           row.erp_autonomous_operations = cfg.bot_options?.[row.remote_profile]?.erp_autonomous_operations ?? [];
+          row.erp_stores = cfg.bot_options?.[row.remote_profile]?.erp_stores ?? [];
           row.provider = cfg.provider;
           row.model = cfg.model;
           // O provedor recusou as ferramentas numa execução (até salvar a

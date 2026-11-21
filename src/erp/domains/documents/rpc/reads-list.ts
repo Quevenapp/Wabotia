@@ -28,6 +28,7 @@ import { mirrorMetadata } from "../mirror.ts";
 import { mirrorVisible, requireAccess, transitions } from "../public.ts";
 import { pendencies } from "./reads-commerce.ts";
 import { jsonPathText } from "./reads-common.ts";
+import { storeFilter } from "../../stores/public.ts";
 
 type Row = Record<string, unknown>;
 type Obj = Record<string, unknown>;
@@ -536,6 +537,7 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
   const offset = page === null ? 0 : (page - 1) * limit!;
 
   const filtered: Filtered[] = [];
+  const stores = storeFilter(ctx, user);
   const has = (hay: string | null, needle: string) => pgLower(hay ?? "").includes(needle);
   for (const d of db.exec(
     `SELECT d.id, d.number, d.origin, d.authority, d.status, d.deleted_at, d.contact_id, d.warehouse_id, d.body, d.contact_snapshot, CAST(d.total AS TEXT) total, ds.situation_id
@@ -575,6 +577,8 @@ export function erpDocumentList(ctx: RpcContext, a: RpcArgs) {
       if (!ok) continue;
     }
     if (warehouse !== null && d.warehouse_id !== warehouse) continue;
+    // Lojas (versão 27): com duas lojas ou mais, só as lojas que a pessoa vê (ou a loja em uso).
+    if (stores !== null && !stores.document(d.id, d.warehouse_id)) continue;
     if (product !== null && !one(db, 'SELECT 1 x FROM "erp_documents__item" WHERE document_id=? AND product_id=?', d.id, product)) continue;
     if (service !== null && !one(db, 'SELECT 1 x FROM "erp_documents__item" WHERE document_id=? AND product_id=?', d.id, service)) continue;
     if (vLots !== null) {
@@ -733,6 +737,8 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
   const vFrom = dateValue(from, true)!,
     vTo = dateValue(to, true)!;
   if (vFrom > vTo || (Date.parse(vTo + "T00:00:00Z") - Date.parse(vFrom + "T00:00:00Z")) / 86_400_000 > 366) raise("22023", "erp_document_period_invalid");
+  // Lojas (versão 27): as mesmas lojas da lista.
+  const stores = storeFilter(ctx, user);
   const docs = db
     .exec(
       `SELECT d.*, CAST(d.total AS TEXT) total, ds.situation_id FROM "erp_documents__document" d
@@ -743,7 +749,7 @@ export function erpDocumentExport(ctx: RpcContext, a: RpcArgs) {
     .rows.map((d): Row & { b: Obj; c: Obj } => ({ ...(d as Row), b: JSON.parse(String(d.body)) as Obj, c: JSON.parse(String(d.contact_snapshot)) as Obj }))
     .filter((d) => {
       const day = arrow(d.b, "date");
-      return day !== null && day >= from && day <= to && contactVisibleTo(db, scope, str(d.contact_id));
+      return day !== null && day >= from && day <= to && contactVisibleTo(db, scope, str(d.contact_id)) && (stores === null || stores.document(d.id, d.warehouse_id));
     });
   if (docs.length > 5000) raise("22023", "erp_document_export_limit");
   docs.sort(

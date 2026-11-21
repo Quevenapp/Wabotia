@@ -19,6 +19,7 @@ import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "..
 import { ERP_CONTADOR_OPERATIONS, ERP_CONTADOR_ROUTE, erpContadorParams } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_ROUTE, ERP_PRODUCTION_OPERATIONS, erpProductionParams } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpShippingParams } from "../../erp/expedicao/contract.ts";
+import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams } from "../../erp/lojas/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
 /** Assunto da operação, na ordem da tela de concessões do bot. */
@@ -34,6 +35,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "conversa", title: "Enviar documentos pelo WhatsApp" },
   { id: "producao", title: "Produção (ordens de produção)" },
   { id: "expedicao", title: "Expedição" },
+  { id: "lojas", title: "Lojas e filiais" },
 ];
 export interface ErpBotOperation {
   id: string; method: string; path: string; summary: string; sensitive: boolean;
@@ -140,6 +142,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Expedição: consultar é leitura comum; gerar separação, marcar expedido e registrar devolução são sensíveis.
   ...ERP_SHIPPING_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "expedicao", description: op.description, params: erpShippingParams(op) })),
+  // Lojas: ver as lojas e comparar as lojas é leitura comum; a lista de operações de uma loja é leitura sensível.
+  ...ERP_STORE_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "lojas", description: op.description, params: erpStoreParams(op) })),
 ];
 
 /** Leituras sensíveis que o administrador pode deixar o bot executar sozinho. */
@@ -162,6 +167,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (production) return erpRequirement(...production.parts).all;
   // Expedição: a parte dela, com Vendas e Estoque.
   if (op.path === ERP_EXPEDICAO_ROUTE || op.path.startsWith(`${ERP_EXPEDICAO_ROUTE}/`)) return erpRequirement(ERP_EXPEDICAO_PART).all;
+  // Lojas: cadastro da Base (cada seção do relatório confere a parte dela no motor).
+  if (op.path === ERP_LOJAS_ROUTE || op.path.startsWith(`${ERP_LOJAS_ROUTE}/`)) return erpRequirement(ERP_LOJAS_PART).all;
   const requirement = erpRouteRequirement(op.method, new URL(`https://erp.invalid/${op.path.slice("erp/".length).replace(/:[A-Za-z_][A-Za-z0-9_]*/g, "x")}`));
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }
@@ -200,9 +207,24 @@ export async function erpBotGrantedOperations(env: Env, actor: Actor, profile: s
 /** Concessões e leituras autônomas deste bot na área, relidas do banco. */
 export const erpBotGrants = (env: Env, actor: Actor, profile: string) => erpBotOptions(env, actor, profile);
 
+/** Lojas do ERP a que o bot fica limitado (opção do administrador): ids únicos; vazio = sem limite do bot. */
+export function erpBotStoresInput(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 200 || new Set(value).size !== value.length ||
+      value.some(id => typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)))
+    throw new ApiError(400, "invalid_request", "Escolha lojas do ERP pela lista, sem repetições.");
+  return value;
+}
+
+/** Envelope do motor: o limite de lojas do bot por quem a pessoa age (a pessoa continua com o limite dela; o motor cruza os dois). */
+export async function erpBotStoreScope(env: Env, actor: Actor, profile: string): Promise<{ store_scope?: string[] }> {
+  if (actor.kind !== "user" || !actor.via) return {};
+  const stores = (await erpBotOptions(env, actor, profile)).stores;
+  return stores.length ? { store_scope: [...stores] } : {};
+}
+
 const names = (value: unknown) => Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : [];
-async function erpBotOptions(env: Env, actor: Actor, profile: string): Promise<{ operations: readonly string[]; autonomous: readonly string[] }> {
-  if (actor.kind !== "user" || !actor.via) return { operations: [], autonomous: [] };
+async function erpBotOptions(env: Env, actor: Actor, profile: string): Promise<{ operations: readonly string[]; autonomous: readonly string[]; stores: readonly string[] }> {
+  if (actor.kind !== "user" || !actor.via) return { operations: [], autonomous: [], stores: [] };
   const row = await one(env, `SELECT b.remote_profile,c.config FROM bots b
     JOIN connections c ON c.id=b.connection_id AND c.profile_id=b.profile_id
     JOIN bot_runs r ON r.bot_id=b.id AND r.profile_id=b.profile_id
@@ -213,7 +235,7 @@ async function erpBotOptions(env: Env, actor: Actor, profile: string): Promise<{
     actor.id, `bot:${actor.via.bot_id}`, actor.id, `bot:${actor.via.bot_id}`);
   const options = row && json(row.config).bot_options?.[row.remote_profile];
   const operations = names(options?.erp_operations);
-  return { operations, autonomous: names(options?.erp_autonomous_operations).filter(id => operations.includes(id)) };
+  return { operations, autonomous: names(options?.erp_autonomous_operations).filter(id => operations.includes(id)), stores: names(options?.erp_stores) };
 }
 
 export async function erpBotOperationGranted(env: Env, actor: Actor, profile: string, operation: string): Promise<boolean> {

@@ -126,6 +126,15 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_shipping_delivery_prepare: [["p_user_id", "u"], ["p_args", "j"]],
   erp_shipping_delivery_record: [["p_user_id", "u"], ["p_args", "j"]],
   erp_shipping_return_create: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  // Lojas e filiais (structural.ts, lojas; src/erp/domains/stores/rpc.ts):
+  // consultas e a loja em uso com p_args; gravações do cadastro com p_command_id.
+  erp_store_overview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_store_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_store_person_set: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_store_select: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_store_assign: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  erp_store_operations: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_store_report: [["p_user_id", "u"], ["p_args", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

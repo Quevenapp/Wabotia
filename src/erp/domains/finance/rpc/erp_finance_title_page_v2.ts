@@ -4,6 +4,7 @@
 import { one } from "../../../engine/driver.ts";
 import { raise } from "../../../engine/errors.ts";
 import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/registry.ts";
+import { storeFilter } from "../../stores/public.ts";
 import { dateArgError, todaySaoPaulo } from "../../../engine/time.ts";
 import { permitted } from "../../access/public.ts";
 import { btrim, charLength, cmpText, CNTRL, pgLower, requireAccess, uuidArg } from "../internal.ts";
@@ -139,8 +140,11 @@ export function erpFinanceTitlePageV2(ctx: RpcContext, a: RpcArgs) {
     kind,
   ).rows;
   const open = (t: Record<string, unknown>) => !t.cancelled && Number(t.settled_cents) < Number(t.amount_cents);
+  // Lojas (versão 27): com duas lojas ou mais, só as contas das lojas que a pessoa vê (ou da loja em uso).
+  const inStore = storeFilter(ctx, user);
   const filtered = rows.filter((t) => {
     const id = String(t.id);
+    if (inStore !== null && !inStore.title(id)) return false;
     const amountT = Number(t.amount_cents),
       settledT = Number(t.settled_cents);
     const cancelled = !!t.cancelled;

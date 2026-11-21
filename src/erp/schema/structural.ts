@@ -267,4 +267,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Expedição (parte erp-expedicao, depende de Vendas e Estoque): lista de separação consolidada por produto e endereço, situação do pedido na expedição (a separar, em separação, separado, embalado, expedido), pendência quando falta quantidade, embalagens e volumes que alimentam o transporte do pedido, etiquetas e romaneio, entrega local pelo módulo Entrega e devolução física com entrada no estoque.",
     replaced_by: "Versão 25 aditiva (24→25): erp_shipping__package, __order, __pick_list, __pick_line, __pending, __volume, __return e __command. A situação comercial do pedido não muda; a pendência também entra como ocorrência do pedido; o transporte do pedido (volumes e peso bruto) é gravado pelo salvamento do próprio pedido; a entrada no estoque é a do Estoque (erp_stock.post, recebimento); a devolução fiscal continua a da NF-e (só o atalho).",
   },
+  {
+    id: "lojas",
+    oracle: "A área tem uma empresa só: depósitos, contas financeiras (e caixas do PDV), pedidos, propostas, compras e contas a pagar ou receber não têm loja, e o papel da pessoa vale para tudo.",
+    reason: "Lojas e filiais do mesmo dono (mesmo cofre de notas): cadastro de lojas com endereço, telefone, CNPJ da filial, depósito padrão, série e caixas; a loja vai com cada operação (padrão: a loja em uso da pessoa), as listas e os relatórios filtram e comparam por loja, o administrador pode limitar uma pessoa a algumas lojas e o bot respeita a pessoa por quem age somada ao limite do bot. Com uma loja só nada aparece de novo.",
+    replaced_by: "Versão 27 aditiva (26→27; a 26 é de outra frente): erp_store__store, __warehouse, __account, __document, __title, __person, __selection, __command e __audit. Nenhuma coluna nova nas tabelas do oráculo: sem vínculo, o depósito, a conta e o documento são da loja principal (que nasce com os dados da empresa); o documento sem vínculo segue a loja do depósito dele; o que nasce com duas lojas ou mais ganha o vínculo na mesma transação (domains/stores). Transferência entre lojas é a transferência entre depósitos (erp_stock_transfer_batch).",
+  },
 ];
