@@ -19,6 +19,7 @@ import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "..
 import { ERP_CONTADOR_OPERATIONS, ERP_CONTADOR_ROUTE, erpContadorParams } from "../../erp/contador/contract.ts";
 import { ERP_PRODUCAO_ROUTE, ERP_PRODUCTION_OPERATIONS, erpProductionParams } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpShippingParams } from "../../erp/expedicao/contract.ts";
+import { ERP_FREIGHT_OPERATIONS, erpFreightParams } from "../../erp/frete/contract.ts";
 import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams } from "../../erp/lojas/contract.ts";
 
 type Params = { type: "object"; properties: Record<string, any>; required: string[] };
@@ -35,6 +36,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "conversa", title: "Enviar documentos pelo WhatsApp" },
   { id: "producao", title: "Produção (ordens de produção)" },
   { id: "expedicao", title: "Expedição" },
+  { id: "frete", title: "Frete e rastreio" },
   { id: "lojas", title: "Lojas e filiais" },
 ];
 export interface ErpBotOperation {
@@ -142,6 +144,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Expedição: consultar é leitura comum; gerar separação, marcar expedido e registrar devolução são sensíveis.
   ...ERP_SHIPPING_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "expedicao", description: op.description, params: erpShippingParams(op) })),
+  // Frete da Expedição: ver o frete, cotar e consultar o rastreio são leitura; contratar e cancelar o envio são sensíveis.
+  ...ERP_FREIGHT_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "frete", description: op.description, params: erpFreightParams(op) })),
   // Lojas: ver as lojas e comparar as lojas é leitura comum; a lista de operações de uma loja é leitura sensível.
   ...ERP_STORE_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "lojas", description: op.description, params: erpStoreParams(op) })),

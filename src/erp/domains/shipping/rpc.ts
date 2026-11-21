@@ -81,7 +81,7 @@ const idList = (v: unknown, max = 100): string[] => {
 };
 
 /** Papel ativo da pessoa no ERP e o acesso aos pedidos de venda (o cartão do pedido para ver). */
-function requireShipping(db: SqlDriver, user: string, write: boolean): string {
+export function requireShipping(db: SqlDriver, user: string, write: boolean): string {
   const r = one(db, 'SELECT role FROM "erp_access__membership" WHERE user_id=? AND active=1', user);
   if (!r || !READ_ROLES.includes(String(r.role))) raise("42501", "erp_shipping_access_denied");
   documents.requireAccess(db, user, "sales_orders", false);
@@ -89,18 +89,18 @@ function requireShipping(db: SqlDriver, user: string, write: boolean): string {
   return String(r!.role);
 }
 
-function replay(db: SqlDriver, command: string, user: string, hash: string) {
+export function replay(db: SqlDriver, command: string, user: string, hash: string) {
   const r = one(db, `SELECT actor, request_hash, result FROM "${COMMAND}" WHERE command_id=?`, command);
   if (!r) return null;
   if (r.actor !== user || r.request_hash !== hash) raise("40001", "erp_shipping_command_conflict");
   return { ...JSON.parse(String(r.result)), replayed: true };
 }
-function receipt(ctx: RpcContext, command: string, user: string, hash: string, result: Record<string, unknown>) {
+export function receipt(ctx: RpcContext, command: string, user: string, hash: string, result: Record<string, unknown>) {
   ctx.db.exec(`INSERT INTO "${COMMAND}"(command_id, actor, request_hash, result, created_at) VALUES(?,?,?,?,?)`, command, user, hash, JSON.stringify(result), now(ctx));
   return { ...result, replayed: false };
 }
-const hashOf = (op: string, user: string, args: unknown) => sha256(JSON.stringify({ op, user, args }));
-function commandOf(a: RpcArgs): string {
+export const hashOf = (op: string, user: string, args: unknown) => sha256(JSON.stringify({ op, user, args }));
+export function commandOf(a: RpcArgs): string {
   const c = a.p_command_id;
   if (typeof c !== "string" || !UUID.test(c)) invalid("erp_shipping_command_missing");
   return (c as string).toLowerCase();
@@ -115,13 +115,13 @@ const ORDER_SELECT = `SELECT d.id, d.number, d.status, d.version, d.contact_id, 
   FROM "erp_documents__document" d LEFT JOIN "${ORDER}" s ON s.document_id=d.id`;
 const ORDER_WHERE = `d.kind='sales_orders' AND d.deleted_at IS NULL AND d.authority='brufap'`;
 
-function orderRow(db: SqlDriver, user: string, id: unknown): Row {
+export function orderRow(db: SqlDriver, user: string, id: unknown): Row {
   const doc = uuidOf(id)!;
   const r = one(db, `${ORDER_SELECT} WHERE d.id=? AND ${ORDER_WHERE}`, doc);
   if (!r || !documents.contactUsable(db, user, r.contact_id as string | null)) raise("P0002", "erp_shipping_order_not_found");
   return r!;
 }
-const shipStatus = (r: Row): ShippingStatus => (r.ship_status ?? "to_pick") as ShippingStatus;
+export const shipStatus = (r: Row): ShippingStatus => (r.ship_status ?? "to_pick") as ShippingStatus;
 
 function recordName(db: SqlDriver, id: unknown): string | null {
   if (typeof id !== "string") return null;
@@ -150,7 +150,7 @@ const addressLine = (p: ReturnType<typeof recipientOf>) =>
   [[p.street, p.number].filter(Boolean).join(", "), p.complement, p.district, [p.city, p.state].filter(Boolean).join(" - "), p.postal_code ? `CEP ${p.postal_code}` : null]
     .filter(Boolean).join(" · ");
 
-function transportOf(r: Row) {
+export function transportOf(r: Row) {
   const body = obj(parse(r.body));
   const transport = obj(obj(body.commercial).transport);
   const carrier = typeof body.carrier_id === "string" ? body.carrier_id : null;
@@ -163,7 +163,7 @@ function transportOf(r: Row) {
   };
 }
 
-function orderSummary(db: SqlDriver, r: Row, warehouses: Map<string, string | null>) {
+export function orderSummary(db: SqlDriver, r: Row, warehouses: Map<string, string | null>) {
   const body = obj(parse(r.body)), t = transportOf(r), p = recipientOf(r), status = shipStatus(r);
   const wh = orderWarehouse(db, r);
   if (wh && !warehouses.has(wh)) warehouses.set(wh, recordName(db, wh));
@@ -278,7 +278,7 @@ export function erpShippingPackageSave(ctx: RpcContext, a: RpcArgs) {
 // Separação
 
 /** Linhas do pedido para separar: as da conferência do pedido (com o desmembramento de kit dela), sem serviço. */
-function orderPickLines(ctx: RpcContext, documentId: string) {
+export function orderPickLines(ctx: RpcContext, documentId: string) {
   const db = ctx.db;
   const lines = checkoutLines(db, documentId, checkoutSettings(db, ctx.parts).split, ctx.parts);
   const kinds = new Map<string, string | null>();
@@ -372,7 +372,7 @@ export function erpShippingPickCreate(ctx: RpcContext, a: RpcArgs) {
 }
 
 /** Grava a situação do pedido na expedição (cria a linha na primeira vez). */
-function setOrder(ctx: RpcContext, user: string, document: string, status: ShippingStatus, extra: Record<string, unknown> = {}) {
+export function setOrder(ctx: RpcContext, user: string, document: string, status: ShippingStatus, extra: Record<string, unknown> = {}) {
   const db = ctx.db, at = now(ctx);
   const cur = one(db, `SELECT * FROM "${ORDER}" WHERE document_id=?`, document);
   const values = { status, updated_by: user, updated_at: at, ...extra };
@@ -500,7 +500,7 @@ function emissionOf(ctx: RpcContext, document: string) {
     return_path: r.status === "autorizada" ? `/historico-fiscal?modelo=55&emissao=${r.id}` : null };
 }
 
-function volumeRows(db: SqlDriver, document: string) {
+export function volumeRows(db: SqlDriver, document: string) {
   return db.exec(`SELECT v.*, p.name package_name FROM "${VOLUME}" v LEFT JOIN "${PACKAGE}" p ON p.id=v.package_id WHERE v.document_id=? ORDER BY v.number`, document).rows.map((v) => ({
     id: String(v.id), number: Number(v.number), package: v.package_id ? { id: String(v.package_id), name: (v.package_name as string | null) ?? null } : null,
     length_mm: int(v.length_mm), width_mm: int(v.width_mm), height_mm: int(v.height_mm), net_weight_g: int(v.net_weight_g), gross_weight_g: int(v.gross_weight_g),
@@ -654,7 +654,7 @@ export function erpShippingShip(ctx: RpcContext, a: RpcArgs) {
 }
 
 /** Dados de remetente (empresa) para etiqueta e romaneio. */
-function companyOf(db: SqlDriver) {
+export function companyOf(db: SqlDriver) {
   const d = obj(parse(one(db, 'SELECT data FROM "erp_company__identity" WHERE singleton=1')?.data));
   const s = (k: string) => (typeof d[k] === "string" && d[k].trim() ? d[k].trim() : null);
   return { name: s("trade_name") ?? s("legal_name") ?? "Empresa", legal_name: s("legal_name"), cnpj: s("cnpj"), street: s("street"), number: s("number"), complement: s("complement"),

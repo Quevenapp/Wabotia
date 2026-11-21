@@ -2,13 +2,15 @@
 // expedição, a lista de separação de vários pedidos (no celular, com leitura
 // de código de barras), os volumes do pedido, etiquetas, romaneio, entrega
 // local pelo módulo Entrega e a devolução física. O servidor confere e grava
-// (src/erp/expedicao/); a tela só manda as escolhas da pessoa.
+// (src/erp/expedicao/); a tela só manda as escolhas da pessoa. O frete
+// (cotação, etiqueta oficial e rastreio) fica em ./Frete.tsx.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { erpPorts } from "./ports";
 import BarcodeCamera, { cameraSupported } from "./app/components/BarcodeCamera";
 import { saveFile } from "./app/lib/fiscal-invoice-xml";
 import { labelsPdf, manifestPdf, pickListPdf } from "./expedicao-pdf";
+import { FreteDoPedido, FreteProvedores } from "./Frete";
 import { rowForCode } from "../../src/erp/domains/shipping/model.ts";
 import {
   ExpedicaoError, STATUS_PARAM, type ExpedicaoPort, type Manifest, type OrderDetail, type OrderSummary, type Overview, type Package, type PickList,
@@ -49,13 +51,14 @@ export default function Expedicao({ port: injected }: { port?: ExpedicaoPort }) 
   const list = q.get("lista"), order = q.get("pedido"), tab = q.get("aba");
   return <div className="expedicao">
     {list ? <PickScreen key={list} port={port} id={list} /> : order ? <OrderScreen key={order} port={port} id={order} />
-      : <><h1>Expedição</h1><Tabs tab={tab} />{tab === "embalagens" ? <Packages port={port} /> : tab === "romaneio" ? <ManifestScreen port={port} /> : <Orders port={port} />}</>}
+      : <><h1>Expedição</h1><Tabs tab={tab} freight={!!port.frete} />{tab === "embalagens" ? <Packages port={port} /> : tab === "romaneio" ? <ManifestScreen port={port} />
+        : tab === "frete" && port.frete ? <FreteProvedores port={port.frete} role={access.role} /> : <Orders port={port} />}</>}
   </div>;
 }
 
-function Tabs({ tab }: { tab: string | null }) {
+function Tabs({ tab, freight }: { tab: string | null; freight: boolean }) {
   const navigate = useNavigate();
-  const items: [string | null, string][] = [[null, "Pedidos"], ["embalagens", "Embalagens"], ["romaneio", "Romaneio"]];
+  const items: [string | null, string][] = [[null, "Pedidos"], ["embalagens", "Embalagens"], ["romaneio", "Romaneio"], ...(freight ? [["frete", "Frete e transportadoras"] as [string, string]] : [])];
   return <nav className="expedicao-tabs" aria-label="Partes da expedição">
     {items.map(([id, label]) => <button key={label} type="button" aria-pressed={tab === id} onClick={() => navigate(id ? `${ROUTE}?aba=${id}` : ROUTE)}>{label}</button>)}
   </nav>;
@@ -352,6 +355,8 @@ function OrderScreen({ port, id }: { port: ExpedicaoPort; id: string }) {
         <button type="button" disabled={busy} onClick={() => void run(() => downloadLabels(port, [o.id], "a4"))}>Etiquetas em A4</button>
       </div>
     </section>
+
+    {port.frete && <FreteDoPedido port={port.frete} order={o.id} role={access.role} onChanged={() => void load()} />}
 
     {o.status === "packed" && access.role !== "consulta" && <section className="expedicao-card"><h2>Expedir</h2>
       <div className="expedicao-toolbar"><label>Código de rastreio (opcional)<input value={tracking} onChange={(e) => setTracking(e.target.value)} /></label>

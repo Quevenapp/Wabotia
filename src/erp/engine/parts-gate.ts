@@ -35,7 +35,8 @@ const RPC_GROUPS = {
   // Expedição: a parte dela (com Vendas e Estoque, de que depende); Fiscal só muda o que o RPC lê e grava no transporte do pedido.
   shipping: `erp_shipping_overview erp_shipping_packages erp_shipping_package_save erp_shipping_pick_get erp_shipping_pick_create erp_shipping_pick_mark
     erp_shipping_pick_finish erp_shipping_pick_cancel erp_shipping_pending_resolve erp_shipping_order_get erp_shipping_pack erp_shipping_ship
-    erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create`,
+    erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create
+    erp_shipping_freight_context erp_shipping_freight_apply`,
   // Lojas e filiais: cadastro da Base; cada seção da lista e do relatório por loja confere a parte dela dentro do RPC.
   stores: `erp_store_overview erp_store_save erp_store_person_set erp_store_select erp_store_assign erp_store_operations erp_store_report`,
   // Compra pela nota recebida: Compras; Estoque, Financeiro e Fiscal são conferidos por efeito dentro do RPC.

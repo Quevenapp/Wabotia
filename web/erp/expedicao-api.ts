@@ -1,6 +1,7 @@
 // Porta da tela Expedição: /api/v1/profiles/<área>/erp-expedicao. O servidor
 // confere e grava; o navegador só manda as escolhas da pessoa. Instalada pelo
 // hospedeiro (host-runtime.tsx) em erpPorts().expedicao.
+import { createFretePort, type FretePort } from "./frete-api";
 
 export interface ExpedicaoAccess {
   ready: boolean;
@@ -93,6 +94,8 @@ export interface ExpedicaoPort {
   registerReturn(order: string, input: ReturnInput, command: string): Promise<{ return: { number: number; movement_id: string | null }; emission: OrderDetail["emission"] }>;
   /** Um identificador novo por intenção (repetir o mesmo pedido não duplica nada no servidor). */
   command(): string;
+  /** Frete e transportadoras: cotação, etiqueta oficial e rastreio (frete-api.ts). Sem ele, a tela não mostra o frete. */
+  frete?: FretePort;
 }
 
 const UUID = /^[0-9a-f-]{36}$/;
@@ -151,5 +154,6 @@ export function createExpedicaoPort(profile: string, options: { access: () => Ex
     localDelivery: (order, input) => request("POST", `pedidos/${id(order)}/entrega-local`, input),
     registerReturn: (order, input, command) => request("POST", `pedidos/${id(order)}/devolucoes`, { ...input, comando: command }),
     command: () => crypto.randomUUID(),
+    frete: createFretePort(profile, options),
   };
 }
