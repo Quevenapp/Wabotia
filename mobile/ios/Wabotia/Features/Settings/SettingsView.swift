@@ -2,8 +2,9 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
-/// Aba Ajustes (mobile/DESIGN.md, seção 10): cartão do usuário e grupos em cartões: Atendimento,
-/// Notificações, Aparência, Servidor, Este aparelho, Sobre e Sair. Tudo que existia em "Mais" continua aqui.
+/// Ajustes (mobile/DESIGN.md, seção 10), abertos pela engrenagem no topo das abas: cartão do usuário e grupos em
+/// cartões: Notificações, Aparência, Servidor, Este aparelho, Sobre e Sair. Os módulos da área, a Gestão e as linhas e
+/// menus ficam na aba Atendimento (`ServiceView`).
 struct SettingsView: View {
     let active: Bool
     @EnvironmentObject private var container: AppContainer
@@ -11,7 +12,6 @@ struct SettingsView: View {
     @ObservedObject private var workspace = Workspace.shared
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.pushRoute) private var push
     @State private var confirmLogout = false
     @State private var confirmChangeServer = false
     @State private var confirmExitDemo = false
@@ -25,12 +25,13 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScreenHeader(title: "Ajustes") { EmptyView() }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 20) {
                         userCard.padding(.horizontal, 16)
-                        serviceSection.padding(.horizontal, 16)
+                        Text("Guichê, agenda, ordens de serviço, pedidos, Gestão e as linhas de atendimento ficam na aba Atendimento, na barra de baixo.")
+                            .font(Theme.font(13)).foregroundStyle(Theme.textSecondary)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 30)
                         Group { if demo { demoNotificationsSection } else { notificationsSection } }.padding(.horizontal, 16).id("notifications")
                         appearanceSection.padding(.horizontal, 16).id("appearance")
                         Group { if demo { demoServerSection } else { serverSection } }.padding(.horizontal, 16).id("server")
@@ -51,6 +52,9 @@ struct SettingsView: View {
             }
         }
         .background(Theme.background.ignoresSafeArea())
+        .navigationTitle("Ajustes")
+        .navigationBarTitleDisplayMode(.inline)
+        .appNavigationBarHidden(false)
         .disabled(vm.loggingOut)
         .overlay {
             if vm.loggingOut {
@@ -113,54 +117,6 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
         }
         .card(padding: 16)
-    }
-
-    // MARK: - Atendimento
-
-    private var serviceSection: some View {
-        SectionCard(title: "Atendimento", footer: vm.isAdmin ? nil : "Atendentes consultam as linhas; a edição é do administrador.") {
-            // Fila de senhas: só quando o servidor a oferece a esta área (rota de capacidades; GET /queue em servidor antigo).
-            if moduleFeature.isAvailable(ModuleId.queue, container.profileId) {
-                navRow("Guichê da fila de senhas", "ticket", Theme.ticket) { push(.counter) }
-                    .accessibilityIdentifier("settings.counter")
-                navRow("Impressora do cupom", "printer.fill", Theme.muted) { showPrinter = true }
-                    .accessibilityIdentifier("settings.printer")
-            }
-            if moduleFeature.isAvailable(ModuleId.agenda, container.profileId) {
-                navRow("Agenda", "calendar", Theme.brand) { push(.agenda) }
-                    .accessibilityIdentifier("settings.agenda")
-            }
-            if moduleFeature.isAvailable(ModuleId.serviceOrders, container.profileId) {
-                navRow("Ordens de serviço", "wrench.and.screwdriver.fill", Theme.warn) { push(.serviceOrders) }
-                    .accessibilityIdentifier("settings.serviceOrders")
-            }
-            if moduleFeature.isAvailable(ModuleId.reserva, container.profileId) {
-                navRow("Reservas", "bed.double.fill", Theme.ticket) { push(.reserva) }
-                    .accessibilityIdentifier("settings.reserva")
-            }
-            if moduleFeature.isAvailable(ModuleId.pedido, container.profileId) {
-                navRow("Pedidos", "takeoutbag.and.cup.and.straw.fill", Theme.warn) { push(.pedido) }
-                    .accessibilityIdentifier("settings.pedido")
-            }
-            if moduleFeature.isAvailable(ModuleId.mensalidade, container.profileId) {
-                navRow("Mensalidades", "creditcard.fill", Theme.bot) { push(.mensalidade) }
-                    .accessibilityIdentifier("settings.mensalidade")
-            }
-            // Gestão (ERP): só com o ERP ligado na área e um papel erp:* da pessoa; cada item respeita a parte dele.
-            if moduleFeature.erpAccess(container.profileId, isAdmin: vm.isAdmin) != nil {
-                navRow("Gestão", "building.2.fill", Theme.brand) { push(.erp) }
-                    .accessibilityIdentifier("settings.erp")
-            }
-            navRow("Linhas de atendimento", "phone.connection", Theme.ok, divider: vm.isAdmin) { push(.lines) }
-            if vm.isAdmin {
-                navRow("Menus e submenus", "list.bullet.indent", Theme.brand) { push(.menus) }
-                navRow("Linhas dos bots", "cpu", Theme.bot, divider: false) { push(.botLines) }
-            }
-        }
-        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
-        .task(id: "\(active)-\(container.profileId ?? "")") {
-            if active { await ModuleFeature.shared.refresh(container: container) }
-        }
     }
 
     private func navRow(_ title: String, _ icon: String, _ color: Color, divider: Bool = true, action: @escaping () -> Void) -> some View {
@@ -340,12 +296,20 @@ struct SettingsView: View {
     // MARK: - Aparelho
 
     private var deviceSection: some View {
-        SectionCard(title: "Este aparelho") {
+        // A impressora do cupom só aparece quando o servidor oferece a fila de senhas a esta área.
+        let queue = moduleFeature.isAvailable(ModuleId.queue, container.profileId)
+        return SectionCard(title: "Este aparelho") {
             CardRow(title: "Nome", value: vm.deviceName)
             CardRow(title: "Sistema", value: vm.systemVersion)
             CardRow(title: "Versão do app", value: vm.appVersion)
-            CardRow(title: "Identificador", value: String(vm.deviceId.prefix(8)), divider: false)
+            CardRow(title: "Identificador", value: String(vm.deviceId.prefix(8)), divider: queue)
+            if queue {
+                navRow("Impressora do cupom", "printer.fill", Theme.muted, divider: false) { showPrinter = true }
+                    .accessibilityIdentifier("settings.printer")
+            }
         }
+        .sheet(isPresented: $showPrinter) { PrinterScreen { showPrinter = false } }
+        .task(id: container.profileId ?? "") { await ModuleFeature.shared.refresh(container: container) }
     }
 
     // MARK: - Sobre

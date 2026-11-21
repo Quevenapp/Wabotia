@@ -222,6 +222,8 @@ final class DemoQueue {
             "capabilities_version": 1,
             "server": ["service": "wabotia", "version": "demonstração", "commit": ""],
             "features": ["modules"],
+            // Como o servidor: o papel atual da pessoa (a demonstração entra como administradora).
+            "actor": ["id": DemoMode.meId, "kind": "user", "role": "admin"] as Row,
             "profiles": [["id": DemoMode.profileId, "name": DemoMode.profileName, "enabled": true, "modules": modules, "grants": ["erp:admin"]] as Row],
         ]
         if perArea { answer["modules"] = modules }

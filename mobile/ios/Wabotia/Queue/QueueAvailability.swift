@@ -59,6 +59,15 @@ enum ModuleCapabilities {
         return Set(list.compactMap { $0 as? String })
     }
 
+    /// O papel atual da pessoa no servidor (`actor.role` das capacidades: `admin`, `operator`…). Vale mais que o papel
+    /// gravado no login, que só se renova com a sessão. `nil` quando a resposta não traz (servidor antigo, aplicação).
+    static func actorRole(_ json: Any) -> String? {
+        guard let actor = (json as? [String: Any])?["actor"] as? [String: Any] else { return nil }
+        if let kind = actor["kind"] as? String, kind != "user" { return nil }
+        guard let role = actor["role"] as? String, !role.isEmpty else { return nil }
+        return role
+    }
+
     private static func ids(_ modules: Any) -> Set<String>? {
         if let list = modules as? [Any] {
             return Set(list.compactMap { entry -> String? in
@@ -97,8 +106,8 @@ struct ModulesProbe {
 
     func check() async -> Set<String>? { await snapshot()?.modules }
 
-    /// Módulos ligados e papéis da pessoa na área; `nil` sem resposta.
-    struct Snapshot: Equatable { var modules: Set<String>; var grants: Set<String> }
+    /// Módulos ligados e papéis da pessoa na área; `role` é o papel atual da pessoa (`actor.role`). `nil` sem resposta.
+    struct Snapshot: Equatable { var modules: Set<String>; var grants: Set<String>; var role: String? = nil }
 
     func snapshot() async -> Snapshot? {
         let base = QueueHTTP.normalize(baseURL)
@@ -107,7 +116,7 @@ struct ModulesProbe {
             switch await get(base + path) {
             case .ok(let json):
                 if let ids = ModuleCapabilities.enabledIds(json, profileId: profileId) {
-                    return Snapshot(modules: ids, grants: ModuleCapabilities.grants(json, profileId: profileId))
+                    return Snapshot(modules: ids, grants: ModuleCapabilities.grants(json, profileId: profileId), role: ModuleCapabilities.actorRole(json))
                 }
             case .failed(let status):
                 if status == 0 { return nil }
@@ -166,6 +175,9 @@ final class ModuleFeature: ObservableObject {
     @Published private(set) var modules: [String: Set<String>] = [:]
     /// Papéis da pessoa nos módulos ligados, por área (`erp:vendas`, `os:technician`…).
     @Published private(set) var grants: [String: Set<String>] = [:]
+    /// Papel atual da pessoa segundo o servidor (`actor.role` das capacidades), por área. Mais novo que o gravado no
+    /// login: quem virou administrador depois de entrar já vê a Gestão e as opções de administrador.
+    @Published private(set) var roles: [String: String] = [:]
     private var checkedAt: [String: Date] = [:]
     private var subscription: AnyCancellable?
 
@@ -182,6 +194,15 @@ final class ModuleFeature: ObservableObject {
         let result = await ModulesProbe(baseURL: server.absoluteString, profileId: profile, token: { session.token }).snapshot()
         apply(result?.modules, profile: profile)
         if let result { grants[profile] = result.grants }
+        if let role = result?.role { roles[profile] = role }
+    }
+
+    /// Papel lido à parte (testes e demonstração).
+    func applyRole(_ role: String?, profile: String) { roles[profile] = role }
+
+    /// Administrador agora: o papel atual do servidor, quando ele disse; senão o do login (`sessionIsAdmin`).
+    func isAdmin(_ profileId: String?, sessionIsAdmin: Bool) -> Bool {
+        AdminRole.isAdmin(serverRole: profileId.flatMap { roles[$0] }, sessionIsAdmin: sessionIsAdmin)
     }
 
     /// `nil` (sem rede): fica o que já se sabia, e a próxima consulta tenta de novo.
@@ -193,10 +214,11 @@ final class ModuleFeature: ObservableObject {
     /// Papéis lidos à parte (testes e demonstração).
     func applyGrants(_ result: Set<String>, profile: String) { grants[profile] = result }
 
-    /// O acesso da pessoa à Gestão (ERP) nesta área, ou `nil` quando ela não aparece.
+    /// O acesso da pessoa à Gestão (ERP) nesta área, ou `nil` quando ela não aparece. `isAdmin` é o papel do login; o
+    /// papel atual do servidor, quando veio nas capacidades, vale mais.
     func erpAccess(_ profileId: String?, isAdmin: Bool) -> ErpAccess? {
         guard let profileId else { return nil }
-        return ErpAccess.of(modules: modules[profileId] ?? [], grants: grants[profileId] ?? [], isAdmin: isAdmin)
+        return ErpAccess.of(modules: modules[profileId] ?? [], grants: grants[profileId] ?? [], isAdmin: self.isAdmin(profileId, sessionIsAdmin: isAdmin))
     }
 
     /// Um 409 `module_disabled` numa rota do módulo esconde a tela até a próxima consulta.
@@ -208,6 +230,15 @@ final class ModuleFeature: ObservableObject {
     func clear() {
         modules = [:]
         grants = [:]
+        roles = [:]
         checkedAt = [:]
+    }
+}
+
+/// Quem é administrador: o papel atual que o servidor mandou (`serverRole`) vale mais que o gravado no login.
+enum AdminRole {
+    static func isAdmin(serverRole: String?, sessionIsAdmin: Bool) -> Bool {
+        guard let serverRole, !serverRole.isEmpty else { return sessionIsAdmin }
+        return serverRole == "admin"
     }
 }

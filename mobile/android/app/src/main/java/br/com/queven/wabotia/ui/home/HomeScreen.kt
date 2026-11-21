@@ -12,11 +12,11 @@ import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.Groups
-import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SupportAgent
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.HorizontalDivider
@@ -29,6 +29,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,7 +54,8 @@ import br.com.queven.wabotia.core.model.Event
 import br.com.queven.wabotia.core.model.TicketStatus
 import br.com.queven.wabotia.ui.components.EventPolling
 import br.com.queven.wabotia.ui.conversations.ConversationsScreen
-import br.com.queven.wabotia.ui.settings.SettingsScreen
+import br.com.queven.wabotia.ui.components.LocalOpenSettings
+import br.com.queven.wabotia.ui.service.ServiceScreen
 import br.com.queven.wabotia.ui.team.TeamScreen
 import br.com.queven.wabotia.ui.theme.Wb
 import br.com.queven.wabotia.ui.tickets.TicketsScreen
@@ -62,13 +64,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** As cinco abas da barra inferior (DESIGN.md §3). [key] é o nome usado nos atalhos de demonstração. */
+/**
+ * As cinco abas da barra inferior (DESIGN.md §3). [key] é o nome usado nos atalhos de demonstração. Os Ajustes não são
+ * aba: abrem pela engrenagem no topo de cada aba ([LocalOpenSettings]).
+ */
 enum class HomeTab(val key: String, val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     Conversations("conversations", "Conversas", Icons.AutoMirrored.Outlined.Chat, Icons.AutoMirrored.Filled.Chat),
     Tickets("tickets", "Protocolos", Icons.Outlined.ConfirmationNumber, Icons.Filled.ConfirmationNumber),
     Team("team", "Equipe", Icons.Outlined.Groups, Icons.Filled.Groups),
     Calls("calls", "Ligações", Icons.Outlined.Call, Icons.Filled.Call),
-    Settings("settings", "Ajustes", Icons.Outlined.Settings, Icons.Filled.Settings),
+    /** Módulos da área, Gestão do ERP e linhas e menus (antes em Ajustes → Atendimento). */
+    Service("service", "Atendimento", Icons.Outlined.SupportAgent, Icons.Filled.SupportAgent),
 }
 
 /** Contadores das abas: protocolos atrasados/recebidos (só ativos) e conversas internas não lidas. */
@@ -131,11 +137,9 @@ fun HomeScreen(
     openBot: (String) -> Unit,
     openBotRuns: () -> Unit,
     openInternalChat: (peerId: String) -> Unit,
-    openLines: () -> Unit,
-    openMenus: () -> Unit,
-    openBotLines: () -> Unit,
-    openPrinter: () -> Unit = {},
-    openCounter: () -> Unit = {},
+    /** A engrenagem do topo de cada aba: abre os Ajustes. */
+    openSettings: () -> Unit,
+    /** Telas abertas pela aba Atendimento (módulos, Gestão, linhas e menus). */
     openRoute: (String) -> Unit = {},
 ) {
     val c = Wb.colors
@@ -183,7 +187,7 @@ fun HomeScreen(
                             HomeTab.Tickets -> if (badges.overdueTickets > 0) badges.overdueTickets to c.danger else badges.openTickets to c.accent
                             HomeTab.Team -> badges.internalUnread to c.accent
                             HomeTab.Calls -> 0 to c.accent
-                            HomeTab.Settings -> 0 to c.accent
+                            HomeTab.Service -> 0 to c.accent
                         }
                         NavigationBarItem(
                             selected = selected,
@@ -215,6 +219,7 @@ fun HomeScreen(
     ) { padding ->
         val modifier = Modifier.padding(bottom = padding.calculateBottomPadding())
         Box(Modifier.fillMaxSize().background(c.background)) {
+            CompositionLocalProvider(LocalOpenSettings provides openSettings) {
             androidx.compose.runtime.key(argToken) {
             when (tab) {
                 HomeTab.Conversations -> ConversationsScreen(
@@ -228,7 +233,8 @@ fun HomeScreen(
                 HomeTab.Tickets -> TicketsScreen(container, modifier, openTicket, openConversation = { openConversation(it, null) }, initialFilter = initialArg)
                 HomeTab.Team -> TeamScreen(container, modifier, initialSegment = initialArg, openInternalChat = openInternalChat, openBot = openBot, openBotRuns = openBotRuns)
                 HomeTab.Calls -> CallsScreen(container, modifier, openConversation = { openConversation(it, null) })
-                HomeTab.Settings -> SettingsScreen(container, modifier, openLines, openMenus, openBotLines, openPrinter = openPrinter, openCounter = openCounter, openRoute = openRoute)
+                HomeTab.Service -> ServiceScreen(container, modifier, openRoute = openRoute)
+            }
             }
             }
         }

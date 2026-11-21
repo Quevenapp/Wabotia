@@ -72,7 +72,9 @@ Barra inferior com cinco abas, ícone + rótulo, contador em bolinha `accent`:
 | **Protocolos** | etiqueta/recibo | atrasados (em `danger`) ou abertos |
 | **Equipe** | pessoas | conversas internas não lidas |
 | **Ligações** | telefone | sem contador |
-| **Ajustes** | engrenagem | — |
+| **Atendimento** | atendente (Android) / maleta (iOS) | — |
+
+**Ajustes não é aba:** a engrenagem fica na barra superior de todas as abas, depois das ações da própria aba, e abre a tela Ajustes por cima das abas (com voltar). Android: `LocalOpenSettings` faz a `TabTopBar` mostrar a engrenagem; iOS: `openSettings` no ambiente faz o `ScreenHeader` mostrar.
 
 Android: `NavigationBar` Material 3 com indicador em pílula. iOS: `TabView`. No iPad/tablet a lista e o detalhe ficam lado a lado quando houver largura (≥ 840dp / regular), sem obrigação nesta versão.
 
@@ -204,11 +206,13 @@ Seletor segmentado: **Conversas** (internas recentes, com prévia e não lidas) 
 
 Atualiza a cada 20 s enquanto visível e ao puxar.
 
-## 10. Ligações (aba 4) e Ajustes (aba 5)
+## 10. Ligações (aba 4), Atendimento (aba 5) e Ajustes (engrenagem)
 
 Ligações: histórico no estilo do WhatsApp (avatar, nome, seta de entrada/saída colorida — vermelha para perdida —, data, duração). Tocar em um item abre a conversa. Desde a 0.17.0 não há tela de ligação nem botão de ligar: os aplicativos mostram só o histórico.
 
-Ajustes: cartão do usuário (avatar, nome, papel, perfil atual, presença); grupos em cartões: **Atendimento** (Linhas de atendimento, Menus e submenus, Linhas dos bots), **Notificações** (ligar/desligar, enviar teste, estado do registro), **Aparência** (Sistema / Claro / Escuro), **Servidor** (endereço, versão, abrir painel, trocar perfil), **Sair**. Tudo que existe hoje em "Mais" continua aqui.
+Atendimento: tela própria com tudo o que antes ficava em Ajustes → Atendimento, em cartões por grupo. **Módulos da área** (Guichê da fila de senhas, Agenda, Ordens de serviço, Reservas, Mensalidades, Pedidos — cada um só com o módulo ligado na área); **Gestão** (Clientes, Produtos e estoque, Pedido rápido, Contas — só com o ERP ligado e a pessoa administradora ou com papel `erp:*`; cada item segue a parte e o papel, e o rótulo do grupo mostra o papel); **Linhas e menus** (Linhas de atendimento; Menus e submenus e Linhas dos bots só para administrador). Sem nenhum módulo ligado, uma linha diz que o administrador liga em Módulos, no painel. A lista sai de uma regra só, sem tela (`ServiceHub`, igual nas duas plataformas), e a aba relê as capacidades cada vez que abre.
+
+Ajustes (engrenagem no topo das abas): cartão do usuário (avatar, nome, papel, perfil atual, presença); grupos em cartões: **Notificações** (ligar/desligar, enviar teste, estado do registro), **Aparência** (Sistema / Claro / Escuro), **Privacidade** (Android), **Servidor** (endereço, versão, abrir painel, trocar perfil), **Este aparelho** (com a impressora do cupom quando a fila está ligada), **Sobre**, **Sair**. Uma linha logo abaixo do cartão avisa que os módulos e a Gestão estão na aba Atendimento.
 
 ## 11. Retorno e estados
 

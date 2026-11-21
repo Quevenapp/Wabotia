@@ -1,7 +1,9 @@
 import SwiftUI
 
+/// As cinco abas da barra de baixo. Os Ajustes não são aba: abrem pela engrenagem no topo de cada aba (`openSettings`).
 enum HomeTab: String, CaseIterable, Identifiable {
-    case conversations, tickets, team, calls, settings
+    /// `service`: módulos da área, Gestão do ERP e linhas e menus (antes em Ajustes → Atendimento).
+    case conversations, tickets, team, calls, service
     var id: String { rawValue }
 
     var title: String {
@@ -10,16 +12,17 @@ enum HomeTab: String, CaseIterable, Identifiable {
         case .tickets: return "Protocolos"
         case .team: return "Equipe"
         case .calls: return "Ligações"
-        case .settings: return "Ajustes"
+        case .service: return "Atendimento"
         }
     }
+    /// Símbolo da aba; a aba escolhida usa a versão `.fill`.
     var icon: String {
         switch self {
         case .conversations: return "bubble.left.and.bubble.right"
         case .tickets: return "doc.text"
         case .team: return "person.2"
         case .calls: return "phone"
-        case .settings: return "gearshape"
+        case .service: return "briefcase"
         }
     }
 }
@@ -52,6 +55,8 @@ struct HomeView: View {
                             }
                         }
                     }
+                    // A engrenagem no topo de cada aba abre os Ajustes por cima das abas.
+                    .environment(\.openSettings, OpenSettingsAction { router.push(.settings) })
                     HomeTabBar(tab: $tab, badge: badge)
                 }
                 .background(Theme.background.ignoresSafeArea())
@@ -93,7 +98,7 @@ struct HomeView: View {
         }
         .task {
             await container.refreshTokenIfNeeded()
-            // Módulos ligados na área (fila, agenda, ordem de serviço): decidem as entradas em Ajustes e na conversa.
+            // Módulos ligados na área (fila, agenda, ordem de serviço): decidem as entradas em Atendimento e na conversa.
             await ModuleFeature.shared.refresh(container: container)
         }
     }
@@ -105,7 +110,7 @@ struct HomeView: View {
         case .tickets: TicketsView(active: tab == t)
         case .team: TeamView(active: tab == t)
         case .calls: CallsView(active: tab == t)
-        case .settings: SettingsView(active: tab == t)
+        case .service: ServiceView(active: tab == t)
         }
     }
 
@@ -122,7 +127,7 @@ struct HomeView: View {
         case .team:
             let n = workspace.totalInternalUnread
             return n > 0 ? (n, Theme.accent) : nil
-        case .calls, .settings:
+        case .calls, .service:
             return nil
         }
     }
