@@ -3,6 +3,7 @@ import type { AccessController } from '../lib/real-access';
 import type { BlingAdoptionOperationMap } from '../../../../src/erp/bling/adoption-contracts';
 import type { BlingTwoWayDirection, BlingTwoWayEntity, BlingTwoWayIssue, BlingTwoWayStatus } from '../../../../src/erp/bling/two-way-contracts';
 import { adoptionFailureText, createPanelAdoptBlingClient, type AdoptBlingClient } from './adopt-bling-client';
+import { ReturnsBling } from './ReturnsBling';
 
 type Out<K extends keyof BlingAdoptionOperationMap> = BlingAdoptionOperationMap[K]['output'];
 const time = (value: string | null) => value === null ? 'ainda não houve' : new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value));
@@ -130,6 +131,9 @@ export function TwoWayBling({ controller, administrator, client: injected, onCut
     <input id="twoway-pace" type="number" min={5} max={1440} value={pace} onChange={event => setPace(event.target.value)} />
     <button type="button" disabled={busy || !paceValid || Number(pace) === status?.pace_minutes} onClick={() => void savePace()}>Salvar ritmo</button>
     {!paceValid && pace !== '' && <p role="alert">Use um número inteiro de 5 a 1440 minutos.</p>}
+
+    {status && <ReturnsBling returns={status.returns} client={client} busy={busy} confirmed={confirmed} onNotice={setNotice}
+      run={action => void task(async () => { await action(); await reload(); })} />}
 
     <h3>Última rodada</h3>
     {status && <ul>

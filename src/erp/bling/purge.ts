@@ -83,6 +83,9 @@ function references(db: SqlDriver, entities: string): number {
   count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_adoption_extra_link WHERE (CASE entity WHEN 'custom_field_values' THEN 'custom_fields' ELSE entity END) IN (SELECT value FROM json_each(?))`, entities)?.n ?? 0);
   count += Number(one(db, `SELECT count(*) AS n FROM wb_bling_adoption_extra_outbox WHERE (CASE WHEN entity LIKE 'custom_fields_%' THEN 'custom_fields' ELSE entity END) IN (SELECT value FROM json_each(?)) AND state IN ('pending','sending','uncertain')`, entities)?.n ?? 0);
   const kinds = JSON.parse(entities) as string[];
+  // Volta ao Bling (versão 32): nota, situação ou rastreio ainda não confirmados no pedido do Bling.
+  if (kinds.includes("sales_orders"))
+    try { count += Number(one(db, "SELECT count(*) AS n FROM wb_bling_return_outbox WHERE state IN ('pending','sending','uncertain')")?.n ?? 0); } catch { /* esquema anterior à 32 */ }
   if (kinds.includes("products") || kinds.includes("stock_balances") || kinds.includes("warehouses")) {
     count += Number(one(db, "SELECT count(*) AS n FROM erp_stock__opening_receipt")?.n ?? 0);
     count += Number(one(db, "SELECT count(*) AS n FROM erp_sync__stock_import")?.n ?? 0);

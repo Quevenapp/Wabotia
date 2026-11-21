@@ -18,6 +18,8 @@ const TABS = ['Configuração', 'Progresso e cobertura', 'Acervo', 'Histórico f
 const HISTORICAL = 'Consulta histórica — não opera no ERP';
 /** Fatia D: recursos com destino no ERP, ainda não confirmados (aba Outros dados). */
 const EXTRAS_COLLECTED: ReadonlySet<string> = new Set(['price_lists', 'operation_natures', 'custom_fields', 'contracts', 'service_invoices', 'product_lots', 'product_suppliers']);
+/** Conta real: o servidor diz, em "chave: motivo", por que um recurso ficou fora da coleta. */
+const unconfirmedReason = (limitations: readonly string[] | undefined, key: string) => limitations?.find(line => line.startsWith(`${key}: `))?.slice(key.length + 2) ?? null;
 const time = (value: string | number | null) => value === null || !Number.isFinite(new Date(value).getTime()) ? 'Desconhecido' : new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(new Date(value));
 const bytes = (value: number) => `${new Intl.NumberFormat('pt-BR').format(value)} bytes`;
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
@@ -139,7 +141,8 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
           <p>Aplicativo: {status?.configuration.credential.configured ? 'Configurado; credenciais protegidas no cofre.' : 'Ainda não configurado.'} Conta: {status?.configuration.credential.authorized ? 'Autorizada' : 'Autorização necessária'}.</p>
           <p>Empresa vinculada: {status?.configuration.account?.name ?? 'A conferir'} · identificação: {status?.configuration.account?.id ?? 'A conferir'} · conferida em: {time(status?.configuration.account?.confirmed_at ?? null)}.</p>
           <p>Autorização válida até: {time(status?.configuration.credential.expires_at ?? null)}. {status?.configuration.credential.uncertain && 'Autorização incerta: autorize novamente.'}</p>
-          <p>Escopos concedidos: {status?.configuration.credential.scopes.join(', ') || 'A conferir'}. Somente escopos de leitura devem ser aprovados nesta etapa.</p>
+          <p>Escopos concedidos: {status?.configuration.credential.scopes.join(', ') || 'A conferir'}. No Bling as permissões são marcadas no cadastro do aplicativo: marque leitura para o que vai receber e escrita só para o que for voltar ao Bling (a lista do que marcar, conforme os interruptores, está na aba Mão dupla). Depois de mudar, autorize de novo.</p>
+          <p>Ao autorizar, o sistema lê os dados básicos da empresa no Bling e grava o vínculo: autorizações seguintes precisam ser da mesma empresa. O acesso é renovado sozinho antes de vencer.</p>
           <label htmlFor="bling-callback">Retorno HTTPS exato, confirmado pelo servidor</label><input id="bling-callback" readOnly value={callback} placeholder="Disponível ao salvar o aplicativo" />
           <button type="button" disabled={!callback} onClick={() => void task(async () => { await navigator.clipboard.writeText(callback); if (current()) setNotice('Endereço de retorno copiado.'); })}>Copiar retorno</button>
           {!callback && <p>Salve o aplicativo para obter o retorno público validado pela instalação. Não deduza o endereço a partir de outro ambiente.</p>}
@@ -153,6 +156,7 @@ export function ReceiveBling({ controller, administrator, client: injected, adop
           <fieldset disabled={configBlocked}><legend>Seleção para receber</legend>{resources?.resources.map(resource => { const selection = selections.find(s => s.key === resource.key); return <div className="rb-resource" key={resource.key}>
             <label><input id={`bling-resource-${resource.key}`} type="checkbox" checked={selection?.selected ?? false} disabled={!resourceSelectable(resource)} onChange={e => editSelection(resource, { selected: e.target.checked })} />{resourceLabel(resource)} · {resource.key}</label>
             <p>{resource.confirmation === 'oficial_confirmado' ? 'Referência oficial confirmada' : resource.confirmation === 'original_conferido' ? 'Implementação local conferida; referência oficial a conferir. Seleção desabilitada.' : EXTRAS_COLLECTED.has(resource.entity) ? 'Não confirmado: desligado até o dono conferir caminho, campos e permissões numa coleta real. O que fazer com estes dados fica na aba Outros dados.' : 'Recurso não confirmado; acesso e identidade a conferir. Seleção desabilitada.'}</p>
+            {resource.confirmation !== 'oficial_confirmado' && unconfirmedReason(resources?.limitations, resource.key) && <p role="note">Por que ficou fora: {unconfirmedReason(resources?.limitations, resource.key)}</p>}
             {resource.key === 'fiscal_xml' && <p>Seleção própria para arquivar XML das fontes fiscais recebidas. Selecione também NF-e/NFC-e ou use fontes já existentes no acervo.</p>}
             <p>{dateMeaning(resource)} Escopos de leitura: {resource.scopeRequirements.join(', ') || 'A conferir'}.</p>
             {resource.officialEvidence && <p>Referência: <a href={resource.officialEvidence.url} target="_blank" rel="noreferrer">Consultar documentação oficial conferida</a> · {time(resource.officialEvidence.checked_at)}</p>}

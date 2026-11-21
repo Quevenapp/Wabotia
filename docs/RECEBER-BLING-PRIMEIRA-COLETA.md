@@ -22,12 +22,44 @@ Registrar em documento administrativo privado da instalação, sem segredos:
 - Limites do plano/API, consumo por outros aplicativos e limite vigente do
   armazenamento. A quota local de 20 mil chamadas/dia não prova quota oficial.
 
-Os descritores locais `original_conferido` não bastam. A evidência aprovada
-precisa entrar no catálogo versionado e na prova de conta da montagem antes
-de selecionar recursos para coleta real. Entradas `nao_confirmado` ficam
-desabilitadas. Se algum item não puder ser comprovado, parar neste ponto;
-não criar endpoint ou escopo por tentativa, nem reutilizar confirmação do
-simulador.
+**O que o código já traz (versão 32, conta real).** A montagem de produção
+(`createBlingAssembly` em `src/erp/bling/assembly.ts`) usa:
+
+- **Catálogo oficial** (`BLING_CONFIRMED_RESOURCES` em
+  `src/erp/bling/resources.ts`): os 17 recursos da coleta que a documentação
+  pública da API v3 descreve (contatos, produtos, pedidos de venda e de
+  compra, propostas, contas a receber e a pagar, NF-e, NFC-e, formas de
+  pagamento, vendedores, depósitos, categorias de produtos e de receitas e
+  despesas, contas contábeis, caixas e bancos, saldos de estoque) estão como
+  `oficial_confirmado`, cada um com o endereço da referência
+  (`https://developer.bling.com.br/referencia#/...`). Ficam **fora**, com o
+  motivo escrito na tela de Configuração: ordens de serviço (a rota
+  `/ordens/servico` não aparece na documentação pública), o XML das notas por
+  chave (`/nfe/documento/{chave}` sem referência pública; número, chave e
+  situação da nota entram pela coleta de NF-e/NFC-e) e os recursos da fatia D
+  (abaixo). O catálogo base (`BLING_RESOURCES`) continua sem referência; é o
+  dos testes e do simulador.
+- **Prova de conta** (`src/erp/bling/account.ts`): depois da troca do código
+  OAuth, um `GET /empresas/me/dados-basicos` com o token recém-recebido devolve
+  o id e o nome da empresa. O id vira o vínculo gravado; autorização seguinte
+  de outra empresa é recusada ("A conta autorizada não corresponde ao acervo
+  desta área").
+- **Escopos**: no Bling as permissões são marcadas no **cadastro do
+  aplicativo** (Central de Extensões), não no endereço de autorização. O token
+  devolve os escopos concedidos como identificadores; eles são aceitos e
+  gravados para consulta. A aba Mão dupla → Volta ao Bling lista o que marcar,
+  conforme os interruptores ligados: leitura para o que vai receber (e
+  "Empresa — dados básicos" para a prova de conta), escrita só para o que
+  volta ao Bling. Falta de permissão volta como recusa "falta permissão",
+  nunca como dado parcial.
+- **Renovação**: o acesso é renovado sozinho dez minutos antes de vencer (o
+  token do Bling dura poucas horas), pela mesma reserva exclusiva da
+  renovação; recusa 401 continua levando à renovação.
+
+Antes de selecionar, conferir mesmo assim na documentação vigente cada recurso
+que for usar (caminho, filtros de data, paginação) e os limites do plano. Se a
+documentação mudou e algo não bate, parar neste ponto: não criar endpoint ou
+escopo por tentativa, nem reutilizar confirmação do simulador.
 
 **Outros dados (fatia D).** Listas de preços, naturezas de operação, campos
 customizados, contratos, NFS-e, lotes e fornecedores de produto têm só o
@@ -50,7 +82,10 @@ registro de teste.
    chamado, relatório, log ou backup lógico.
 2. Copiar e registrar no aplicativo o retorno HTTPS exato mostrado:
    `https://<endereço-público>/api/public/erp-bling/<área>/callback`.
-   Conferir área, endereço canônico e escopos de leitura aprovados.
+   Conferir área, endereço canônico e os escopos marcados no aplicativo
+   (para a primeira coleta: só leitura, mais "Empresa — dados básicos").
+   Depois de autorizar, conferir na Configuração a empresa vinculada (nome e
+   identificação) e a validade do acesso.
 3. Conferir a Base ligada, sessão administrativa válida e permissões da
    área. Manter IA desligada e leitura restrita até revisar a política;
    eventual liberação precisa do aviso ao administrador e auditoria.

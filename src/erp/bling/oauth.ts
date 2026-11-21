@@ -21,6 +21,10 @@ export interface BlingAuthorizationDependencies {
   authorizationEndpoint: string;
   /** Somente escopos de leitura conferidos pela montagem; não aceitar input do painel. */
   readScopes: readonly string[];
+  /** Conta real: o Bling devolve os escopos concedidos como identificadores
+   * opacos (marcados no cadastro do aplicativo). A montagem de produção aceita
+   * esse formato; sem esta regra, só os de readScopes. */
+  acceptScope?: (scope: string) => boolean;
   /** Relê sessão/papel no núcleo, inclusive depois das esperas. */
   session(ctx: BlingContext): Promise<IdentityPort>;
   /** Relê partes/aprovação e atualiza o snapshot de partes do contexto antes do CAS. */
@@ -53,10 +57,10 @@ const nextRevision = (revision: string) => {
   if (!Number.isSafeInteger(value)) throw new BlingError("BLING_REVISION_CONFLICT");
   return String(value);
 };
-function validateCredential(value: BlingPrivateCredential, allowed: readonly string[], now: number): BlingPrivateCredential {
+function validateCredential(value: BlingPrivateCredential, allowed: readonly string[], now: number, accept?: (scope: string) => boolean): BlingPrivateCredential {
   if (!value || [value.client_id, value.client_secret, value.access_token, value.refresh_token].some(v => typeof v !== "string" || !v || v.length > 16384) ||
       !Number.isSafeInteger(value.expires_at) || value.expires_at <= now || !Array.isArray(value.scopes) || value.scopes.length > 100 ||
-      value.scopes.some(v => typeof v !== "string" || !allowed.includes(v))) throw new BlingError("BLING_SCOPE_REQUIRED");
+      value.scopes.some(v => typeof v !== "string" || !(allowed.includes(v) || accept?.(v) === true))) throw new BlingError("BLING_SCOPE_REQUIRED");
   // Seleção explícita: campos extras da resposta remota não chegam ao cofre/DTO.
   return { client_id: value.client_id, client_secret: value.client_secret, access_token: value.access_token, refresh_token: value.refresh_token, expires_at: value.expires_at, scopes: [...new Set(value.scopes)] };
 }
@@ -72,7 +76,9 @@ export function createBlingOAuthProvider(options: {
   fetch: typeof fetch;
   clock: { now(): number };
   readScopes: readonly string[];
-  timeout?: () => { signal: AbortSignal; dispose(): void };
+  /** Mesma regra de BlingAuthorizationDependencies.acceptScope. */
+  acceptScope?: (scope: string) => boolean;
+  timeout?:() => { signal: AbortSignal; dispose(): void };
 }): BlingOAuthProvider {
   const endpoint = httpsUrl(options.tokenEndpoint).href;
   async function request(application: { client_id: string; client_secret: string }, body: URLSearchParams, previousScopes: string[] = []): Promise<BlingPrivateCredential> {
@@ -99,7 +105,7 @@ export function createBlingOAuthProvider(options: {
       if (typeof data.token_type !== "string" || data.token_type.toLowerCase() !== "bearer" || !Number.isSafeInteger(data.expires_in) || data.expires_in <= 0 ||
           data.scope !== undefined && typeof data.scope !== "string") throw new BlingError("BLING_RESPONSE_INVALID");
       return validateCredential({ ...application, access_token: data.access_token, refresh_token: data.refresh_token,
-        expires_at: options.clock.now() + data.expires_in * 1000, scopes: data.scope === undefined ? previousScopes : data.scope.split(/\s+/).filter(Boolean) }, options.readScopes, options.clock.now());
+        expires_at: options.clock.now() + data.expires_in * 1000, scopes: data.scope === undefined ? previousScopes : data.scope.split(/\s+/).filter(Boolean) }, options.readScopes, options.clock.now(), options.acceptScope);
     } catch (error) { throw safeError(error); } finally { timer.dispose(); }
   }
   return {
@@ -176,7 +182,7 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
     const refreshedState = await current(ctx, expected);
     if (!refreshedState.credential.authorized || refreshedState.credential.uncertain || !refreshedState.account?.confirmed_at) throw new BlingError("BLING_AUTH_REQUIRED");
     if (snapshot.revision !== expected.credential_revision || snapshot.value.disconnected || !snapshot.value.credential) throw new BlingError("BLING_AUTH_REQUIRED");
-    return validateCredential(snapshot.value.credential, deps.readScopes, ctx.clock.now());
+    return validateCredential(snapshot.value.credential, deps.readScopes, ctx.clock.now(), deps.acceptScope);
   }
   const implementation: AuthorizationPort = {
     async publicState(ctx) {
@@ -264,7 +270,7 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
         const previous = await vault.read(ctx.profile);
         if (!previous.value.application || previous.value.disconnected || Number(previous.revision) < Number(attempt.expected.credential_revision)) throw new BlingError("BLING_AUTH_REQUIRED");
         await current(ctx, attempt.expected); store.markFetching(ctx, attempt); sent = true;
-        const credential = validateCredential(await deps.provider.exchange({ ...previous.value.application, code: input.code, callback_url: callbackUrl(ctx) }), deps.readScopes, ctx.clock.now());
+        const credential = validateCredential(await deps.provider.exchange({ ...previous.value.application, code: input.code, callback_url: callbackUrl(ctx) }), deps.readScopes, ctx.clock.now(), deps.acceptScope);
         await current(ctx, attempt.expected); store.assertAttempt(ctx, attempt);
         const boundAccount = await account(ctx, credential);
         await admin(ctx, "erp_bling_oauth_start", commandInput);
@@ -297,7 +303,7 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
         const previous = await vault.read(ctx.profile);
         if (previous.revision !== input.expected.credential_revision || !previous.value.credential || previous.value.disconnected || store.control(ctx).credential.uncertain) throw new BlingError("BLING_AUTH_REQUIRED");
         await current(ctx, input.expected); store.markFetching(ctx, attempt); sent = true;
-        const credential = validateCredential(await deps.provider.refresh(previous.value.credential), deps.readScopes, ctx.clock.now());
+        const credential = validateCredential(await deps.provider.refresh(previous.value.credential), deps.readScopes, ctx.clock.now(), deps.acceptScope);
         const boundAccount = store.control(ctx).account;
         if (!boundAccount?.confirmed_at) throw new BlingError("BLING_AUTH_REQUIRED");
         return (await custody(ctx, attempt, previous, { ...previous.value, revision: nextRevision(previous.revision), credential }, boundAccount, true)).credential;
@@ -321,7 +327,7 @@ export function createBlingAuthorization(deps: BlingAuthorizationDependencies): 
       try {
         const previous = await vault.read(ctx.profile);
         if (previous.revision !== input.expected_revision || previous.ciphertext !== input.previous_ciphertext || !input.credential || !input.account?.confirmed_at) throw new BlingError("BLING_REVISION_CONFLICT");
-        const credential = validateCredential(input.credential, deps.readScopes, ctx.clock.now());
+        const credential = validateCredential(input.credential, deps.readScopes, ctx.clock.now(), deps.acceptScope);
         await current(ctx, input.expected); store.markFetching(ctx, begin.attempt);
         const boundAccount = await account(ctx, credential);
         if (boundAccount.id !== input.account.id) throw new BlingError("BLING_ACCOUNT_MISMATCH");
