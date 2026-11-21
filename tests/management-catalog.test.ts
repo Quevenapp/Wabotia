@@ -112,7 +112,7 @@ describe("catálogo da casa de gestão", () => {
       });
       expect([
         "cadastro", "catalogo", "vendas", "compras", "estoque", "financeiro",
-        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao",
+        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao", "producao",
       ]).toContain(item.part);
     }
     // O único rodapé sem destino continua no menu de compatibilidade.
