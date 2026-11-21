@@ -149,7 +149,8 @@ Os dois aplicativos trazem a ordem de serviço por modelo, com as mesmas telas e
 - **Abrir ordem:** escolher o modelo, buscar o cliente no cadastro, escolher o objeto do serviço (veículo, equipamento, imóvel, animal, evento) entre os do cliente ou cadastrar um novo, preencher os campos próprios do modelo (texto, número, Sim/Não, data e escolha), o item e a descrição. Um campo é obrigatório na abertura quando o modelo o marca como obrigatório ou quando a regra de etapa o exige desde a etapa inicial. Campos restritos (`sensitive`) não aparecem nem são enviados. Pelo atalho da conversa, a ordem já sai ligada à conversa do cliente.
 - **Ficha:** avançar e voltar de etapa. Voltar e cancelar pedem um motivo, que fica no histórico. A ficha mostra o checklist de cada etapa: só a etapa atual é marcável, e o item que pede foto abre a câmera e envia a foto para os documentos da ordem antes de marcar. Também mostra os campos da ordem (com aviso dos que a próxima etapa vai pedir), o objeto, o histórico e o orçamento, só para leitura (itens, total e situação da aprovação). Quando a ordem está ligada a uma conversa e o servidor oferece o envio do orçamento (`next_statuses` contém `quoted`), aparece **Enviar ao cliente pelo WhatsApp**. Montar o orçamento, registrar a resposta do cliente, cobrança, notas e as demais abas ficam no painel.
 - **Sem conexão:** a última lista e as fichas abertas ficam guardadas no aparelho (por área, apagadas ao sair da conta) e aparecem para leitura com o aviso da hora da cópia. Mudanças feitas sem conexão não ficam numa fila: a tela avisa que precisa de conexão e a pessoa tenta de novo quando a internet voltar.
-- **Demonstração:** além das ordens simples, há dois modelos fictícios: uma oficina mecânica, com veículo como objeto, checklist com foto e campo pedido na etapa "Pronto", e uma assistência de celulares. As ordens ficam em memória, como as conversas.
+- **Demonstração:** além das ordens simples, há dois modelos fictícios: uma oficina mecânica (ordens `OF-1` a `OF-5`), com veículo como objeto, checklist com foto na etapa "Recebido" e o campo "Mecânico responsável" pedido na etapa "Pronto", e uma assistência de celulares (`CEL-1` e `CEL-2`), com um campo restrito que não aparece. A busca de cliente encontra os contatos das conversas de exemplo (por exemplo, "Mariana Costa"). As ordens e as fotos ficam em memória, como as conversas. No simulador do iOS não há câmera: o item que pede foto mostra o aviso para liberar a câmera.
+- **Depois de abrir:** a ficha da ordem nova abre em seguida (no iOS 15, a tela de abertura só fecha e a ordem aparece na lista).
 
 Rotas usadas (todas em `/api/v1/profiles/{p}/`, escritas com `Idempotency-Key`):
 
@@ -164,7 +165,8 @@ Rotas usadas (todas em `/api/v1/profiles/{p}/`, escritas com `Idempotency-Key`):
 | `PATCH service-orders/{id}` | Campos da ordem (`version`, `extra`). |
 | `POST service-orders/{id}/stage`, `POST service-orders/{id}/stage-approval` | Mudar de etapa (`transition_id`, `version`, `note`). |
 | `GET service-orders/{id}/requirements?transition_id=` | Campos que faltam quando a etapa recusa com `missing_fields`. |
-| `POST service-orders/{id}/documents`, `PUT {upload_url}`, `POST service-orders/{id}/documents/{doc}/complete` | Foto do checklist (JPEG até 10 MB; o `upload_url` só é seguido no mesmo servidor). |
+| `POST service-orders/{id}/documents`, `PUT {upload_url}`, `POST service-orders/{id}/documents/{doc}/complete` | Foto do checklist (JPEG até 10 MB, lado maior até 1600 px; o `PUT` leva `Upload-Version` e `Idempotency-Key`; o `upload_url` só é seguido no mesmo servidor). |
+| `GET service-orders/{id}/documents/{doc}/content` | "Ver foto" de um item já marcado (só com conexão). |
 | `POST service-orders/{id}/checklist` | Marcar ou desmarcar item (`photo_document_id` quando o item pede foto). |
 | `POST service-orders/{id}/quote/send` | Enviar o orçamento pelo WhatsApp (`notify: true`). |
 

@@ -38,6 +38,11 @@ enum WorkOrderRules {
         (order.nextStatuses ?? []).contains("quoted") && (order.customer?.conversationId?.isEmpty == false) && order.quote != nil
     }
 
+    /// Total do orçamento: o do servidor ou, sem ele, a soma das linhas.
+    static func quoteTotal(_ quote: WorkQuote) -> Int {
+        quote.totalCents ?? (quote.items ?? []).reduce(0) { $0 + $1.lineCents }
+    }
+
     static func isOverdue(_ order: WorkOrder, now: Date = Date()) -> Bool {
         guard let due = order.dueAt, !order.isClosed else { return false }
         return due < BrasiliaTime.millis(now)
@@ -123,7 +128,7 @@ enum WorkOrderRules {
         case "no_conversation": return "Esta ordem não está ligada a uma conversa do WhatsApp. Envie pelo painel."
         case "customer_required": return "Confirme o cadastro do cliente antes de escolher o objeto."
         case "object_definition_conflict", "object_archived": return "O cadastro do objeto mudou. Escolha o objeto de novo."
-        case "unsupported_media_type", "payload_too_large":
+        case "unsupported_media_type", "payload_too_large", "document_too_large":
             return "A foto não foi aceita: ficou grande demais ou num formato que o Wabotia não recebe. Tire a foto de novo."
         case "invalid_transition": return "Esta mudança de etapa não vale para a ordem agora. A ficha foi atualizada."
         case "upload_url_rejected": return e.message

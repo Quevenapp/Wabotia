@@ -173,7 +173,8 @@ object WorkOrderRules {
             "no_conversation" -> NO_CONVERSATION
             "customer_required" -> CUSTOMER_REQUIRED
             "object_definition_conflict", "object_archived" -> OBJECT_CHANGED
-            "unsupported_media_type", "payload_too_large" -> PHOTO_TOO_BIG
+            // Documentos da ordem: 413 `document_too_large` (acima de 10 MB) e 415 `unsupported_media_type`.
+            "unsupported_media_type", "payload_too_large", "document_too_large" -> PHOTO_TOO_BIG
             "forbidden" -> FORBIDDEN
             else -> when {
                 q.status == 403 -> FORBIDDEN

@@ -20,9 +20,9 @@ import br.com.queven.wabotia.modules.mensalidade.InstallmentScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeScreen
 import br.com.queven.wabotia.modules.mensalidade.MensalidadeViewModel
 import br.com.queven.wabotia.modules.mensalidade.SubscriptionScreen
-import br.com.queven.wabotia.modules.os.NewServiceOrderScreen
-import br.com.queven.wabotia.modules.os.ServiceOrderScreen
-import br.com.queven.wabotia.modules.os.ServiceOrdersScreen
+import br.com.queven.wabotia.modules.os.NewWorkOrderScreen
+import br.com.queven.wabotia.modules.os.WorkOrderScreen
+import br.com.queven.wabotia.modules.os.WorkOrdersEntry
 import br.com.queven.wabotia.modules.pedido.PedidoOrderScreen
 import br.com.queven.wabotia.modules.pedido.PedidoScreen
 import br.com.queven.wabotia.modules.pedido.PedidoViewModel
@@ -112,25 +112,30 @@ private fun optional(name: String) = navArgument(name) { type = NavType.StringTy
 
 /** As telas dos módulos no grafo de navegação do app logado. */
 fun NavGraphBuilder.moduleScreens(container: AppContainer, nav: NavHostController, openConversation: (String) -> Unit, openPrinter: () -> Unit) {
+    // Ordem de serviço por modelo. Servidor sem modelos, catálogo só com o modelo simples e ordem do modelo simples
+    // caem nas telas antigas dentro das próprias telas novas (WorkOrdersEntry, WorkOrderScreen, NewWorkOrderScreen).
     composable(ModuleRoutes.SERVICE_ORDERS) {
-        ServiceOrdersScreen(
+        WorkOrdersEntry(
             container,
             onBack = { nav.popBackStack() },
-            openOrder = { nav.navigate(ModuleRoutes.serviceOrder(it)) },
+            openOrder = { nav.navigate(ModuleRoutes.serviceOrder(it.id)) },
+            openLegacyOrder = { nav.navigate(ModuleRoutes.serviceOrder(it)) },
             newOrder = { nav.navigate(ModuleRoutes.newServiceOrder()) },
+            newLegacyOrder = { nav.navigate(ModuleRoutes.newServiceOrder()) },
         )
     }
     composable(ModuleRoutes.SERVICE_ORDER, arguments = listOf(navArgument("id") { type = NavType.StringType })) { entry ->
         val id = entry.arguments?.getString("id")?.let(Uri::decode) ?: return@composable
-        ServiceOrderScreen(container, id, onBack = { nav.popBackStack() }, openConversation = openConversation, openPrinter = openPrinter)
+        WorkOrderScreen(container, id, onBack = { nav.popBackStack() }, openConversation = openConversation, openPrinter = openPrinter)
     }
     composable(ModuleRoutes.NEW_SERVICE_ORDER, arguments = listOf(optional("conversationId"), optional("customer"))) { entry ->
-        NewServiceOrderScreen(
+        NewWorkOrderScreen(
             container,
             conversationId = entry.arguments?.getString("conversationId")?.let(Uri::decode),
             customer = entry.arguments?.getString("customer")?.let(Uri::decode),
             onBack = { nav.popBackStack() },
             onCreated = { order -> nav.popBackStack(); nav.navigate(ModuleRoutes.serviceOrder(order.id)) },
+            onCreatedLegacy = { order -> nav.popBackStack(); nav.navigate(ModuleRoutes.serviceOrder(order.id)) },
         )
     }
     composable(ModuleRoutes.PEDIDO_HOME, arguments = listOf(optional("mode"))) { entry ->
