@@ -20,7 +20,7 @@ const SCREEN_FILES: [RegExp, () => Promise<unknown>][] = [
   [/^\/frente-caixa-empresa$/, pdv],
   [/^\/(cobranca-empresa|cobranca-operacional|retornos-operacionais)$/, cobranca],
   [/^\/(financeiro-empresa|relatorio-vencimentos)$/, financeiro],
-  [/^\/(historico-fiscal|notas-entrada|naturezas-operacao|inutilizacoes-nfe|cartas-correcao|numeracao-fiscal|notas-recebidas|emissor-fiscal|certificado-a1|conexao-sefaz|checkin-recebimentos)$/, fiscal],
+  [/^\/(historico-fiscal|notas-bling|notas-entrada|naturezas-operacao|inutilizacoes-nfe|cartas-correcao|numeracao-fiscal|notas-recebidas|emissor-fiscal|certificado-a1|conexao-sefaz|checkin-recebimentos)$/, fiscal],
   [/^\/(estoque-empresa|estoque-abertura|conferencia-estoque-empresa|relatorios-estoque|painel-produtos-empresa)$/, estoque],
   [/^\/documentos-empresa$/, documentos],
   [/^\/(cadastros-reais|categorias-produtos|grupos-produtos|tags|grupos-tags|exportacao-produtos|listas-precos|campos-customizados|tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos)$/, cadastros],
@@ -75,6 +75,8 @@ export const StockReports = lazy(pick(estoque, 'StockReports'));
 export const RealFiscalInvoices = lazy(pick(fiscal, 'RealFiscalInvoices'));
 export const RealOperationNatures = lazy(pick(fiscal, 'RealOperationNatures'));
 export const FiscalEventList = lazy(pick(fiscal, 'FiscalEventList'));
+// Receber o Bling, fatia C: notas emitidas no Bling, só consulta.
+export const BlingInvoices = lazy(pick(fiscal, 'BlingInvoices'));
 
 // Vendas › Frente de caixa (202610200204-206), em tela cheia.
 export const RealPdv = lazy(pick(pdv, 'RealPdv'));

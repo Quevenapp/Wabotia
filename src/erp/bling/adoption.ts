@@ -335,6 +335,17 @@ function update(ctx: RpcContext, step: Step, m: Mapped, record: string, salt: st
   }
 }
 
+/** Conflito depois do corte (fatia C): a pessoa escolhe aplicar a versão nova
+ * do Bling num cadastro já ligado. Só nas entidades que aceitam atualização,
+ * pela RPC da tela, como "usar a do Bling". */
+export function applyBlingUpdate(ctx: RpcContext, entity: BlingAdoptionRecordEntity, raw: AdoptionRaw, record: string, actor: string, now: number, salt: string): void {
+  if (!BLING_ADOPTION_UPDATABLE.has(entity)) throw new BlingAdoptionError("BLING_ADOPTION_INVALID", "Para este tipo de cadastro, mantenha a do ERP e ajuste à mão, se precisar.");
+  const m = map(ctx.db, entity, raw.payload);
+  if (!m.name) throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", BLING_ADOPTION_REASONS.missing_name);
+  if (m.blocked) throw new BlingAdoptionError("BLING_ADOPTION_RECORD_REFUSED", [BLING_ADOPTION_REASONS[m.blocked.reason], m.blocked.detail].filter(Boolean).join(" "));
+  update(ctx, { entity, raw, actor, now }, m, record, salt);
+}
+
 /** Variações de um produto "V" do Bling: cada uma vira variação do produto adotado. */
 function adoptVariations(ctx: RpcContext, step: Step, parent: string) {
   const list = step.raw.payload.variacoes;
@@ -495,7 +506,7 @@ export function adoptionRunning(sql: { exec(q: string): { toArray(): unknown[] }
 }
 
 export interface AdoptionEngineOptions { db: SqlDriver; profile: string; now(): number; parts: Readonly<ErpParts> }
-const systemIdentity = (user: string): IdentityPort => ({ actor: { user_id: user, name: null, email: null, erp_role: "admin", session_id: null, aal: "aal1", verified_factor: false, is_agent: false }, people: null });
+export const systemIdentity = (user: string): IdentityPort => ({ actor: { user_id: user, name: null, email: null, erp_role: "admin", session_id: null, aal: "aal1", verified_factor: false, is_agent: false }, people: null });
 
 /** Uma unidade do alarme: até 25 registros ou 1,5 s. Cada registro é uma
  * transação: a falha de um vira pendência dele e não derruba o lote. */
@@ -557,7 +568,7 @@ export function runAdoptionUnit(options: AdoptionEngineOptions): { worked: boole
 // Operações (pessoa ou bot, sempre administrador)
 
 export interface AdoptionCall { db: SqlDriver; profile: string; now(): number; parts: Readonly<ErpParts>; identity: IdentityPort; request_hash: string }
-function command<T extends Json>(call: AdoptionCall, operation: string, commandId: string, run: (ctx: RpcContext) => T): T & { receipt: { command_id: string; operation: string; replayed: boolean } } {
+export function command<T extends Json>(call: AdoptionCall, operation: string, commandId: string, run: (ctx: RpcContext) => T): T & { receipt: { command_id: string; operation: string; replayed: boolean } } {
   const actor = call.identity.actor!.user_id;
   return transaction(call.db, call.profile, ctx => {
     projectPeople(ctx);
@@ -573,7 +584,7 @@ function command<T extends Json>(call: AdoptionCall, operation: string, commandI
 }
 /** Transação do motor que conserva a recusa em palavras desta camada (o motor
  * converteria qualquer exceção em erro SQL genérico). */
-function transaction<T>(db: SqlDriver, profile: string, fn: (ctx: RpcContext) => T, env: { identity: IdentityPort; parts: Readonly<ErpParts> }): T {
+export function transaction<T>(db: SqlDriver, profile: string, fn: (ctx: RpcContext) => T, env: { identity: IdentityPort; parts: Readonly<ErpParts> }): T {
   let refused: BlingAdoptionError | null = null;
   try {
     return inTransaction(db, ctx => { try { return fn(ctx); } catch (error) { if (error instanceof BlingAdoptionError) refused = error; throw error; } }, clockOf(profile), env);
@@ -608,7 +619,7 @@ export function adoptionStatus(call: Pick<AdoptionCall, "db" | "parts">): BlingA
   };
 }
 
-function blingSummary(db: SqlDriver, entity: BlingAdoptionEntity, source: string): BlingAdoptionSummary | null {
+export function blingSummary(db: SqlDriver, entity: BlingAdoptionEntity, source: string): BlingAdoptionSummary | null {
   const raw = readRaw(db, entity, source);
   if (!raw) return null;
   return isAdoptionB2(entity) ? blingSummaryB2(entity, raw) : map(db, entity, raw.payload).summary;

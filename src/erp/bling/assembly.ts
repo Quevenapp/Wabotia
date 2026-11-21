@@ -32,7 +32,11 @@ function adoptionFailure(error: unknown): Response {
 }
 /** Há lote de adoção em andamento? Sem tabela (esquema antigo), não há. */
 function adoptionPending(storage: DurableObjectStorage): boolean {
-  try { return storage.sql.exec("SELECT 1 AS pending FROM wb_bling_adoption_job WHERE id=1 AND state='running'").toArray().length > 0; }
+  try {
+    if (storage.sql.exec("SELECT 1 AS pending FROM wb_bling_adoption_job WHERE id=1 AND state='running'").toArray().length > 0) return true;
+  } catch { return false; }
+  // Fatia C: pacote do contador em montagem (tabela da versão 15).
+  try { return storage.sql.exec("SELECT 1 AS pending FROM wb_bling_cutover_item WHERE kind='package' AND state='running' LIMIT 1").toArray().length > 0; }
   catch { return false; }
 }
 
@@ -237,7 +241,7 @@ export async function handleBlingOperation(call: BlingDispatch, dependencies: Bl
   if (call.adoption) {
     if (!dependencies.readSnapshot) return adoptionFailure(new BlingAdoptionError("BLING_ADOPTION_UNAVAILABLE"));
     const { handleAdoptionOperation } = await import("./adoption-api.ts");
-    return handleAdoptionOperation(call.adoption, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot });
+    return handleAdoptionOperation(call.adoption, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot, media: dependencies.env?.MEDIA ?? null });
   }
   if (isAdoptionName(call.name)) return adoptionFailure(new BlingAdoptionError("BLING_ADOPTION_INVALID"));
   try {
@@ -338,7 +342,7 @@ export async function runBlingWake(profile: string, dependencies: BlingAssemblyD
   // elegível; a coleta segue na acordada seguinte.
   if (options.eligible && !wake && dependencies.readSnapshot && adoptionPending(dependencies.storage) && deadline - options.clock.now() >= 1_000) {
     const { runAdoptionWake } = await import("./adoption-api.ts");
-    const adopted = await runAdoptionWake(profile, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot, now: options.clock.now });
+    const adopted = await runAdoptionWake(profile, { storage: dependencies.storage, readSnapshot: dependencies.readSnapshot, now: options.clock.now, media: dependencies.env?.MEDIA ?? null });
     if (adopted.worked) return { worked: true, nextWake: options.clock.now() + 1_000, requests: 0 as const };
   }
   const context: BlingContext = { profile, clock: options.clock, identity: { actor: null, people: null }, origin: "internal" };
@@ -379,7 +383,9 @@ export async function forwardBlingOperation(env: Env, profile: string, actor: Ac
     const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/erp`;
     if (!url.pathname.startsWith(prefix + "/")) throw new BoundaryError(404, "not_found");
     const relative = url.pathname.slice(prefix.length);
-    if (relative === "/v1/receber-bling/adotar" || relative.startsWith("/v1/receber-bling/adotar/"))
+    // Adoção (B1 e B2) e o corte (fatia C): mesmo despacho, mesmas regras.
+    if (relative === "/v1/receber-bling/adotar" || relative.startsWith("/v1/receber-bling/adotar/")
+      || relative === "/v1/receber-bling/corte" || relative.startsWith("/v1/receber-bling/corte/"))
       return await forwardAdoption(env, profile, actor, identity, request, url, relative.slice("/v1/receber-bling".length));
     const match = matchBlingOperation(request.method, relative);
     if (!match) throw new BoundaryError(404, "not_found");

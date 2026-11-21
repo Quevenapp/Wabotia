@@ -109,6 +109,17 @@ export function blingXmlObjectKey(profile: string, sha256: string): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(profile) || !sha256Schema.safeParse(sha256).success) return invalid();
   return `erp/${profile}/bling/xml/${sha256}`;
 }
+/** XML gravado, conferido e com manifesto confirmado (o mesmo critério do download). */
+const XML_VERIFIED_SELECTION = `SELECT i.id AS object_id,s.entity,s.source_id,s.access_key,r.revision,r.collected_at,r.manifest_hash,o.hash,o.size,o.metadata FROM origin_fiscal__item i JOIN origin_fiscal__revision r ON r.id=i.revision JOIN origin_fiscal__source s ON s.id=r.source JOIN origin_fiscal__object o ON o.hash=i.object_hash WHERE json_extract(o.metadata,'$.profile')=? AND json_extract(o.metadata,'$.verified_at') IS NOT NULL AND EXISTS(SELECT 1 FROM origin_fiscal__attempt a WHERE a.source=s.id AND a.manifest_hash=r.manifest_hash AND a.state='stored' AND EXISTS(SELECT 1 FROM json_each(a.result,'$.objects') f WHERE json_extract(f.value,'$.hash')=o.hash AND json_extract(f.value,'$.size')=o.size))`;
+/** Fatia C: o XML conferido mais recente de uma nota do acervo, para a consulta
+ * no Fiscal e o pacote do contador. Os bytes são conferidos pelo hash na leitura. */
+export function verifiedXmlOf(db: SqlDriver, profile: string, entity: string, sourceId: string): { key: string; sha256: string; size: number; access_key: string } | null {
+  const row = one(db, XML_VERIFIED_SELECTION + " AND s.entity=? AND s.source_id=? ORDER BY r.revision DESC, i.id LIMIT 1", profile, entity, sourceId);
+  if (!row) return null;
+  let key: string;
+  try { key = blingXmlObjectKey(profile, String(row.hash)); if (json(row.metadata).storage_key !== key) return null; } catch { return null; }
+  return { key, sha256: String(row.hash), size: Number(row.size), access_key: String(row.access_key ?? "") };
+}
 /** A URL não participa: trocar URL sem mudar a nota não exige outro arquivo. */
 export async function xmlFingerprint(payloadText: string, hash: BlingXmlDependencies["hash"]): Promise<string> {
   try {
@@ -479,7 +490,7 @@ export function createXmlArchive(deps: BlingXmlDependencies) {
     });
   }
 
-  const selection = `SELECT i.id AS object_id,s.entity,s.source_id,s.access_key,r.revision,r.collected_at,r.manifest_hash,o.hash,o.size,o.metadata FROM origin_fiscal__item i JOIN origin_fiscal__revision r ON r.id=i.revision JOIN origin_fiscal__source s ON s.id=r.source JOIN origin_fiscal__object o ON o.hash=i.object_hash WHERE json_extract(o.metadata,'$.profile')=? AND json_extract(o.metadata,'$.verified_at') IS NOT NULL AND EXISTS(SELECT 1 FROM origin_fiscal__attempt a WHERE a.source=s.id AND a.manifest_hash=r.manifest_hash AND a.state='stored' AND EXISTS(SELECT 1 FROM json_each(a.result,'$.objects') f WHERE json_extract(f.value,'$.hash')=o.hash AND json_extract(f.value,'$.size')=o.size))`;
+  const selection = XML_VERIFIED_SELECTION;
   function rowSummary(r: Row): BlingXmlSummary {
     const m = json(r.metadata);
     return metadataSummary({ entity: r.entity, source_id: r.source_id, access_key: r.access_key, sha256: r.hash, size: r.size, metadata: m } as XmlJournal, String(r.object_id), Number(r.revision));

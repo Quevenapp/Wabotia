@@ -175,6 +175,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
   },
   {
+    // Receber o Bling, fatia C: notas emitidas no Bling, só consulta (administrador).
+    id: "erp.bling-invoices", module: "erp-fiscal", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 195,
+    label: "Notas emitidas no Bling",
+    target: { kind: "ported", to: "/notas-bling" },
+    permission: { kind: "erp", roles: ["admin"] },
+  },
+  {
     id: "erp.pos", module: "erp-pdv", part: "pdv",
     primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 200,
@@ -434,6 +442,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.sales-orders"],
       legacyItems["erp.outgoing-invoices"],
       legacyItems["erp.consumer-invoices"],
+      legacyItems["erp.bling-invoices"],
       legacyItems["erp.pos"],
       legacyItems["erp.sales-proposals"],
     ] },

@@ -192,4 +192,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Fatia balcão com NFC-e: a venda do caixa pede o cupom ao cofre da NFapi pela mesma máquina da NF-e comercial (revisão imutável, reivindicação durável, retomada por consulta, cancelamento, efeitos e auditoria), sem a venda esperar a nota.",
     replaced_by: "Versão 14 aditiva (13→14): counter_emission, counter_revision, counter_command, counter_cancel, counter_effect e counter_audit em erp_fiscal_vault, com o DDL da versão 10 e a chave de acesso do modelo 65, e counter_settings (natureza do cupom). A conexão, o ambiente e a habilitação de produção são os de commercial_settings. Série, CSC e contingência ficam no cofre.",
   },
+  {
+    id: "corte-bling",
+    oracle: "Corte do coletor externo (erp_cutover, abertura do estoque e do financeiro pelo espelho), nunca concluído: reconciled false.",
+    reason: "Fatia C: a pessoa escolhe a data a partir da qual o ERP vale; contas parciais pelo saldo, saldos de abertura das contas financeiras, estoque de abertura por depósito, notas emitidas no Bling só para consulta, pacote do contador e conferência final que só conclui sem pendência não justificada.",
+    replaced_by: "Versão 15 aditiva (14→15): wb_bling_cutover (data de corte confirmada por um administrador, conclusão e fotografia da conferência) e wb_bling_cutover_item (o que cada etapa gravou: parcial adotada, saldo de abertura, estoque de abertura por depósito, pacote do contador e suas partes no R2, justificativas e conflitos decididos). Os lançamentos passam pelas RPCs das telas (erp_finance_title_execute, erp_finance_cash_execute, erp_stock_post).",
+  },
 ];
