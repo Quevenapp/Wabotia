@@ -39,3 +39,6 @@
   .fagoo-root .expedicao { padding: .75rem; }
   .fagoo-root .expedicao-orders th:nth-child(n+6), .fagoo-root .expedicao-orders td:nth-child(n+6) { display: none; }
 }
+/* Frete: a linha do tempo do rastreio no pedido (Frete.tsx). */
+.fagoo-root .expedicao-timeline { margin: .4rem 0 0; padding-left: 1.2rem; }
+.fagoo-root .expedicao-timeline li { margin: .25rem 0; }

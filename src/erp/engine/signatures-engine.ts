@@ -126,6 +126,9 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_shipping_delivery_prepare: [["p_user_id", "u"], ["p_args", "j"]],
   erp_shipping_delivery_record: [["p_user_id", "u"], ["p_args", "j"]],
   erp_shipping_return_create: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  // Frete da expedição (src/erp/domains/shipping/freight.ts): o pedido para cotar e contratar; o frete, o prazo e o rastreio no pedido.
+  erp_shipping_freight_context: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_shipping_freight_apply: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
   // Lojas e filiais (structural.ts, lojas; src/erp/domains/stores/rpc.ts):
   // consultas e a loja em uso com p_args; gravações do cadastro com p_command_id.
   erp_store_overview: [["p_user_id", "u"], ["p_args", "j"]],

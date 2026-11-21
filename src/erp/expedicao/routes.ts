@@ -16,7 +16,7 @@ import { erpBotDelegation } from "../../modules/erp/bot-access";
 import { erpIdentity } from "../../modules/erp/identity";
 import { localFetch } from "../api/local-fetch.ts";
 import { erpPartOffMessage, erpRequirement } from "../parts.ts";
-import { ERP_EXPEDICAO_PART, erpShippingOperationFor, type ErpShippingOperation } from "./contract.ts";
+import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, erpShippingOperationFor, type ErpShippingOperation } from "./contract.ts";
 import { ShippingArgsError, shippingRpcArgs, uuid } from "./args.ts";
 
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -64,6 +64,15 @@ const REASONS: Readonly<Record<string, [number, string, string]>> = {
   erp_stock_product_unavailable: [400, "invalid_request", "Um dos produtos que volta ao estoque está inativo ou não é produto físico. Marque como avariado ou descarte, ou ative o produto."],
   erp_stock_warehouse_unavailable: [400, "invalid_request", "O depósito escolhido está inativo. Escolha outro depósito."],
   erp_stock_composition_unsupported: [400, "invalid_request", "Kit (composição) não volta ao estoque pela devolução. Devolva os componentes ou marque como avariado."],
+  // Frete (src/erp/domains/shipping/freight.ts): o que impede o frete de entrar no pedido.
+  erp_shipping_freight_no_freight: [409, "freight_no_freight", "O pedido está \"sem frete\". Para cobrar o frete, mude a modalidade do frete no pedido e escolha o serviço de novo."],
+  erp_shipping_freight_locked: [409, "freight_order_locked", "O pedido já está aprovado, atendido ou cancelado, e o frete dele não muda mais. O serviço e o valor ficaram registrados no frete da expedição."],
+  erp_shipping_freight_installments: [409, "freight_installments", "O pedido tem parcelas que somam o total sem este frete. Ajuste ou tire as parcelas no pedido e escolha o serviço de novo."],
+  erp_shipping_freight_value: [400, "invalid_request", "O valor ou o prazo do frete veio num formato que o pedido não aceita. Cote de novo."],
+  erp_shipping_freight_tracking: [400, "invalid_request", "O código de rastreio do provedor veio num formato que o pedido não aceita. Confira o envio no provedor."],
+  erp_document_version_conflict: [409, "conflict", "Alguém mudou o pedido enquanto você trabalhava. Atualize a tela e escolha o serviço de novo."],
+  erp_document_state_locked: [409, "freight_order_locked", "O pedido não pode mais ser alterado (aprovado, atendido ou cancelado). O serviço e o valor ficaram registrados no frete da expedição."],
+  erp_document_installment_total_mismatch: [409, "freight_installments", "As parcelas do pedido não fecham com o total com este frete. Ajuste as parcelas no pedido e escolha o serviço de novo."],
 };
 /** Motivo com complemento (os números dos pedidos em conflito, a situação atual). */
 const PREFIXED: Readonly<Record<string, (detail: string) => [number, string, string]>> = {
@@ -80,8 +89,8 @@ async function commandId(value: unknown, idempotency: string | null, profile: st
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-${((parseInt(hash[16], 16) & 3) | 8).toString(16)}${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 }
 
-/** Chama o RPC no objeto erp: da área, como a pessoa (com o portão de horário e segundo fator). */
-async function callShippingRpc(env: Env, profile: string, actor: Actor, pathname: string, method: string, rpc: string, args: Record<string, unknown>, read: boolean) {
+/** Chama o RPC no objeto erp: da área, como a pessoa (com o portão de horário e segundo fator). O frete (src/erp/frete/) usa o mesmo caminho. */
+export async function callShippingRpc(env: Env, profile: string, actor: Actor, pathname: string, method: string, rpc: string, args: Record<string, unknown>, read: boolean) {
   const identity = await erpIdentity(env, actor, profile, method, pathname);
   const gate = { denied: null as string | null, partsDenied: undefined as string | undefined };
   let response: Response;
@@ -147,6 +156,11 @@ export async function erpExpedicaoRoute(env: Env, request: Request, profile: str
   const url = new URL(request.url);
   const marker = `/profiles/${encodeURIComponent(profile)}/`;
   const path = url.pathname.slice(url.pathname.indexOf(marker) + marker.length);
+  // Frete e transportadoras (cotação, etiqueta oficial e rastreio): o serviço de frete, na mesma parte.
+  if (path === `${ERP_EXPEDICAO_ROUTE}/frete` || path.startsWith(`${ERP_EXPEDICAO_ROUTE}/frete/`)) {
+    const { erpFreteRoute } = await import("../frete/routes.ts");
+    return erpFreteRoute(env, request, profile, actor, path);
+  }
   const match = erpShippingOperationFor(request.method, path);
   if (!match) throw new ApiError(404, "not_found", "Rota não encontrada.");
   if (actor.kind !== "user")
@@ -166,7 +180,13 @@ export async function erpExpedicaoRoute(env: Env, request: Request, profile: str
   const args = await shippingRpcArgs(operation, params, url.searchParams, body, (sent) => commandId(sent.comando, request.headers.get("Idempotency-Key"), profile, operation.name, sent))
     .catch((error: unknown) => { throw error instanceof ShippingArgsError ? new ApiError(400, "invalid_request", error.message) : error; });
   if (operation.name === "erp.expedicao.entrega_local") return json(await localDelivery(env, profile, actor, url.pathname, args, body ?? {}));
-  return json(await callShippingRpc(env, profile, actor, url.pathname, request.method, operation.rpc, args, operation.method === "GET"));
+  const result = await callShippingRpc(env, profile, actor, url.pathname, request.method, operation.rpc, args, operation.method === "GET");
+  // Pedido expedido com envio contratado: o rastreio dele entra na rodada do alarme (src/erp/frete/schedule.ts).
+  if (operation.name === "erp.expedicao.expedir" && Array.isArray(result?.items)) {
+    const shipped = result.items.filter((o: { status?: string }) => o?.status === "shipped").map((o: { id: string }) => o.id);
+    if (shipped.length) await (await import("../frete/service.ts")).markShipped(env, profile, shipped).catch(() => {});
+  }
+  return json(result);
 }
 
 export type { ErpShippingOperation };
