@@ -39,6 +39,10 @@
 .contact-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 14px; }
 .contact-grid .real-field-wide { grid-column: 1 / -1; }
 .contact-hint { display: inline-flex; margin-left: 4px; color: var(--muted); cursor: help; vertical-align: middle; }
+/* Busca do CNPJ na Receita: link ao lado do rótulo e o aviso na linha inteira. */
+.contact-receita { margin-left: 8px; padding: 0; border: 0; background: none; color: var(--accent, #2563eb); font: inherit; font-size: .85em; text-decoration: underline; cursor: pointer; }
+.contact-receita:disabled { color: var(--muted); cursor: progress; text-decoration: none; }
+.contact-receita-note { grid-column: 1 / -1; margin: 0; }
 .contact-counter { justify-self: end; color: var(--muted); font-size: 11px; }
 .contact-check label { display: flex; gap: 6px; align-items: center; margin-top: 22px; }
 .contact-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }

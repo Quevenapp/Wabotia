@@ -28,6 +28,7 @@ import type { CatalogEditorProps } from './CatalogEditor';
 import { aborted, errorText } from './catalog-shared';
 import ContactFiles, { ContactPhoto } from './ContactFiles';
 import { ContactCustomFields } from './ContactCustomFields';
+import { cnpjDigits, cnpjFormValues, cnpjLookupBase, lookupCnpj, searchableCnpj, type CnpjData } from '../lib/cnpj-lookup';
 import './contacts.css';
 import { blockEnabled, fieldEnabled, availablePayload } from '../../blocks';
 
@@ -150,6 +151,31 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
     setValues(previous => ({ ...previous, [key]: value, ...(key === 'ie_exempt' ? { taxpayer: suggestedTaxpayer(value === 'true', previous.taxpayer ?? '9'), ...(value === 'true' ? { ie: '' } : {}) } : {}) }));
     saver.setWarnings(null); if (key === invalid) { setInvalid(null); saver.setError(''); }
   };
+  // Busca na Receita (pedido do dono, 21/11): CNPJ completo e válido → preenche os campos vazios; o botão refaz e sobrescreve.
+  const [receita, setReceita] = useState<{ busy: boolean; note: string; error: string }>({ busy: false, note: '', error: '' });
+  const receitaAsked = useRef<string>(record?.document ? cnpjDigits(String(record.document)) : '');
+  const receitaRequest = useRef<AbortController | null>(null);
+  const canSearchReceita = !locked && cnpjLookupBase() !== null && (person === 'J' || person === '');
+  const searchReceita = (force: boolean) => {
+    const cnpj = cnpjDigits(values.document ?? '');
+    if (!searchableCnpj(cnpj)) { setReceita({ busy: false, note: '', error: 'Digite o CNPJ completo (14 números) para buscar na Receita.' }); return; }
+    receitaAsked.current = cnpj;
+    receitaRequest.current?.abort(); const request = new AbortController(); receitaRequest.current = request;
+    setReceita({ busy: true, note: '', error: '' });
+    void lookupCnpj(cnpj, request.signal).then((data: CnpjData) => {
+      if (request.signal.aborted) return;
+      setValues(previous => ({ ...previous, ...cnpjFormValues(data, previous, force) }));
+      saver.setWarnings(null);
+      const situacao = data.ativa === false && data.situacao ? ` Atenção: situação na Receita "${data.situacao}".` : '';
+      setReceita({ busy: false, error: '', note: `Dados da Receita${data.razao_social ? ` de ${data.razao_social}` : ''} preenchidos${force ? '' : ' nos campos que estavam vazios'}. Confira antes de salvar.${situacao}` });
+    }).catch(failure => { if (!aborted(failure)) setReceita({ busy: false, note: '', error: failure instanceof Error ? failure.message : 'A busca na Receita falhou.' }); });
+  };
+  useEffect(() => () => receitaRequest.current?.abort(), []);
+  useEffect(() => {
+    const cnpj = cnpjDigits(values.document ?? '');
+    if (!canSearchReceita || !searchableCnpj(cnpj) || receitaAsked.current === cnpj) return;
+    searchReceita(false);
+  }, [values.document, canSearchReceita]);
   const isRequired = (key: string) => fieldEnabled(key) && (key === 'name' || (required.includes(key) && requiredApplies(key, values)));
   const field = (spec: ContactField, extra?: ReactNode) => {
     if (!fieldVisible(spec.key, person)) return null;
@@ -203,7 +229,10 @@ function ContactForm({ controller, record, writable, onClose, onSaved, embeddedP
         <section className="contact-section" id="contact-section-identity" tabIndex={-1}><div className="contact-section-title"><h3 className="catalog-group-title">Dados cadastrais</h3>{changed && <span className="contact-changed">Alterado em {changed}{record?.updated_by_name ? `, por ${record.updated_by_name}` : ''}</span>}</div>
           <div className="contact-grid">
             {field(SECTION_FIELDS.cadastrais[0], record && !embeddedProfile ? <ContactSalesHistory controller={controller} contactId={record.id} /> : undefined)}
-            {SECTION_FIELDS.cadastrais.slice(1, 9).map(spec => field(spec))}
+            {SECTION_FIELDS.cadastrais.slice(1, 9).map(spec => spec.key === 'document' && canSearchReceita
+              ? field(spec, <button type="button" className="link-button contact-receita" disabled={receita.busy} onClick={() => searchReceita(true)} title="Busca o CNPJ na Receita e preenche nome, endereço, telefone, e-mail, inscrição estadual e regime">{receita.busy ? 'Buscando…' : 'Buscar na Receita'}</button>)
+              : field(spec))}
+            {(receita.note || receita.error) && <p className={receita.error ? 'real-alert contact-receita-note' : 'real-help contact-receita-note'} role="status">{receita.error || receita.note}</p>}
             {person === 'J' && <div className="form-field contact-check"><label><input type="checkbox" id="contact-ie_exempt" checked={values.ie_exempt === 'true'} disabled={locked} onChange={event => change('ie_exempt', event.target.checked ? 'true' : '')} />IE Isento</label></div>}
             {SECTION_FIELDS.cadastrais.slice(9).map(spec => field(spec))}
           </div></section>
