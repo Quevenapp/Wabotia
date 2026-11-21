@@ -1241,6 +1241,15 @@ app.all("/api/v1/profiles/:profile/erp-contador/*", async (c: any) => {
   const { erpContadorRoute } = await import("./erp/contador/routes");
   return erpContadorRoute(c.get("pre") ?? c.env, c.req.raw, profile, c.get("actor"));
 });
+// Obrigações em arquivo (Fiscal; src/erp/sped/): SPED Fiscal, EFD-Contribuições
+// e SINTEGRA do mês, para o contador ou o validador oficial (nada vai ao governo).
+app.all("/api/v1/profiles/:profile/erp-sped/*", async (c: any) => {
+  const profile = c.req.param("profile");
+  if (!canProfile(c.get("actor"), profile))
+    throw new ApiError(404, "not_found", "Área de atendimento não encontrada.");
+  const { erpSpedRoute } = await import("./erp/sped/routes");
+  return erpSpedRoute(c.get("pre") ?? c.env, c.req.raw, profile, c.get("actor"));
+});
 // O link enviado ao contador: sem sessão, o código (256 bits, só na mensagem)
 // vale 7 dias para o ZIP daquele pacote, com a parte Fiscal ligada.
 app.get("/api/public/contador/:token", async (c) => {

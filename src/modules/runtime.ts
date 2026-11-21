@@ -74,6 +74,9 @@ import "../erp/conversa/command.ts";
 // Para o contador: o comando do envio pelo WhatsApp e o envio automático
 // do mês anterior (src/erp/contador/command.ts).
 import "../erp/contador/command.ts";
+// Obrigações em arquivo (SPED e SINTEGRA): o envio ao contador que espera o
+// pacote do período ficar pronto (src/erp/sped/command.ts).
+import "../erp/sped/command.ts";
 
 // NF-e comercial usa a mesma rota HTTP para a tela e para a proposta do bot.
 // O recibo durável pertence ao ERP; o Coordinator da área não chama o cofre.

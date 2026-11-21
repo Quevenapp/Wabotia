@@ -2016,6 +2016,86 @@ const IMPORT_TABLES: readonly EngineTable[] = [
     since: 28, owner: "planilha-fiscal", structural: "importacao-fiscal",
   },
 ];
+/** Obrigações fiscais em arquivo (src/erp/sped): SPED Fiscal, EFD-Contribuições
+ * e SINTEGRA. A configuração (perfil, atividade, dados do contador para o
+ * registro 0100, regime do PIS/COFINS, códigos do SINTEGRA), cada arquivo
+ * pedido (um por tipo, ambiente e período; montado aos poucos no alarme, com
+ * as partes do texto no R2) e as notas já lidas e normalizadas de um arquivo
+ * em montagem (apagadas quando o arquivo fica pronto). */
+const SPED_SETTINGS = "erp_sped__settings";
+const SPED_FILE = "erp_sped__file";
+const SPED_DOC = "erp_sped__doc";
+const sped = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 29, owner: "sped-sintegra", structural: "obrigacoes-arquivo" });
+const SPED_TABLES: readonly EngineTable[] = [
+  sped(SPED_SETTINGS, [
+    `CREATE TABLE "${SPED_SETTINGS}" (
+  "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "data" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("data", "object")}),
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${SPED_SETTINGS}_singleton_check" CHECK (id = 1),
+  CONSTRAINT "${SPED_SETTINGS}_version_check" CHECK (version BETWEEN 1 AND 2147483647),
+  CONSTRAINT "${SPED_SETTINGS}_size_check" CHECK (length(CAST(data AS BLOB)) <= 16384)
+) STRICT`,
+  ]),
+  sped(SPED_FILE, [
+    `CREATE TABLE "${SPED_FILE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "kind" TEXT NOT NULL,
+  "environment" TEXT NOT NULL,
+  "period_from" TEXT NOT NULL,
+  "period_to" TEXT NOT NULL,
+  "inventory_on" TEXT,
+  "options" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("options", "object")}),
+  "state" TEXT NOT NULL,
+  "run" TEXT NOT NULL,
+  "phase" TEXT NOT NULL,
+  "cursor" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("cursor", "object")}),
+  "counts" TEXT NOT NULL DEFAULT '{}' CHECK (${JSON_OF("counts", "object")}),
+  ${ARRAY("problems")},
+  ${ARRAY("warnings")},
+  "docs" INTEGER NOT NULL DEFAULT 0,
+  "parts" INTEGER NOT NULL DEFAULT 0,
+  "lines" INTEGER NOT NULL DEFAULT 0,
+  "bytes" INTEGER NOT NULL DEFAULT 0,
+  "sha256" TEXT,
+  "filename" TEXT,
+  "summary" TEXT CHECK (summary IS NULL OR ${JSON_OF("summary", "object")}),
+  "error" TEXT,
+  "attempts" INTEGER NOT NULL DEFAULT 0,
+  "retry_at" INTEGER NOT NULL DEFAULT 0,
+  ${ARRAY("stale")},
+  "requested_by" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "finished_at" INTEGER,
+  CONSTRAINT "${SPED_FILE}_id_check" CHECK (length(id) = 16 AND id NOT GLOB '*[^0-9a-f]*'),
+  CONSTRAINT "${SPED_FILE}_kind_check" CHECK (kind IN ('efd_icms_ipi', 'efd_contribuicoes', 'sintegra')),
+  CONSTRAINT "${SPED_FILE}_environment_check" CHECK (environment IN ('producao', 'homologacao')),
+  CONSTRAINT "${SPED_FILE}_period_check" CHECK (period_from GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}' AND period_to GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}' AND period_from <= period_to AND (inventory_on IS NULL OR inventory_on GLOB '${DIGITS(4)}-${DIGITS(2)}-${DIGITS(2)}')),
+  CONSTRAINT "${SPED_FILE}_state_check" CHECK (state IN ('running', 'done', 'blocked', 'failed')),
+  CONSTRAINT "${SPED_FILE}_phase_check" CHECK (phase IN ('emitidas', 'inutilizacoes', 'recebidas', 'fechamento')),
+  CONSTRAINT "${SPED_FILE}_sizes_check" CHECK (docs >= 0 AND parts >= 0 AND lines >= 0 AND bytes >= 0 AND attempts >= 0),
+  CONSTRAINT "${SPED_FILE}_text_check" CHECK ((error IS NULL OR length(error) <= 500) AND (filename IS NULL OR length(filename) <= 120) AND (sha256 IS NULL OR ${HEX64("sha256")}) AND length(CAST(problems AS BLOB)) <= 65536 AND length(CAST(stale AS BLOB)) <= 65536)
+) STRICT`,
+    `CREATE INDEX "${SPED_FILE}_running" ON "${SPED_FILE}" (state, retry_at)`,
+  ]),
+  sped(SPED_DOC, [
+    `CREATE TABLE "${SPED_DOC}" (
+  "file_id" TEXT NOT NULL,
+  "run" TEXT NOT NULL,
+  "seq" INTEGER NOT NULL,
+  "kind" TEXT NOT NULL,
+  "data" TEXT NOT NULL CHECK (${JSON_OF("data", "object")}),
+  CONSTRAINT "${SPED_DOC}_pkey" PRIMARY KEY (file_id, run, seq),
+  CONSTRAINT "${SPED_DOC}_kind_check" CHECK (kind IN ('nfe', 'nfce', 'nfse', 'entrada', 'inutilizada')),
+  CONSTRAINT "${SPED_DOC}_size_check" CHECK (seq >= 1 AND length(CAST(data AS BLOB)) <= 524288),
+  CONSTRAINT "${SPED_DOC}_file_fkey" FOREIGN KEY (file_id) REFERENCES "${SPED_FILE}" (id)
+) STRICT`,
+  ]),
+];
+
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2091,6 +2171,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...STORE_TABLES,
   // Versão 28: o tipo das importações fiscal e de saldos iniciais (26 e 27 são de outras frentes).
   ...IMPORT_TABLES,
+  // Versão 29: obrigações fiscais em arquivo (SPED Fiscal, EFD-Contribuições e SINTEGRA).
+  ...SPED_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

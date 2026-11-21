@@ -17,6 +17,7 @@ import { RECEBIDAS_OPERATIONS, RECEBIDAS_ROUTE } from "../../erp/recebidas/opera
 import { ERP_CONTACT_FIELD_OPERATIONS, ERP_CONTACT_FIELDS_ROUTE } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_OPERATIONS, ERP_CONTADOR_ROUTE, erpContadorParams } from "../../erp/contador/contract.ts";
+import { ERP_SPED_OPERATIONS, ERP_SPED_ROUTE, erpSpedParams } from "../../erp/sped/contract.ts";
 import { ERP_PRODUCAO_ROUTE, ERP_PRODUCTION_OPERATIONS, erpProductionParams } from "../../erp/production/contract.ts";
 import { ERP_EXPEDICAO_PART, ERP_EXPEDICAO_ROUTE, ERP_SHIPPING_OPERATIONS, erpShippingParams } from "../../erp/expedicao/contract.ts";
 import { ERP_LOJAS_PART, ERP_LOJAS_ROUTE, ERP_STORE_OPERATIONS, erpStoreParams } from "../../erp/lojas/contract.ts";
@@ -136,6 +137,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Para o contador (assunto NF-e): montar o pacote e consultar são operações comuns; enviar ao contador é sensível.
   ...ERP_CONTADOR_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: op.group, description: op.description, params: erpContadorParams(op) })),
+  // Obrigações em arquivo (assunto NF-e): conferir, gerar e consultar são operações comuns; enviar ao contador é sensível.
+  ...ERP_SPED_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: op.group, description: op.description, params: erpSpedParams(op) })),
   // Produção: consultar ordens e sugestões é leitura; criar, concluir e estornar são sensíveis (o bot propõe, a pessoa confirma).
   ...ERP_PRODUCTION_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: "producao", description: op.description, params: erpProductionParams(op) })),
@@ -155,6 +159,7 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   if (op.path.startsWith("erp-comercial-nfe/nfce/")) return erpRequirement("erp-fiscal", "erp-pdv").all;
   if (op.path.startsWith("erp-comercial-nfe/")) return erpRequirement("erp-fiscal").all;
   if (op.path.startsWith(`${ERP_CONTADOR_ROUTE}/`)) return erpRequirement("erp-fiscal").all;
+  if (op.path.startsWith(`${ERP_SPED_ROUTE}/`)) return erpRequirement("erp-fiscal").all;
   if (op.path.startsWith(`${RECEBIDAS_ROUTE}/`)) return RECEBIDAS_OPERATIONS.find(item => `${RECEBIDAS_ROUTE}/${item.path}` === op.path && item.method === op.method)?.parts ?? erpRequirement("erp-compras").all;
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path.startsWith(`${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`)) return erpRequirement("erp-financeiro").all;

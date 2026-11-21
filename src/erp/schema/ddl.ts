@@ -54,11 +54,14 @@
 //     de saldos iniciais (import_job_kind em erp_preferences; 27→28, somente
 //     adição). 26 e 27 são de outras frentes: aqui os passos 25→26 e 26→27
 //     só criam as tabelas do motor dessas versões (nenhuma nesta frente).
+// 29: três tabelas das obrigações fiscais em arquivo (erp_sped: configuração,
+//     arquivo pedido e as notas lidas do arquivo em montagem; 28→29, somente
+//     adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 28;
+export const ERP_DDL_VERSION = 29;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length

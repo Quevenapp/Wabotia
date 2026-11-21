@@ -29,7 +29,7 @@ import type {
 import {
   emptyCounts, periodLabel, type ContadorCounts, type ContadorEnvironment, type ContadorPackageState, type ContadorPackageView,
 } from "./contract.ts";
-import { ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, ZipPart, zipClosing, type ZipEntry } from "./zip.ts";
+import { concat, ZIP_MAX_BYTES, ZIP_MAX_ENTRIES, ZipPart, zipClosing, type ZipEntry } from "./zip.ts";
 
 export const T_PACKAGE = "erp_contador__package";
 export const T_PART = "erp_contador__part";
@@ -70,6 +70,8 @@ export interface PackageDependencies {
   source: (() => Promise<ContadorSource>) | null;
   /** XML conferido do acervo do Bling (src/erp/bling/xml.ts, verifiedXmlOf). */
   blingXml?: (db: SqlDriver, profile: string, entity: string, sourceId: string) => { key: string; sha256: string; access_key: string } | null;
+  /** Arquivos prontos de SPED e SINTEGRA do período (src/erp/sped/job.ts), no fecho; null: o R2 não respondeu agora. */
+  extras?: (environment: string, from: string, to: string) => Promise<{ name: string; bytes: Uint8Array; date: string }[] | null>;
   now(): number;
   random?(): string;
 }
@@ -455,12 +457,18 @@ async function closePackage(deps: PackageDependencies, p: PackageRow, prefix: st
   if (p.warnings.length) lines.push("", ...p.warnings.map((w) => csvLine(["Aviso", w])));
   const csv = encoder.encode(BOM_CHAR + lines.join("\r\n") + "\r\n");
   const slug = `${p.period_from}_a_${p.period_to}`;
-  const closing = zipClosing(parts.flatMap((part) => part.entries), p.zip_offset, { name: `indice-notas_${slug}.csv`, bytes: csv, date: p.period_to });
-  try { await media!.put(`${prefix}/final`, closing.bytes); } catch { return { worked: true, more: true }; }
+  // Obrigações em arquivo do período (SPED e SINTEGRA prontos), na mesma parte final.
+  const extras = deps.extras ? await deps.extras(p.environment, p.period_from, p.period_to).catch(() => null) : [];
+  if (extras === null) return { worked: true, more: true };
+  const extraPart = new ZipPart(p.zip_offset, parts.flatMap((part) => part.entries.map((e) => e.name)));
+  for (const file of extras) extraPart.add(file.name, file.bytes, file.date);
+  const closing = zipClosing([...parts.flatMap((part) => part.entries), ...extraPart.entries], extraPart.offset, { name: `indice-notas_${slug}.csv`, bytes: csv, date: p.period_to });
+  const final = extras.length ? concat([extraPart.bytes(), closing.bytes]) : closing.bytes;
+  try { await media!.put(`${prefix}/final`, final); } catch { return { worked: true, more: true }; }
   db.transaction(() => {
     const c = readPackage(db, p.id);
     if (c?.state !== "running" || c.run !== p.run || c.phase !== "fechamento") return;
-    save(db, { ...c, state: "done", bytes: c.zip_offset + closing.bytes.length, entries: closing.entries, filename: `contador_${slug}.zip`, error: null,
+    save(db, { ...c, state: "done", bytes: c.zip_offset + final.length, entries: closing.entries, filename: `contador_${slug}.zip`, error: null,
       updated_at: deps.now(), finished_at: deps.now() });
   });
   return { worked: true, more: contadorRunning(db) };
