@@ -2,6 +2,7 @@ import { ERP_PARTS_STATE_SQL, erpPartsStateOf, erpPartsEnvelope, readErpPartsSta
 import { readErpPartsSnapshot } from "../../erp/parts.ts";
 import { erpBotDelegation, erpBotOperation, erpBotOperationGranted, erpBotStoreScope } from "./bot-access.ts";
 import { INTEGRATION_MODULES } from "../../erp/engine/module-origin.ts";
+import { erpRouteAllowed, missingActionMessage } from "../../security-modules.ts";
 // Lado do núcleo da porta de identidade do ERP (src/erp/engine/identity.ts):
 // o Worker monta o envelope com o que o Wabotia sabe da pessoa e da área, e o
 // motor nunca consulta o D1.
@@ -254,6 +255,20 @@ export async function erpPeople(env: Env, profile: string, states?: ModuleStates
 /** Id da aplicação no ERP: o uuid, sem o "app:" do ator da chave. */
 export const appUserId = (actor: Actor) => actor.id.replace(/^app:/, "");
 
+/**
+ * A pessoa tem a ação desta rota do ERP? Administrador da instalação e quem
+ * ainda está no papel antigo passam (o motor confere o papel, como antes).
+ * Recusa: 403 permission_denied, com a ação que falta e quem libera.
+ */
+export function requireErpAction(actor: Actor, profile: string, method: string, path?: string) {
+  if (actor.kind !== "user" || actor.role === "admin" || !path) return;
+  const prefix = `/api/v1/profiles/${encodeURIComponent(profile)}/`;
+  const route = path.startsWith(prefix) ? path.slice(prefix.length) : path.startsWith(`/api/v1/profiles/${profile}/`) ? path.slice(`/api/v1/profiles/${profile}/`.length) : null;
+  if (route === null) return;
+  const result = erpRouteAllowed(actor.access ?? ["*"], method, route);
+  if (!result.ok) throw new ApiError(403, "permission_denied", missingActionMessage(result.module, result.action));
+}
+
 /** Leitura da erp-api (GET/HEAD): basta erp:read. */
 const isRead = (method: string) => method === "GET" || method === "HEAD";
 
@@ -278,6 +293,10 @@ export async function erpIdentity(
       "erp_role_required",
       "Seu acesso não inclui um papel no ERP. Peça ao administrador em Pessoas e acessos.",
     );
+  // Permissões por módulo (src/security-modules.ts): cada ação conferida aqui,
+  // antes do objeto. Pelo bot vale a mesma regra, porque o bot age como a
+  // pessoa: o bot nunca faz o que a pessoa não pode.
+  requireErpAction(actor, profile, method, path);
   const state = await identityPartsState(env, profile);
   const people = await erpPeople(env, profile, state.states);
   const self = people.find((p) => p.user_id === actor.id);

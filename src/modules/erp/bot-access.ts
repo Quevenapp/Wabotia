@@ -8,7 +8,8 @@ import { OS_NOTE_OPERATIONS } from "../../erp/commercial-nfe/os-notes-metadata.t
 import { NFE_EVENT_OPERATIONS, NFE_EVENT_PROPERTIES } from "../../erp/commercial-nfe/events-metadata.ts";
 import { BLING_MODULE_CONTRACT, BLING_OPERATIONS } from "../../erp/bling/schema.ts";
 import { ERP_IMPORT_KINDS, erpRouteRequirement } from "../../erp/parts-requirements.ts";
-import { ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
+import { ERP_MODULE_IDS, ERP_PART_NAMES, erpRequirement, type ErpModuleId } from "../../erp/parts.ts";
+import { ERP_MODULE_ACTIONS, erpRouteAction, isErpModule } from "../../security-modules.ts";
 import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/bling/adoption-contracts.ts";
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
@@ -226,13 +227,40 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   return requirement && requirement !== "externo" ? requirement.all : erpRequirement("erp").all;
 }
 
-/** Inventário para a tela de concessões do bot (só administrador), por assunto. */
+/**
+ * Ação por módulo (src/security-modules.ts) de uma operação do bot: a mesma
+ * da tela de pessoa. A rota livre (início, preferências de tela) fica em
+ * "Ver" do módulo dono.
+ */
+export function erpBotOperationAction(op: Pick<ErpBotOperation, "method" | "path">): { module: ErpModuleId; action: string } {
+  const found = erpRouteAction(op.method, op.path);
+  const module = (found && isErpModule(found.module) ? found.module : "erp") as ErpModuleId;
+  return { module, action: found?.action ?? ERP_MODULE_ACTIONS[module][0].id };
+}
+
+/**
+ * Inventário para a tela de concessões do bot (só administrador), por assunto
+ * (`groups`) e pelas mesmas ações por módulo da tela de pessoa
+ * (`permissions`), em que a lista de operações vira o detalhe de cada ação.
+ */
 export function erpBotInventory(states: Readonly<Record<string, boolean>>) {
-  return { groups: ERP_BOT_GROUPS.map(group => ({ ...group, operations: ERP_BOT_OPERATIONS.filter(op => op.group === group.id).map(op => ({
+  const operation = (op: ErpBotOperation) => ({
     id: op.id, title: op.summary, description: op.description, kind: op.method === "GET" ? "read" as const : "write" as const,
     sensitive: op.sensitive, autonomous: ERP_BOT_SENSITIVE_READS.includes(op.id),
     modules: erpBotModules(op).map(id => ({ id, title: ERP_PART_NAMES[id], enabled: !!states[id] })),
-  })) })) };
+    permission: erpBotOperationAction(op),
+  });
+  const all = ERP_BOT_OPERATIONS.map(op => ({ op, at: erpBotOperationAction(op) }));
+  return {
+    groups: ERP_BOT_GROUPS.map(group => ({ ...group, operations: ERP_BOT_OPERATIONS.filter(op => op.group === group.id).map(operation) })),
+    permissions: ERP_MODULE_IDS.map(id => ({
+      module: id, title: ERP_PART_NAMES[id], enabled: !!states[id],
+      actions: ERP_MODULE_ACTIONS[id].map(action => ({
+        id: action.id, label: action.label, description: action.description, level: action.level,
+        operations: all.filter(item => item.at.module === id && item.at.action === action.id).map(item => item.op.id),
+      })).filter(action => action.operations.length),
+    })).filter(module => module.actions.length),
+  };
 }
 
 export function erpBotOperationsInput(value: unknown): string[] {

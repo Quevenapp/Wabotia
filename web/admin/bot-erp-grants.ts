@@ -66,6 +66,62 @@ export function erpGroups(raw: any): ErpOperationGroup[] {
     }));
 }
 
+/**
+ * Ação de um módulo do ERP para o bot: a mesma da tela de pessoa
+ * (src/security-modules.ts), com as operações do bot como detalhe.
+ */
+export type ErpBotAction = {
+  id: string;
+  label: string;
+  description: string;
+  level: string;
+  operations: string[];
+};
+export type ErpBotModule = {
+  module: string;
+  title: string;
+  enabled: boolean;
+  actions: ErpBotAction[];
+};
+
+/** Módulos e ações da resposta (`permissions`), sem itens malformados. */
+export function erpPermissionModules(raw: any): ErpBotModule[] {
+  const list = Array.isArray(raw?.permissions) ? raw.permissions : [];
+  return list
+    .filter((m: any) => m && typeof m.module === "string")
+    .map((m: any) => ({
+      module: m.module,
+      title: String(m.title || m.module),
+      enabled: m.enabled !== false,
+      actions: (Array.isArray(m.actions) ? m.actions : [])
+        .filter((a: any) => a && typeof a.id === "string")
+        .map((a: any) => ({
+          id: a.id,
+          label: String(a.label || a.id),
+          description: String(a.description || ""),
+          level: String(a.level || ""),
+          operations: strings(a.operations),
+        }))
+        .filter((a: ErpBotAction) => a.operations.length),
+    }))
+    .filter((m: ErpBotModule) => m.actions.length);
+}
+
+/** Estado da ação para o bot: todas, algumas ou nenhuma operação liberada. */
+export function actionState(action: ErpBotAction, current: BotErpGrants): "all" | "some" | "none" {
+  const on = action.operations.filter((id) => current.operations.includes(id)).length;
+  return on === 0 ? "none" : on === action.operations.length ? "all" : "some";
+}
+
+/** Liberar ou tirar uma ação inteira (todas as operações dela). */
+export function actionPatch(current: BotErpGrants, action: ErpBotAction, on: boolean): BotErpPatch {
+  const operations = on
+    ? [...new Set([...current.operations, ...action.operations])]
+    : current.operations.filter((id) => !action.operations.includes(id));
+  const autonomous = current.autonomous.filter((id) => operations.includes(id));
+  return patchOf(operations, autonomous);
+}
+
 /** Concessões do bot como vieram em app.bots (ausentes = vazio). */
 export function botErpGrants(bot: any): BotErpGrants {
   return {
