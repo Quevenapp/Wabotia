@@ -12,7 +12,7 @@ export interface MenuGroupDefinition { name: MenuGroupName; columns: readonly Me
 export type ErpPart =
   | "cadastro" | "catalogo" | "vendas" | "compras" | "estoque"
   | "financeiro" | "fiscal" | "cobranca" | "pdv" | "servicos"
-  | "resultados" | "sistema";
+  | "resultados" | "sistema" | "producao";
 
 export interface ErpManagementItem extends ManagementItem {
   part: ErpPart;
@@ -300,6 +300,15 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     target: { kind: "ported", to: "/cadastros-reais?cadastro=warehouses" },
     permission: { kind: "erp", roles: ["admin","consulta","estoque"] },
   },
+  // Produção (parte Produção, que depende de Estoque e Produtos): ordens de produção e planejamento.
+  {
+    id: "erp.production-orders", module: "erp-producao", part: "producao",
+    primary: true,
+    ...ERP_MENU_GROUPS.estoque, order: 335,
+    label: "Ordens de produção",
+    target: { kind: "ported", to: "/producao" },
+    permission: { kind: "erp", roles: ["admin","consulta","vendas","estoque","fiscal"] },
+  },
   {
     id: "erp.stock-reports", module: "erp-estoque", part: "estoque",
     ...ERP_MENU_GROUPS.estoque, order: 340,
@@ -499,6 +508,7 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.stock-movements"],
       legacyItems["erp.stock-count"],
       legacyItems["erp.warehouses"],
+      { ...legacyItems["erp.production-orders"], homeShortcut: false },
     ] },
   ], footer: legacyItems["erp.stock-reports"] },
   { name: 'Financeiro', columns: [

@@ -52,7 +52,7 @@ describe("fechamento fase 2: janela entre migração e Worker", () => {
       expect(d.fetch).toHaveBeenCalledTimes(1);
       const body = JSON.parse(String(d.fetch.mock.calls[0][1]?.body));
       expect(body.parts).toEqual({ customers: true, products: false, sales: false, purchases: false,
-        stock: false, finance: false, fiscal: false, billing: false, pos: false });
+        stock: false, finance: false, fiscal: false, billing: false, pos: false, production: false });
     });
 
     it(`${source}: desligamento explícito não é revertido por reativação antiga`, async () => {

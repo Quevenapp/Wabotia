@@ -159,6 +159,12 @@ const RPC_GROUPS = {
     erp_stock_suppliers erp_stock_totals erp_stock_transfer_batch erp_stock_transfer_positions erp_stock_warehouse_options
     erp_stock_warehouse_save erp_stock_warehouse_set_default erp_stock_warehouses erp_stock_chart erp_stock_lots_expiring`,
   taxonomy: `erp_catalog_taxonomy_delete erp_catalog_taxonomy_list erp_catalog_taxonomy_save`,
+  // Produção (ordem de produção): a parte Produção, que traz Estoque e Produtos; o planejamento lê Vendas só quando ligado.
+  production: `erp_production_options erp_production_products erp_production_composition erp_production_list erp_production_get
+    erp_production_save erp_production_status erp_production_complete_preview erp_production_complete erp_production_reverse
+    erp_production_plan erp_production_plan_generate`,
+  // Lista de compras da produção → pedido de compra: Produção e Compras.
+  production_purchase: `erp_production_purchase`,
 } as const;
 export type ErpRpcRule = keyof typeof RPC_GROUPS;
 export const ERP_RPC_RULES: Readonly<Record<string, ErpRpcRule>> = Object.freeze(Object.fromEntries(
@@ -199,6 +205,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   stock: ["erp-estoque"], sales: ["erp-vendas"], finance: ["erp-financeiro"], billing: ["erp-cobranca"],
   fiscal: ["erp-fiscal"], pos: ["erp-pdv"], purchase_stock: ["erp-compras", "erp-estoque"],
   sales_stock: ["erp-vendas", "erp-estoque"], finance_sales: ["erp-financeiro", "erp-vendas"], fiscal_stock: ["erp-fiscal", "erp-estoque"], fiscal_finance: ["erp-fiscal", "erp-financeiro"],
+  production: ["erp-producao"], production_purchase: ["erp-producao", "erp-compras"],
 };
 /** Requisitos da chamada, resolvidos no mesmo SQLite da operação. */
 export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): ErpRequirement | "externo" | null {

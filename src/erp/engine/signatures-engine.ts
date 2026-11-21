@@ -7,6 +7,20 @@
 import type { ArgSpec } from "./signatures.generated.ts";
 
 export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
+  // Produção (structural.ts, ordem-producao): src/erp/domains/production/rpc.ts.
+  erp_production_options: [["p_user_id", "u"], ["p_args", "j", null]],
+  erp_production_products: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_production_composition: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_production_list: [["p_user_id", "u"], ["p_args", "j", null]],
+  erp_production_get: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_production_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_production_status: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_production_complete_preview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_production_complete: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_production_reverse: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_production_plan: [["p_user_id", "u"], ["p_args", "j", null]],
+  erp_production_plan_generate: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_production_purchase: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
   erp_module_apply: [["p_user_id", "u"], ["p_request", "j"], ["p_evidence", "j"]],
   erp_module_manual_apply: [["p_user_id", "u"], ["p_request", "j"], ["p_evidence", "j"]],
   erp_module_origin_get: [["p_user_id", "u"], ["p_request", "j"], ["p_evidence", "j"]],

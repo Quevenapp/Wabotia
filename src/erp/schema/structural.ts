@@ -234,4 +234,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Relatórios do ERP: DRE gerencial com Custos separados das despesas, e o pagamento da equipe (salário, comissão, adiantamento e vale) como conta a pagar com a pessoa ligada, o período e, na comissão de vendedor, a base e o percentual conferidos.",
     replaced_by: "Versão 21 aditiva (20→21): erp_finance__dre_cost (a categoria de despesa do primeiro nível que o DRE mostra em Custos; o dre_group continua o do oráculo, Despesas Operacionais) e erp_finance__team_payment (a conta a pagar, funcionário ou vendedor, tipo, período, base e percentual). A conta a pagar é a do Financeiro (erp_finance__title), no contato do vendedor ou no contato com o CPF do funcionário.",
   },
+  {
+    id: "ordem-producao",
+    oracle: "O Estoque tem composição (estrutura e kit) e lotes, mas não tem ordem de produção: transformar insumos em produto acabado era um lançamento manual de saída e outro de entrada, sem custo do acabado.",
+    reason: "Produção: a ordem de produção (produto acabado, quantidade, depósitos de insumos e do acabado, data, responsável) com os insumos vindos da composição e editáveis, a conclusão total ou parcial que dá baixa dos insumos e entrada do acabado numa transação, com o custo dos insumos mais o custo adicional, o estorno pelas guardas do Estoque e o planejamento a partir dos pedidos de venda em aberto.",
+    replaced_by: "Versão 23 aditiva (22→23): erp_production__order, erp_production__order_input, erp_production__completion, erp_production__completion_input e erp_production__command. Os lançamentos são os do Estoque (erp_stock_post para a saída dos insumos, erp_stock_launch ou erp_stock_lot_launch para a entrada do acabado com o custo, erp_stock_reverse no estorno); RPCs só do motor erp_production_* (domains/production), na parte Produção; a rota do Wabotia /api/v1/profiles/:profile/erp-producao (src/erp/production) atende o painel e os bots.",
+  },
 ];

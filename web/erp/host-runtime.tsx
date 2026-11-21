@@ -11,6 +11,7 @@ import { createPeoplePort } from "./people";
 import { createDemoEmissorPort, createEmissorPort } from "./emissor";
 import { createCommercialNfePort, type CommercialNfeAccess } from "./commercial-nfe";
 import { createRecebidasPort } from "./recebidas";
+import { createProducaoPort } from "./producao";
 import { setErpBlocks, installErpTargetAccess } from "./blocks";
 import { setActionPendingNotice, setMotorReal } from "./motor";
 import { toast } from "../ui";
@@ -185,6 +186,29 @@ export function acquireErpHost(context: ErpHostContext) {
           return response;
         },
       });
+      // Estoque › Ordens de produção: mesma área, sessão e partes do painel; a demonstração não grava.
+      const producao = createProducaoPort(context.profile, {
+        access: () => {
+          const c = entry.valid && entry.owners.size ? current() : null;
+          const state = controller?.getSnapshot();
+          const modules = c?.management.modules ?? {};
+          return {
+            ready: !!c && available() && state?.phase === "ready" && state.membership?.user_id === actor,
+            role: state?.membership?.role ?? null,
+            admin: state?.membership?.role === "admin",
+            demo: !!simulation,
+            parts: { production: modules["erp-producao"] === true, sales: modules["erp-vendas"] === true, purchases: modules["erp-compras"] === true },
+          };
+        },
+        fetch: async (input, init) => {
+          const response = await scoped(() => globalThis.fetch(input, init));
+          if (response.status === 401 && !init?.signal?.aborted) {
+            const onExpired = current().onExpired;
+            entry.invalidate(); onExpired();
+          }
+          return response;
+        },
+      });
       const simulate = simulation?.createSimulatedApi({ actor, readOnly: context.demo });
       const fetchPort = createFetchPort({ apiUrl, actor,
         simulate: simulate ? (path, init) => path === "/v1/sistema/permissoes" && init.method === "GET"
@@ -221,6 +245,7 @@ export function acquireErpHost(context: ErpHostContext) {
         },
         commercialNfe,
         recebidas,
+        producao,
       };
       const access = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
       controller = access;

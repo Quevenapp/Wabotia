@@ -1,7 +1,7 @@
 import { erpBlockOf, erpRouteExists } from "./blocks.ts";
 import { erpRequirement, type ErpModuleId, type ErpRequirement } from "./parts.ts";
 export { erpRequirement, erpRequirementMet } from "./parts.ts";
-const B = "erp", P = "erp-produtos", S = "erp-vendas", C = "erp-compras", E = "erp-estoque", F = "erp-financeiro", N = "erp-fiscal", K = "erp-cobranca", V = "erp-pdv";
+const B = "erp", P = "erp-produtos", S = "erp-vendas", C = "erp-compras", E = "erp-estoque", F = "erp-financeiro", N = "erp-fiscal", K = "erp-cobranca", V = "erp-pdv", R = "erp-producao";
 const groups = (entries: readonly [ErpModuleId, string][]): Readonly<Record<string, ErpModuleId>> => Object.freeze(Object.fromEntries(entries.flatMap(([id, names]) => names.split(" ").map(n => [n, id]))));
 export const ERP_ENTITY_PARTS = groups([
   [B, "contacts contatos contato employees funcionarios sellers vendedores payment_methods formas-pagamento tags tag_groups contact_types empresa categorias-contatos grupos-contatos"],
@@ -167,6 +167,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   // Compras › Notas recebidas: Estoque, Financeiro e Fiscal são conferidos por ação na rota.
   else if (path === "/notas-recebidas-compras") owner = C;
   else if (path === "/frente-caixa-empresa") owner = V;
+  // Estoque › Ordens de produção (parte Produção; Vendas e Compras são conferidos por ação na rota).
+  else if (path === "/producao") owner = R;
   else if (path === "/meu-negocio") { owner = S; if (q.get("painel")?.includes("margem")) extra.push(C, E); if (/previsao|cobertura/.test(q.get("painel") ?? "")) extra.push(E); }
   else if (/^\/(tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos|tipos-contato|numeros-contato|importacao-contatos|vendedores|funcionarios|formas-pagamento|tags|grupos-tags)$/.test(path)) owner = B;
   else if (/^\/(categorias-produtos|grupos-produtos|exportacao-produtos|listas-precos|campos-customizados)$/.test(path)) owner = P;
