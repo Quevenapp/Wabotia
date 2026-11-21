@@ -89,6 +89,7 @@ const pageSlugs: Partial<Record<PageId, string>> = {
   suporte: "suporte-pago",
   "suporte-settings": "regras-do-suporte",
   establishment: "estabelecimento",
+  companies: "empresas",
   reserva: "reservas",
   "reserva-settings": "unidades-e-regras",
   pedidos: "pedidos",

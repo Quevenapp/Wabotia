@@ -4,6 +4,7 @@ import {
   Activity,
   BedDouble,
   Blocks,
+  Building2,
   BookOpen,
   CalendarRange,
   ClipboardList,
@@ -94,6 +95,8 @@ export const sections = [
   ["service-orders", "Ordens de serviço", Wrench],
   ["service-orders-settings", "Ordem de serviço", Wrench],
   ["establishment", "Estabelecimento", Store],
+  // Várias empresas (CNPJs) na mesma conta: todas lado a lado, copiar cadastros e adicionar empresa.
+  ["companies", "Empresas", Building2],
   ["pedidos", "Pedidos", ShoppingBag],
   ["pedidos-cardapio", "Cardápio e loja", UtensilsCrossed],
   ["mesas", "Mesas", Armchair],
@@ -169,7 +172,7 @@ export const workspaceGroups = [
     id: "system",
     label: "Sistema",
     icon: Cloud,
-    pages: ["establishment", "modules", "area-templates", "erp-backup", "system"],
+    pages: ["establishment", "companies", "modules", "area-templates", "erp-backup", "system"],
   },
   { id: "people", label: "Pessoas e acessos", icon: Users, pages: ["users"] },
   { id: "setup", label: "Configuração guiada", icon: Zap, pages: ["setup"] },
@@ -232,6 +235,8 @@ export const pageModules: Partial<Record<string, string>> = {
   mesas: "mesas",
   // Backup do ERP (Gestão → Sistema): some com o módulo ERP desligado na área.
   "erp-backup": "erp",
+  // Empresas (Gestão → Sistema): some com o ERP desligado na área; abre para quem tem papel no ERP.
+  companies: "erp",
   // ERP: a área abre com o papel erp:<papel> no acesso da pessoa (o
   // administrador vale erp:admin); a chave do módulo é conferida em web/erp/modules.ts.
   erp: "erp",
@@ -371,6 +376,7 @@ export const pageDescriptions: Partial<Record<PageId, string>> = {
   "webhook-deliveries": "Acompanhe os eventos enviados aos seus sistemas.",
   system: "Verifique versões, instale atualizações e mantenha sua instalação.",
   "erp-backup": "Faça backup do ERP desta área, veja os guardados e restaure um deles.",
+  companies: "Suas empresas (CNPJs) lado a lado, copiar cadastros de uma para outra e adicionar uma empresa.",
   modules:
     "Ligue e desligue as funções desta área, como a fila presencial e os formulários.",
   forms:

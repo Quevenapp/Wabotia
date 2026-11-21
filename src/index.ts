@@ -1368,6 +1368,16 @@ app.all("/api/v1/profiles/:profile/erp-lojas/*", async (c: any) => {
   const { erpLojasRoute } = await import("./erp/lojas/routes");
   return erpLojasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Várias empresas (CNPJs) na mesma conta: seletor, consolidado, cópia de
+// cadastros e nova empresa (src/erp/multiempresa/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-empresas", async (c: any) => {
+  const { erpEmpresasRoute } = await import("./erp/multiempresa/routes");
+  return erpEmpresasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"), c.get("requestId") ?? "");
+});
+app.all("/api/v1/profiles/:profile/erp-empresas/*", async (c: any) => {
+  const { erpEmpresasRoute } = await import("./erp/multiempresa/routes");
+  return erpEmpresasRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"), c.get("requestId") ?? "");
+});
 // Conciliação do ERP (extrato do banco em OFX ou planilha, sugestões, conciliar,
 // baixar, lançar, ignorar e desfazer; extrato da adquirente, taxas e recebimento
 // do cartão): parte Financeiro (src/erp/conciliacao/routes.ts).

@@ -43,6 +43,7 @@ import { useApp } from "./AppContext";
 import { canEnterManagement, managementContext } from "../management/registry";
 import { isNativeManagementPage } from "../management/routes";
 import { AccountDialog } from "./Account";
+import { CompanySwitcher } from "./CompanySwitcher";
 import { PreferencesDialog, PresenceDialog, ShortcutsDialog } from "./chrome";
 
 type Item = {
@@ -347,6 +348,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
       <div className="app-main">
+        <CompanySwitcher />
         {app.offline && (
           <div className="strip offline" role="status">
             <WifiOff size={14} /> Sem conexão · tentando reconectar
