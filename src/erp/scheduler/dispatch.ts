@@ -108,7 +108,7 @@ export function ensureRoutines(db: SqlDriver, routines: readonly Routine[], now:
 
 // A forma antiga é somente para chamadas diretas do motor (testes anteriores).
 const legacyParts = (blocks: Readonly<Record<string, boolean>> = {}) => normalizeErpParts({
-  ...Object.fromEntries(Object.entries(ERP_PART_MODULES).map(([key, id]) => [key, blocks[id] ?? !["erp-fiscal", "erp-cobranca", "erp-pdv", "erp-expedicao"].includes(id)])),
+  ...Object.fromEntries(Object.entries(ERP_PART_MODULES).map(([key, id]) => [key, blocks[id] ?? !["erp-fiscal", "erp-cobranca", "erp-pdv", "erp-expedicao", "erp-contratos"].includes(id)])),
 });
 const enabled = (r: Routine, parts: Readonly<ErpParts>) =>
   (ERP_MODULE_IDS as readonly string[]).includes(r.block) && erpRequirementMet(parts, erpRequirement(r.block as ErpModuleId));

@@ -37,6 +37,11 @@ const RPC_GROUPS = {
     erp_shipping_pick_finish erp_shipping_pick_cancel erp_shipping_pending_resolve erp_shipping_order_get erp_shipping_pack erp_shipping_ship
     erp_shipping_labels erp_shipping_manifest erp_shipping_delivery_prepare erp_shipping_delivery_record erp_shipping_return_create
     erp_shipping_freight_context erp_shipping_freight_apply`,
+  // Contratos de serviço: a parte Contratos (com o Financeiro, de que depende); Fiscal e Bling só mudam o que o RPC lê.
+  contracts: `erp_contract_options erp_contract_list erp_contract_get erp_contract_save erp_contract_status erp_contract_billing
+    erp_contract_bill_now erp_contract_invoices erp_contract_invoice_mark erp_contract_rates erp_contract_rate_save erp_contract_adjust_preview
+    erp_contract_adjust erp_contract_amend erp_contract_renew erp_contract_notices erp_contract_notice_close erp_contract_attachment_add
+    erp_contract_attachment_get erp_contract_attachment_remove erp_contract_bling_list erp_contract_bling_adopt`,
   // Lojas e filiais: cadastro da Base; cada seção da lista e do relatório por loja confere a parte dela dentro do RPC.
   stores: `erp_store_overview erp_store_save erp_store_person_set erp_store_select erp_store_assign erp_store_operations erp_store_report`,
   // Conciliação bancária e de cartões: Financeiro; o PDV e Vendas só mudam a origem mostrada da venda.
@@ -215,6 +220,7 @@ const fixed: Partial<Record<ErpRpcRule, ErpModuleId[]>> = {
   com1_effect: ["erp-fiscal"],
   inbound: ["erp-compras"],
   shipping: ["erp-expedicao"],
+  contracts: ["erp-contratos"],
   stores: ["erp"],
   reconciliation: ["erp-financeiro"],
   base: ["erp"], products: ["erp-produtos"], product_purchase: ["erp-produtos", "erp-compras"],

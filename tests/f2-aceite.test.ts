@@ -92,7 +92,7 @@ describe("fase 2: aceitação da árvore reunida", () => {
       expect(count.sql[0]).toMatch(/^batch\(4\)/);
       expect(response.headers.get("Server-Timing")).toContain('hops=1');
       const saved = await runInDurableObject(erpStub(env, f.profile), (_instance: any, state: DurableObjectState) => state.storage.get<any>("erp_parts"));
-      expect(saved.parts.finance).toBe(enabled); expect(Object.keys(saved.parts)).toHaveLength(11);
+      expect(saved.parts.finance).toBe(enabled); expect(Object.keys(saved.parts)).toHaveLength(12);
       expect(saved.revision).toBe((await readErpPartsState(env, f.profile)).snapshot.revision);
     }
   });
@@ -106,7 +106,7 @@ describe("fase 2: aceitação da árvore reunida", () => {
     expect(await denied.json()).toMatchObject({ error: { code: "module_disabled" } });
     const identity = await erpSystemIdentity(env, f.profile, "contact-erp-link");
     expect(identity.actor?.user_id).toBe(CUSTOMER_BRIDGE_USER_ID);
-    expect(identity.parts).toEqual(normalizeErpParts({ products: false, sales: false, purchases: false, stock: false, finance: false, fiscal: false, billing: false, pos: false, production: false, shipping: false }));
+    expect(identity.parts).toEqual(normalizeErpParts({ products: false, sales: false, purchases: false, stock: false, finance: false, fiscal: false, billing: false, pos: false, production: false, shipping: false, contracts: false }));
     const rpc = localFetch(env, f.profile, f.admin, identity, { read: true, trackCustomers: false });
     const scan = await rpc(`https://erp.wabotia.invalid/rest/v1/rpc/${CUSTOMER_BRIDGE_SCAN}`, {
       method: "POST", body: JSON.stringify({ p_user_id: CUSTOMER_BRIDGE_USER_ID, p_after: "", p_limit: 20 }),
@@ -140,6 +140,7 @@ describe("fase 2: aceitação da árvore reunida", () => {
       state.storage.sql.exec("SELECT base FROM erp_preferences__report WHERE id=?", id).toArray());
     expect(reports).toEqual([{ base: "contas_receber" }]);
     // + Produção (erp-producao) e Expedição (erp-expedicao): onze partes.
-    expect(ERP_MODULE_IDS).toHaveLength(11);
+    // + Contratos (erp-contratos): doze.
+    expect(ERP_MODULE_IDS).toHaveLength(12);
   });
 });

@@ -27,7 +27,8 @@ function kv() {
 
 test("normalização: só false desliga; cópia congelada, inclusive na forma ObjectLookup", () => {
   // + Produção (erp-producao) e Expedição (erp-expedicao): onze partes.
-  assert.equal(ERP_MODULE_IDS.length, 11);
+  // + Contratos (erp-contratos): doze partes.
+  assert.equal(ERP_MODULE_IDS.length, 12);
   assert.ok(ERP_PART_KEYS.every(k => normalizeErpParts()[k]));
   assert.equal(normalizeErpParts({ stock: false }).stock, false);
   const input = { stock: false };

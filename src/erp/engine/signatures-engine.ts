@@ -129,6 +129,30 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   // Frete da expedição (src/erp/domains/shipping/freight.ts): o pedido para cotar e contratar; o frete, o prazo e o rastreio no pedido.
   erp_shipping_freight_context: [["p_user_id", "u"], ["p_args", "j"]],
   erp_shipping_freight_apply: [["p_user_id", "u"], ["p_command_id", "u"], ["p_args", "j"]],
+  // Contratos de serviço (structural.ts, contratos; src/erp/domains/contracts/rpc.ts):
+  // consultas com p_args; gravações com p_command_id e p_data.
+  erp_contract_options: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_list: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_get: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_status: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_billing: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_bill_now: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_invoices: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_invoice_mark: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_rates: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_rate_save: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_adjust_preview: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_adjust: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_amend: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_renew: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_notices: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_notice_close: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_attachment_add: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_attachment_get: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_attachment_remove: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
+  erp_contract_bling_list: [["p_user_id", "u"], ["p_args", "j"]],
+  erp_contract_bling_adopt: [["p_user_id", "u"], ["p_command_id", "u"], ["p_data", "j"]],
   // Lojas e filiais (structural.ts, lojas; src/erp/domains/stores/rpc.ts):
   // consultas e a loja em uso com p_args; gravações do cadastro com p_command_id.
   erp_store_overview: [["p_user_id", "u"], ["p_args", "j"]],

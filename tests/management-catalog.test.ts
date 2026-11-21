@@ -75,8 +75,9 @@ describe("catálogo da casa de gestão", () => {
     // + 1 da reforma tributária: Reforma tributária (IBS, CBS e IS) (Vendas › Gestão, parte Fiscal).
     // + 1 das lojas: Lojas e filiais (Cadastros).
     // + 2 da conciliação: Conciliação bancária e Conciliação de cartões (Financeiro).
-    expect(linked).toHaveLength(60);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(61);
+    // + 1 dos contratos de serviço: Contratos (Financeiro).
+    expect(linked).toHaveLength(61);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(62);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
@@ -115,7 +116,7 @@ describe("catálogo da casa de gestão", () => {
       });
       expect([
         "cadastro", "catalogo", "vendas", "compras", "estoque", "financeiro",
-        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao", "producao",
+        "fiscal", "cobranca", "pdv", "servicos", "resultados", "sistema", "expedicao", "producao", "contratos",
       ]).toContain(item.part);
     }
     // O único rodapé sem destino continua no menu de compatibilidade.

@@ -1329,6 +1329,12 @@ app.all("/api/v1/profiles/:profile/erp-reforma/*", async (c: any) => {
   const { erpReformaRoute } = await import("./erp/reforma/routes");
   return erpReformaRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
 });
+// Contratos de serviço do ERP (vigência, faturamento recorrente, reajuste,
+// renovação, aditivos e anexos): parte Contratos com o Financeiro (src/erp/contratos/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-contratos/*", async (c: any) => {
+  const { erpContratosRoute } = await import("./erp/contratos/routes");
+  return erpContratosRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 // Expedição do ERP (separação, volumes, etiquetas, romaneio, entrega local e
 // devolução física): parte Expedição com Vendas e Estoque (src/erp/expedicao/routes.ts).
 app.all("/api/v1/profiles/:profile/erp-expedicao/*", async (c: any) => {

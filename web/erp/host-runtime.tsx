@@ -12,6 +12,7 @@ import { createDemoEmissorPort, createEmissorPort } from "./emissor";
 import { createCommercialNfePort, type CommercialNfeAccess } from "./commercial-nfe";
 import { createRecebidasPort } from "./recebidas";
 import { createProducaoPort } from "./producao";
+import { createContratosPort } from "./contratos-api";
 import { createExpedicaoPort } from "./expedicao-api";
 import { createLojasPort } from "./lojas-api";
 import { createConciliacaoPort } from "./conciliacao-api";
@@ -212,6 +213,29 @@ export function acquireErpHost(context: ErpHostContext) {
           return response;
         },
       });
+      // Financeiro › Contratos: mesma área, sessão e partes do painel; a demonstração não grava.
+      const contratos = createContratosPort(context.profile, {
+        access: () => {
+          const c = entry.valid && entry.owners.size ? current() : null;
+          const state = controller?.getSnapshot();
+          const modules = c?.management.modules ?? {};
+          return {
+            ready: !!c && available() && state?.phase === "ready" && state.membership?.user_id === actor,
+            role: state?.membership?.role ?? null,
+            admin: state?.membership?.role === "admin",
+            demo: !!simulation,
+            parts: { contracts: modules["erp-contratos"] === true, finance: modules["erp-financeiro"] === true, fiscal: modules["erp-fiscal"] === true },
+          };
+        },
+        fetch: async (input, init) => {
+          const response = await scoped(() => globalThis.fetch(input, init));
+          if (response.status === 401 && !init?.signal?.aborted) {
+            const onExpired = current().onExpired;
+            entry.invalidate(); onExpired();
+          }
+          return response;
+        },
+      });
       // Vendas › Expedição: mesma área, sessão e partes do painel (e o módulo Entrega da área); a demonstração não grava.
       const expedicao = createExpedicaoPort(context.profile, {
         access: () => {
@@ -320,6 +344,7 @@ export function acquireErpHost(context: ErpHostContext) {
         expedicao,
         lojas,
         conciliacao,
+        contratos,
       };
       const access = createAccessController(ports.auth, ports.apiUrl, ports.fetch, {});
       controller = access;

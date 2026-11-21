@@ -158,7 +158,9 @@ describe("agendador do ERP no objeto", () => {
       tasks: s.storage.sql.exec('SELECT purpose, operation_id, status FROM "erp_platform__task" ORDER BY purpose').toArray(),
       lastAlarm: s.storage.sql.exec("SELECT value FROM erp_meta WHERE key='last_alarm'").toArray()[0]?.value,
     }));
+    // A rotina dos contratos fica registrada e pula com a parte Contratos desligada (padrão).
     expect(state.routines).toEqual([
+      { id: "contracts.daily", last_status: "skipped" },
       { id: "platform.schedule", last_status: "ok" },
       { id: "retention", last_status: "ok" },
     ]);
@@ -411,6 +413,7 @@ describe("agendador do ERP no objeto", () => {
       tasks: s.storage.sql.exec('SELECT purpose, operation_id, status FROM "erp_platform__task" ORDER BY purpose, operation_id').toArray(),
     }));
     expect(after.routines).toEqual([
+      { id: "contracts.daily", last_status: "skipped" },
       { id: "platform.schedule", last_status: "ok" },
       { id: "retention", last_status: "ok" },
     ]);

@@ -5,8 +5,10 @@
 import type { SqlDriver } from "../engine/driver.ts";
 import type { Clock } from "../engine/time.ts";
 import { saoPauloLocal, saoPauloParts } from "../engine/time.ts";
-import { callRpc } from "../engine/registry.ts";
+import { callRpc, inTransaction } from "../engine/registry.ts";
 import type { ErpParts } from "../parts.ts";
+import { contractsDailyStep } from "../domains/contracts/rpc.ts";
+import { todaySaoPaulo } from "../engine/time.ts";
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
@@ -107,5 +109,15 @@ export const ROUTINES: readonly Routine[] = [
     block: "erp",
     next: (after) => nextLocalTime(after, "03:10"),
     step: retentionStep,
+  },
+  {
+    // Contratos de serviço (src/erp/domains/contracts/rpc.ts): a conta a
+    // receber de cada período dos contratos ativos com a cobrança ligada (uma
+    // só por período, mesmo se o alarme repetir), o aviso de renovação e o
+    // de mês de reajuste. Só com a parte Contratos (e o Financeiro) ligada.
+    id: "contracts.daily",
+    block: "erp-contratos",
+    next: (after) => nextLocalTime(after, "06:20"),
+    step: (ctx) => inTransaction(ctx.db, (c) => contractsDailyStep(c, todaySaoPaulo(ctx.now)), ctx.clock, { parts: ctx.parts }) ? "more" : "done",
   },
 ];

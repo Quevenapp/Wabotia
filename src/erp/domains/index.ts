@@ -18,3 +18,4 @@ import "./production/index.ts";
 import "./shipping/index.ts";
 import "./stores/index.ts";
 import "./reconciliation/index.ts";
+import "./contracts/index.ts";

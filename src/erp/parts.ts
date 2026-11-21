@@ -3,7 +3,9 @@ export type ErpModuleId =
   | "erp" | "erp-produtos" | "erp-vendas" | "erp-compras"
   | "erp-estoque" | "erp-financeiro" | "erp-fiscal" | "erp-cobranca" | "erp-pdv" | "erp-producao"
   // Expedição: separação, volumes, etiquetas e devolução física (src/erp/expedicao/).
-  | "erp-expedicao";
+  | "erp-expedicao"
+  // Contratos de serviço: vigência, faturamento recorrente, reajuste e renovação (src/erp/contratos/).
+  | "erp-contratos";
 export interface ErpParts {
   customers: boolean;
   products: boolean;
@@ -17,6 +19,8 @@ export interface ErpParts {
   /** Produção (ordem de produção): depende de Estoque e de Produtos; desligada por padrão. */
   production: boolean;
   shipping: boolean;
+  /** Contratos de serviço: depende do Financeiro; desligada por padrão. */
+  contracts: boolean;
 }
 export type ErpPartKey = keyof ErpParts;
 export interface ErpPartsSnapshot {
@@ -35,10 +39,11 @@ export const ERP_PART_MODULES: Readonly<Record<ErpPartKey, ErpModuleId>> = Objec
   stock: "erp-estoque", finance: "erp-financeiro", fiscal: "erp-fiscal", billing: "erp-cobranca", pos: "erp-pdv",
   production: "erp-producao",
   shipping: "erp-expedicao",
+  contracts: "erp-contratos",
 });
 export const ERP_PART_KEYS = Object.freeze(Object.keys(ERP_PART_MODULES) as ErpPartKey[]);
-/** Partes que mudam os DTOs de documentos e do início (unavailable_parts): a Expedição não muda nenhum deles. */
-export const ERP_DTO_PART_KEYS = Object.freeze(ERP_PART_KEYS.filter(key => key !== "shipping"));
+/** Partes que mudam os DTOs de documentos e do início (unavailable_parts): a Expedição e os Contratos não mudam nenhum deles. */
+export const ERP_DTO_PART_KEYS = Object.freeze(ERP_PART_KEYS.filter(key => key !== "shipping" && key !== "contracts"));
 export const ERP_MODULE_IDS = Object.freeze(Object.values(ERP_PART_MODULES));
 export const ERP_PART_DEPENDENCIES: Readonly<Record<ErpModuleId, readonly ErpModuleId[]>> = Object.freeze({
   erp: [], "erp-produtos": ["erp"], "erp-vendas": ["erp-produtos"], "erp-compras": ["erp-produtos"],
@@ -47,6 +52,8 @@ export const ERP_PART_DEPENDENCIES: Readonly<Record<ErpModuleId, readonly ErpMod
   "erp-producao": ["erp-estoque", "erp-produtos"],
   // Expedição separa e embala pedidos de venda (Vendas) e devolve ao estoque o que volta (Estoque).
   "erp-expedicao": ["erp-vendas", "erp-estoque"],
+  // Contratos geram as contas a receber de cada período no Financeiro.
+  "erp-contratos": ["erp-financeiro"],
 });
 /** Nome de exibição de cada parte (tela Módulos, painel e mensagens). O identificador não muda. */
 export const ERP_PART_NAMES: Readonly<Record<ErpModuleId, string>> = Object.freeze({
@@ -54,6 +61,7 @@ export const ERP_PART_NAMES: Readonly<Record<ErpModuleId, string>> = Object.free
   "erp-estoque": "Estoque", "erp-financeiro": "Financeiro", "erp-fiscal": "Fiscal",
   "erp-cobranca": "Cobrança bancária", "erp-pdv": "Caixa / PDV", "erp-producao": "Produção",
   "erp-expedicao": "Expedição",
+  "erp-contratos": "Contratos",
 });
 const spokenList = (items: readonly string[]) =>
   items.length > 1 ? `${items.slice(0, -1).join(", ")} e ${items.at(-1)}` : items.join("");

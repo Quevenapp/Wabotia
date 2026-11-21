@@ -182,6 +182,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (path === "/producao") owner = R;
   // Expedição: separação, volumes, etiquetas, romaneio e devolução física (com Vendas e Estoque).
   else if (path === "/expedicao") owner = "erp-expedicao";
+  // Financeiro › Contratos: contratos de serviço, faturas, reajuste e renovação (com o Financeiro).
+  else if (path === "/contratos") owner = "erp-contratos";
   // Cadastros › Lojas: cadastro da Base; cada seção do relatório por loja confere a parte dela.
   else if (path === "/lojas") owner = B;
   // Financeiro › Conciliação bancária e Conciliação de cartões (o PDV e Vendas só mudam a origem mostrada da venda).

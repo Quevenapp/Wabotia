@@ -9,6 +9,7 @@ import type { EmissorPort } from "./emissor";
 import type { CommercialNfePort } from "./commercial-nfe";
 import type { RecebidasPort } from "./recebidas";
 import type { ProducaoPort } from "./producao";
+import type { ContratosPort } from "./contratos-api";
 import type { ExpedicaoPort } from "./expedicao-api";
 import type { LojasPort } from "./lojas-api";
 import type { ConciliacaoPort } from "./conciliacao-api";
@@ -69,6 +70,8 @@ export type ErpPorts = {
   recebidas?: RecebidasPort;
   /** Estoque › Ordens de produção: ordem, apontamento, estorno e planejamento (web/erp/producao.ts). */
   producao?: ProducaoPort;
+  /** Financeiro › Contratos: contratos de serviço, faturas, reajuste, renovação e aditivos (web/erp/contratos-api.ts). */
+  contratos?: ContratosPort;
   /** Vendas › Expedição: separação, volumes, etiquetas, romaneio e devolução física (web/erp/expedicao-api.ts). */
   expedicao?: ExpedicaoPort;
   /** Cadastros › Lojas e filiais e a barra "Loja em uso" (web/erp/lojas-api.ts). */
