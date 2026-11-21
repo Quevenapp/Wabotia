@@ -92,7 +92,7 @@ test('in place (QA route), switching the entity keeps the same hooks in the same
 
     contacts.props.list.changeEntity('warehouses'); await view.flush();
     assert.deepEqual(headers(view), EXPECT.warehouses.headers);
-    await view.click('Importar depósitos do Origin');
+    await view.click('Importar depósitos do sistema de origem');
     assert.equal(prepared.length, 1);
 
     await view.change('catalog-entity', 'products');

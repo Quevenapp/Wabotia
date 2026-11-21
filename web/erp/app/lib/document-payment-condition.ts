@@ -6,7 +6,7 @@ import { addDays, parseIso } from './origin-list.ts';
 export const CONDITION_HELP = 'Forma de pagamento cadastrada ou número de parcelas ou prazos. Exemplo 30, 60, 3x ou 15 +2x.';
 export const PROPOSAL_CONDITION_HELP = 'Exemplos: 30 (30 dias direto); 30 60 90 (vencimentos em 30,60 e 90 dias); 6x (6 parcelas iguais a cada 30 dias)';
 const MAX_INSTALLMENTS = 120, MAX_DAYS = 3650;
-const INVALID = 'Informe a condição como no Origin: 30, 30 60 90, 3x ou 15 +2x.';
+const INVALID = 'Informe a condição assim: 30, 30 60 90, 3x ou 15 +2x.';
 
 /**
  * Days after the base date of each installment:

@@ -6,7 +6,7 @@ const E='emissao',S='csc',N='numeracao',P='preenchimento';
 const FINANCE_ON_EMISSION='Guardado. Hoje as contas a receber das NFC-e do ERP são lançadas e estornadas pelo ⋮ Lançar contas / Estornar contas da listagem (migração 247). Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
 const STOCK_ON_EMISSION='Guardado. Hoje o estoque das NFC-e do ERP é lançado e estornado pelo ⋮ Lançar estoque / Estornar estoque da listagem (migração 259). Como as NFC-e do ERP ainda não são transmitidas, elas não são emitidas nem canceladas e nada é lançado nesses momentos.';
 const wired=note=>({status:'applied',note});
-export const ENVIRONMENT_TEXT='2 - Homologação (teste). A emissão com valor fiscal (1 - Produção) fica bloqueada até a decisão da troca do módulo fiscal; as notas reais continuam saindo do Origin.';
+export const ENVIRONMENT_TEXT='2 - Homologação (teste). A emissão com valor fiscal (1 - Produção) fica bloqueada até a decisão da troca do módulo fiscal; as notas reais continuam saindo do sistema de origem.';
 export default definePage({id:'notas-nfce',category:'notas-fiscais',path:'nfce',title:'Configurações de NFC-e',scope:'company',readRoles:PREFERENCE_READERS.fiscal,subsections:true,
  sections:[{id:E,title:'Configurações de emissão'},{id:S,title:'Código de segurança do contribuinte (CSC)'},{id:N,title:'Configurações de controle de numeração'},{id:P,title:'Configurações de preenchimento'}],
  fields:[

@@ -46,7 +46,7 @@ export default function RealEmployees({ controller }: { controller: AccessContro
   const label = { todas: 'Todas', ativos: 'Ativos', desligados: 'Desligados' } as Record<string, string>;
   return <section className="contact-aux">
     <header className="real-heading catalog-heading"><div className="catalog-title"><h1>Funcionários</h1></div><div className="catalog-heading-actions"><button type="button" className="primary-button" onClick={() => setEditing({ id: null, version: 0 })}><Icon name="plus" size={12} />Incluir cadastro</button></div></header>
-    <p className="real-help">Somente administradores. Os pagamentos de salário do Origin (Origin Conta) não existem no ERP.</p>
+    <p className="real-help">Somente administradores. Os pagamentos de salário do sistema de origem não existem no ERP.</p>
     {notice && <p className="real-success" role="status">{notice}</p>}
     {error && <p className="real-alert" role="alert">{error}<button type="button" className="text-button" onClick={() => setReload(n => n + 1)}>Tentar novamente</button></p>}
     <form onSubmit={(event: FormEvent) => { event.preventDefault(); setSituation(draft); setQuery(queryDraft.trim()); }} aria-label="Filtros dos funcionários"><NativeListLayout filters={<>

@@ -385,5 +385,5 @@ test('contact Categoria: the finance category tree of receitas and despesas, sav
 test('contact sales popover identifies excluded mirrors without treating them as missing sales',async()=>{
  const controller={catalog:async()=>({contact_id:ids.ana,visible:true,items:[],origin:'brufap',mirror_excluded_count:2,coverage:{partial:true,reason:'native_effects_only'}})};
  const view=await mountComponent('ContactSalesHistory.tsx',{controller,contactId:ids.ana},{componentName:'ContactSalesHistory'});
- try{view.nodes().find(n=>n.props?.['aria-label']==='Visualizar histórico do cliente').props.onClick();await view.flush();assert.match(view.text(),/2 documentos Origin não entram neste cálculo/);}finally{view.unmount();}
+ try{view.nodes().find(n=>n.props?.['aria-label']==='Visualizar histórico do cliente').props.onClick();await view.flush();assert.match(view.text(),/2 documentos importados não entram neste cálculo/);}finally{view.unmount();}
 });

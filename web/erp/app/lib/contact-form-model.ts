@@ -151,7 +151,7 @@ export function contactPayload(values: Record<string, string>, types: readonly s
   if (changed('email') && !emailListValid(String(data.email ?? ''), 254)) fail('email', 'Informe e-mails válidos, separados por ; ou ,.');
   if (!emailListValid(String(data.nfe_email ?? ''), 60)) fail('nfe_email', 'Informe um e-mail válido para envio da NF-e, com até 60 caracteres.');
   if (data.website && !/^(https?:\/\/)?[^\s/?#]+\.[^\s]+$/i.test(String(data.website))) fail('website', 'Informe o WebSite como no exemplo: https://www.seusite.com.br');
-  if (data.payment_condition && !paymentConditionValid(String(data.payment_condition))) fail('payment_condition', 'Informe a condição como no Origin: 30, 60, 3x ou 15 + 2x.');
+  if (data.payment_condition && !paymentConditionValid(String(data.payment_condition))) fail('payment_condition', 'Informe a condição assim: 30, 60, 3x ou 15 + 2x.');
   if (data.suframa && !/^\d{8,9}$/.test(String(data.suframa))) fail('suframa', 'Informe a Inscrição Suframa com 8 ou 9 dígitos.');
   if (data.birth_date && String(data.birth_date) > today && changed('birth_date')) fail('birth_date', 'A Data Nascimento não pode ser futura.');
   for (const key of ['state', 'billing_state']) if (data[key] && changed(key) && !UF_OPTIONS.includes(data[key] as typeof UF_OPTIONS[number])) fail(key, 'Escolha uma UF válida.');

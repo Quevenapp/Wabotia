@@ -68,7 +68,7 @@ const moment = (value: string) => { const date = new Date(value); return Number.
 /** Origem: XML importado and espelho do Origin, with the last import and the last sync of the Origin notes. */
 export function sourcesText(sources: FiscalReportSources): string[] {
   return [`${sources.xml_notes.toLocaleString('pt-BR')} ${sources.xml_notes === 1 ? 'nota' : 'notas'} de XML importado${sources.xml_imported_at ? ` (última importação em ${moment(sources.xml_imported_at)})` : ''}`,
-    `${sources.origin_notes.toLocaleString('pt-BR')} ${sources.origin_notes === 1 ? 'nota' : 'notas'} do espelho do Origin${sources.origin_synced_at ? ` (sincronizado em ${moment(sources.origin_synced_at)})` : ' (sem sincronização registrada)'}`];
+    `${sources.origin_notes.toLocaleString('pt-BR')} ${sources.origin_notes === 1 ? 'nota sincronizada' : 'notas sincronizadas'}${sources.origin_synced_at ? ` (sincronizado em ${moment(sources.origin_synced_at)})` : ' (sem sincronização registrada)'}`];
 }
 /** Bar widths (0 to 100) of the Evolução, by exact cents; a month without value has no bar. */
 export function barWidths(groups: readonly InvoiceGroup[]): (number | null)[] {
@@ -76,4 +76,4 @@ export function barWidths(groups: readonly InvoiceGroup[]): (number | null)[] {
   const max = cents.reduce<bigint>((top, value) => value !== null && value > top ? value : top, 0n);
   return cents.map(value => value === null ? null : max === 0n ? 0 : Number(value * 1000n / max) / 10);
 }
-export const originLabel = (origin: 'xml' | 'origin') => origin === 'xml' ? 'XML importado' : 'Espelho do Origin';
+export const originLabel = (origin: 'xml' | 'origin') => origin === 'xml' ? 'XML importado' : 'Nota sincronizada';

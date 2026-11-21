@@ -186,7 +186,7 @@ function HomeView({controller,access,partsGeneration}:{controller:HomeController
         <HomeProfileCard controller={controller as Parameters<typeof HomeProfileCard>[0]["controller"]}/>
         <HomeFavorites controller={controller} access={access}/>
         <nav aria-label="Outras consultas"><ul className="home-favorites home-favorites-brufap">
-          {originHistoryAvailable(access)&&targetEnabled('/dados-origin')&&<li><Link to="/dados-origin"><Icon name="bookmark" size={12}/>Consultar histórico do Origin</Link></li>}
+          {originHistoryAvailable(access)&&targetEnabled('/dados-origin')&&<li><Link to="/dados-origin"><Icon name="bookmark" size={12}/>Consultar histórico importado</Link></li>}
           {role&&['admin','financeiro','consulta'].includes(role)&&targetEnabled('/cobranca-empresa')&&<li><Link to="/cobranca-empresa"><Icon name="bookmark" size={12}/>Cobrança bancária</Link></li>}
           {role==='admin'&&targetEnabled('/preferencias/importacoes')&&<li><Link to="/preferencias/importacoes"><Icon name="bookmark" size={12}/>Importar cadastros</Link></li>}
         </ul></nav>

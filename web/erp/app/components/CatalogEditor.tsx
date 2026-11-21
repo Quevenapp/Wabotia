@@ -127,7 +127,7 @@ export function catalogEditorView(editor: CatalogEditorState, { entity, record, 
       <div className="catalog-editor-buttons"><button type="button" className="secondary-button" onClick={() => guard.confirmLeave(onClose)} disabled={busy}>{writable ? 'Cancelar' : 'Voltar'}</button>{editable && <button className="primary-button" disabled={busy || uncertain} type="submit" form="catalog-editor-form">{busy ? 'Salvando…' : saveLabel}</button>}</div>
       {editable && <p className="catalog-required"><span>(*)</span> Campos obrigatórios</p>}</header>
     {notice}
-    {record?.source && <p className="real-help">Cadastro originado do Origin. As alterações desta tela pertencem ao ERP.</p>}
+    {record?.source && <p className="real-help">Cadastro importado. As alterações desta tela pertencem ao ERP.</p>}
     {error && <p className="real-alert" role="alert" id="catalog-validation-error">{error}</p>}
     {warnings && <div className="catalog-warnings" role="alert" aria-labelledby="catalog-warnings-title"><h3 id="catalog-warnings-title">Confira antes de salvar</h3><ul>{warnings.items.map(item => <li key={item.code}>{warningText(item)}</li>)}</ul>
       <p>Existem cadastros antigos com duplicidade. Salve somente se tiver certeza; a confirmação fica registrada na auditoria do cadastro.</p>

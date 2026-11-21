@@ -112,7 +112,7 @@ export const invoiceNumber = (row: Pick<ListRow, 'number'>) => row.number === nu
 export const brDay = (value: string | null) => value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split('-').reverse().join('/') : '—';
 /** Situação label as Origin shows it; NFC-e calls an authorized note "Emitida". Unknown Origin codes keep the raw code. */
 export function statusLabel(row: Pick<ListRow, 'status' | 'status_raw'>, model: '55' | '65'): string {
-  if (row.status === null) return row.status_raw ? `Situação ${row.status_raw} do Origin` : 'Sem situação';
+  if (row.status === null) return row.status_raw ? `Situação ${row.status_raw} do sistema de origem` : 'Sem situação';
   if (model === '65' && (row.status === 6 || row.status === 7)) return 'Emitida';
   return INVOICE_STATUS[row.status] ?? `Situação ${row.status}`;
 }
@@ -124,7 +124,7 @@ export function fiscalStateText(row: Pick<ListRow, 'fiscal_status' | 'danfe_emit
   const state = row.fiscal_status === 6 ? 'Autorizada' : row.fiscal_status === null ? 'Situação não mapeada' : INVOICE_STATUS[row.fiscal_status] ?? `Situação ${row.fiscal_status}`;
   return `Situação fiscal: ${state}${row.fiscal_status === 6 ? ` · DANFE ${row.danfe_emitted ? 'emitida' : 'não emitida'}` : ''}`;
 }
-const SOURCE_ORIGIN: Record<ListRow['source_origin'], string> = { origin: 'Nota do Origin', brufap_native: 'Nota do ERP', third_party: 'Nota de terceiros registrada no ERP', xml_import: 'XML importado' };
+const SOURCE_ORIGIN: Record<ListRow['source_origin'], string> = { origin: 'Nota importada', brufap_native: 'Nota do ERP', third_party: 'Nota de terceiros registrada no ERP', xml_import: 'XML importado' };
 /** NFE-063/185: origin and environment of the source, apart from the model (NF-e or NFC-e) and the emission environment. */
 export function sourceLabel(row: Pick<ListRow, 'source_origin' | 'source_environment'>): string {
   const environment = row.source_environment === '1' ? 'produção' : row.source_environment === '2' ? 'homologação' : 'ambiente não informado';

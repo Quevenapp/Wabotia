@@ -71,6 +71,6 @@ export default function FiscalReturnDialog({ controller, accessKey, number, cont
       <tbody>{lines.map((line, index) => <tr key={index}><td>{index + 1}</td><td>{line.description}{line.code ? ` · ${line.code}` : ''}</td><td className="numeric">{shown(line.quantity)}</td><td className="numeric">{shown(line.returned)}</td>
         <td className="numeric"><input aria-label={`Devolver do item ${index + 1}`} inputMode="decimal" disabled={mode === 'total'} value={mode === 'total' ? shown(line.remaining) : values[index] ?? shown(line.remaining)} onChange={event => { const value = event.target.value; setValues(v => ({ ...v, [index]: value })); setProblem(''); }} /></td></tr>)}</tbody></table></div>}
     {problem && <p className="real-alert" role="alert">{problem}</p>}
-    <p className="real-help">A nota de devolução abre no formulário, para conferir e salvar (homologação, sem envio). O retorno ao estoque e o estorno ou crédito das contas continuam desligados enquanto o Origin é o sistema principal. As devoluções feitas no Origin não entram nesta conta.</p>
+    <p className="real-help">A nota de devolução abre no formulário, para conferir e salvar (homologação, sem envio). O retorno ao estoque e o estorno ou crédito das contas continuam desligados enquanto o sistema de origem é o principal. As devoluções feitas no sistema de origem não entram nesta conta.</p>
   </Modal>;
 }

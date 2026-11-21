@@ -16,7 +16,7 @@ export type WarehouseListState = ReturnType<typeof useWarehouseList>;
 export function warehouseListView(list: CatalogList, warehouses: WarehouseListState): CatalogEntityView {
   return {
     labels: WAREHOUSE_LIST_LABELS,
-    intro: list.controller.getSnapshot().membership?.role === 'admin' && warehouses.onPrepareWarehouses && <p><button type="button" className="text-button" onClick={warehouses.prepareWarehouses}>Importar depósitos do Origin</button></p>,
+    intro: list.controller.getSnapshot().membership?.role === 'admin' && warehouses.onPrepareWarehouses && <p><button type="button" className="text-button" onClick={warehouses.prepareWarehouses}>Importar depósitos do sistema de origem</button></p>,
     chips: [],
     headers: <>{list.sortHeader('name', 'Nome')}{list.sortHeader('code', 'Código')}</>,
     cells: item => <>{list.nameCell(item)}<td>{item.code || '—'}</td></>,

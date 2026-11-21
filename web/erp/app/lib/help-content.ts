@@ -19,7 +19,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
       'Se a empresa exigir o segundo fator, o ERP pede o código do aplicativo autenticador depois da senha. Perdeu o celular? O administrador redefine o seu segundo fator em Preferências › Sistema › Usuários.',
     ], links: [{ label: 'Minha conta e segurança', to: '/empresa-configuracoes' }] },
     { title: 'Encontrar uma tela', paragraphs: [
-      'O menu do topo segue a organização do Origin: Cadastros, Suprimentos, Vendas, Finanças, Serviços e Notas Fiscais. A busca "Pesquisar" encontra qualquer tela pelo nome.',
+      'O menu do topo reúne as telas em Meu negócio, Cadastros, Vendas, Serviços, Compras e estoque, Financeiro, Fiscal e Mais. A busca "Pesquisar" encontra qualquer tela pelo nome.',
       'O ícone de engrenagem abre as Preferências. O menu do usuário traz Dados da empresa, Consultar gestão de ações e Armazenamento.',
     ] },
     { title: 'Perfis', paragraphs: [
@@ -59,7 +59,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
       'O pacote fica 7 dias numa área privada. Cada download gera um link novo, válido por 2 minutos, só para o administrador.',
     ], links: [{ label: 'Backup', to: '/preferencias/backup/exportacao' }, { label: 'Consultar gestão de ações', to: '/preferencias/sistema/gestao-acoes' }] },
     { title: 'O que vem no pacote', paragraphs: [
-      'Um arquivo JSON por tabela da empresa (cadastros, documentos, finanças, estoque, notas, empresa, preferências, frente de caixa, preços, anexos, atividades, cobrança e cópia espelhada do Origin), os arquivos anexados e o manifesto.json com a data, o escopo e o que ficou de fora.',
+      'Um arquivo JSON por tabela da empresa (cadastros, documentos, finanças, estoque, notas, empresa, preferências, frente de caixa, preços, anexos, atividades, cobrança e cópia sincronizada do sistema de origem), os arquivos anexados e o manifesto.json com a data, o escopo e o que ficou de fora.',
       'Ficam de fora credenciais, tokens, o cofre do certificado A1 e os usuários do login. Arquivos que passariam do limite de 50 MB do pacote são listados no manifesto.',
     ] },
   ] },

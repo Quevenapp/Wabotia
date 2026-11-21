@@ -23,7 +23,7 @@ test('362 model: query per report, period limits, answer paired with the request
   assert.throws(() => readFiscalReport({ report: 'contact', from: '2026-10-01', to: '2026-10-31', model: null, groups: [], coverage: {}, sources, totals: {} }, 'nf-operacao', params), /REPORT_INVALID/);
   assert.throws(() => readFiscalReport({ report: 'operation', from: '2026-09-01', to: '2026-10-31', model: null, groups: [], coverage: {}, sources, totals: {} }, 'nf-operacao', params), /REPORT_INVALID/);
   assert.deepEqual([coverageText({ notes: 3, covered: 1 }), coverageText({ notes: 0, covered: 0 })], ['1 de 3 notas (33,3%)', 'Nenhuma nota no período.']);
-  assert.match(sourcesText(sources).join(' · '), /1 nota de XML importado \(última importação em 20\/10\/2026.*1 nota do espelho do Origin \(sincronizado em 21\/10\/2026, 10:05\)/);
+  assert.match(sourcesText(sources).join(' · '), /1 nota de XML importado \(última importação em 20\/10\/2026.*1 nota sincronizada \(sincronizado em 21\/10\/2026, 10:05\)/);
   assert.deepEqual(barWidths([{ amount: '50.00' }, { amount: null }, { amount: '200.00' }, { amount: '0.00' }]), [25, null, 100, 0]);
 });
 
@@ -67,8 +67,8 @@ test('362 ICMS DIFAL screen: Origin notes without detail, Indisponível instead 
     assert.match(view.text(), /O relatório recebido não confere com a consulta/);
     await view.change('fiscal-report-state', ''); await view.submit();
     const text = view.text();
-    assert.match(text, /Cobertura: 1 de 2 notas \(50%\) — notas com detalhamento do DIFAL/); assert.match(text, /espelho do Origin \(sincronizado em 21\/10\/2026/);
-    assert.match(text, /12,34/); assert.match(text, /Indisponível/); assert.match(text, /Sem detalhamento/); assert.match(text, /Espelho do Origin/); assert.match(text, /000321/);
+    assert.match(text, /Cobertura: 1 de 2 notas \(50%\) — notas com detalhamento do DIFAL/); assert.match(text, /sincronizada \(sincronizado em 21\/10\/2026/);
+    assert.match(text, /12,34/); assert.match(text, /Indisponível/); assert.match(text, /Sem detalhamento/); assert.match(text, /Nota sincronizada/); assert.match(text, /000321/);
     assert.doesNotMatch(text, /DIFAL indisponível: nenhuma NF-e/, 'one note has detail');
   } finally { view.unmount(); }
 });
@@ -90,8 +90,8 @@ test('362 Evolução do Faturamento: every month, plain bars, a month without va
 
 test('363 extrato letters: V and N declared by a conta imported from the Origin, P (red) and R otherwise', () => {
   const line = document => ({ line_kind: 'settlement', title_kind: 'receivable', document });
-  assert.deepEqual(originBadge(line({ kind: 'sales_orders', number: '15', source: 'origin' })), { text: 'V', color: '#3b7dd8', title: 'Pedido de venda nº 15 no Origin' });
-  assert.deepEqual(originBadge(line({ kind: 'fiscal_invoices', number: '321', source: 'origin' })), { text: 'N', color: '#7a5af8', title: 'Nota fiscal nº 321 no Origin' });
+  assert.deepEqual(originBadge(line({ kind: 'sales_orders', number: '15', source: 'origin' })), { text: 'V', color: '#3b7dd8', title: 'Pedido de venda nº 15 no sistema de origem' });
+  assert.deepEqual(originBadge(line({ kind: 'fiscal_invoices', number: '321', source: 'origin' })), { text: 'N', color: '#7a5af8', title: 'Nota fiscal nº 321 no sistema de origem' });
   assert.deepEqual(originBadge(line({ kind: 'fiscal_invoices', number: '9' })).title, 'Nota fiscal nº 9');
   assert.deepEqual(originBadge({ ...line(null), title_kind: 'payable' }), { text: 'P', color: '#d9534f', title: 'Pagamento' });
   assert.equal(originBadge(line(null)).text, 'R');

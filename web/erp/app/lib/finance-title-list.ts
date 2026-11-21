@@ -131,7 +131,7 @@ export function deleteBlocked(title: FinanceTitle & { imported?: boolean; remitt
   return title.deleted_at ? 'Conta já excluída.' : title.settled_cents !== '0' ? 'Possui baixa registrada. Estorne a baixa antes de excluir.'
     : title.document_linked ? 'Conta gerada por um documento. Desfaça o lançamento no documento de origem.'
     : title.grouped_billing_id ? 'Conta de um faturamento agrupado. Exclua o faturamento em Listar Faturamentos Gerados.'
-    : title.imported ? 'Conta importada do Origin. Exclua a conta no Origin.' : title.remittance ? 'Conta incluída em remessa de cobrança.' : null;
+    : title.imported ? 'Conta importada. Exclua a conta no sistema de origem.' : title.remittance ? 'Conta incluída em remessa de cobrança.' : null;
 }
 /** allowed: Sistema > Usuários > Permissões (SQL 246) by Origin key suffix: ie (Editar, Clonar), baixar, cancelar and ex (Excluir). */
 export function titleRowActions(title: FinanceTitle & { imported?: boolean; remittance?: unknown }, writable: boolean, allowed: (action: 'ie' | 'ex' | 'cancelar' | 'baixar') => boolean = () => true): { action: TitleRowAction; label: string; icon: string }[] {
@@ -232,7 +232,7 @@ export function sameRemittance<T extends { remittance: { id: string; sequence: n
   return first && rows.every(row => row.remittance?.id === first.id) ? first : null;
 }
 /** Bank operations stay off (CNAB guards): the reason shown on the boleto actions that would send an instruction to the bank. */
-export const BANK_OFF_REASON = 'Operação bancária desligada: o ERP não envia instruções ao banco. Faça pelo Origin ou pelo banco.';
+export const BANK_OFF_REASON = 'Operação bancária desligada: o ERP não envia instruções ao banco. Faça pelo sistema de origem ou pelo banco.';
 /**
  * Leva H (FIN-052): the boleto entries of the ⋮ of a conta a receber by its real situation: without boleto, Incluir em remessa (open,
  * no baixa); with a reserved remessa, Retomar remessa; with the file, Prévia do boleto (NÃO PAGAR). Cancelar boleto and Retirar da

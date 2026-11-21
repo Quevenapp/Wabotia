@@ -58,7 +58,7 @@ export function paymentPayload(form: PaymentForm) {
   const description = form.description.trim(); if (!description) fail('description', 'Informe a descrição da forma de pagamento.');
   if (description.length > 100) fail('description', 'A descrição tem até 100 caracteres.');
   const sections = sectionsOf(form.payment_type), condition = form.condition.trim().replace(/\s+/g, ' ');
-  if (condition && !paymentConditionValid(condition)) fail('condition', 'Informe a condição como no Origin: 30 60 90, 3x ou 15 + 2x.');
+  if (condition && !paymentConditionValid(condition)) fail('condition', 'Informe a condição assim: 30 60 90, 3x ou 15 + 2x.');
   const fixed = form.fee_fixed.trim().replace(',', '.');
   if (fixed && !/^(0|[1-9]\d{0,15})(\.\d{1,2})?$/.test(fixed)) fail('fee_fixed', 'Informe o valor fixo sem separador de milhares e com até duas casas decimais.');
   const days = form.settlement_days.trim();

@@ -138,7 +138,7 @@ test('export: the instruction says which stock is exported and the Componente tr
     { location: `/exportacao-produtos?type=composition&component_id=${id(1)}` });
   let view = await mount({ stock_scope: 'default_warehouse', stock_warehouse: { id: id(5), name: 'Geral' } });
   try {
-    assert.match(view.text(), /O estoque exportado é o do depósito padrão \(Geral\), como no Origin\./);
+    assert.match(view.text(), /O estoque exportado é o do depósito padrão \(Geral\)\./);
     assert.equal(new URLSearchParams(calls.find(path => path.startsWith('/v1/cadastros/products/exportacao')).split('?')[1]).get('component_id'), id(1));
   } finally { view.unmount(); }
   view = await mount({ stock_scope: 'considered_warehouses', stock_warehouse: null });

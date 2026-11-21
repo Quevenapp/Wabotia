@@ -18,7 +18,7 @@ export const STOCK_TYPE_HELP='Virtual = máximo disponível a partir dos compone
 export const COMPONENT_PROBLEMS:Record<string,string>={not_found:'Componente não encontrado.',not_product:'O componente não é do tipo Produto.',not_simple:'O componente deve ser um produto simples.',
   deleted:'Componente excluído.',inactive:'Componente inativo.',no_unit:'Componente sem unidade.'};
 /** The 28 compositions mirrored from Origin arrive without their structure: the owner types it here. */
-export const MIRROR_NOTICE='As composições espelhadas do Origin chegam sem a estrutura (o espelho não traz os componentes). Informe os componentes e as quantidades nesta aba e salve o produto; até lá, os lançamentos de estoque desta composição continuam bloqueados.';
+export const MIRROR_NOTICE='As composições sincronizadas chegam sem a estrutura (o espelho não traz os componentes). Informe os componentes e as quantidades nesta aba e salve o produto; até lá, os lançamentos de estoque desta composição continuam bloqueados.';
 
 export interface CompositionItem {position:number;component_id:string;name:string;code:string|null;unit:string|null;active:boolean;problem:string|null;quantity:string;price:string|null;cost_price:string|null;stock:string|null}
 export interface CompositionSettings {update_cost:boolean;update_weight:boolean;update_price:boolean}

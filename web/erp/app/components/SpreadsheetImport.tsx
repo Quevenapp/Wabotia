@@ -140,7 +140,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
     {file&&<p className="real-help">{file.name} · {plural(file.cells.length-1,['linha','linhas'])}{items.length!==file.cells.length-1?` · ${plural(items.length,template.noun)}`:''}</p>}</section>
    <aside className="import-card"><h2>Instruções</h2><p>{template.rule}</p>
     <p><button type="button" className="text-button" onClick={()=>download('xlsx')}>Baixar planilha modelo (.XLSX)</button> · <button type="button" className="text-button" onClick={()=>download('csv')}>(.CSV)</button></p>
-    <p className="real-help">Na convivência com o Origin, os registros importados aqui existem só no ERP; o Origin continua sendo o sistema principal.</p></aside>
+    <p className="real-help">Na convivência com o sistema de origem, os registros importados aqui existem só no ERP; o sistema de origem continua sendo o principal.</p></aside>
   </div>
   {file&&<section className="import-card"><h2>Relacionar colunas</h2><p className="real-help">Escolha a coluna da planilha de cada campo. As colunas com o mesmo nome do modelo já vêm relacionadas.</p>
    <div className="table-scroll"><table className="data-table import-mapping"><thead><tr><th scope="col">Campo do ERP</th><th scope="col">Coluna da planilha</th></tr></thead>

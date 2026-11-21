@@ -250,7 +250,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
       {detailError && <p className="real-alert" role="alert">{detailError} <button type="button" className="text-button" onClick={() => setDetailRetry(value => value + 1)}>Conferir novamente</button></p>}
       {title?.deleted_at ? <p className="real-notice">Esta conta foi excluída e fica disponível somente para consulta.</p> : title?.cancelled ? <p className="real-notice">Esta conta está cancelada e fica disponível somente para consulta.</p> : null}
       {loaded?.bank_writeoff && <BankWriteoffNotice writeoff={loaded.bank_writeoff} />}
-      {loaded?.imported && <p className="real-notice"><strong>Importado do Origin.</strong> O valor original, o contato, a emissão e a referência da origem são preservados.</p>}
+      {loaded?.imported && <p className="real-notice"><strong>Conta importada.</strong> O valor original, o contato, a emissão e a referência da origem são preservados.</p>}
       {title?.document_linked && <p className="real-help">Esta conta foi gerada por um documento da empresa. O contato, a emissão, o valor e o nº documento ficam com o documento.</p>}
       {title?.grouped_billing_id && <p className="real-help">Esta conta foi gerada por um faturamento agrupado. O cliente, a emissão e o valor ficam com o faturamento; para desfazer, exclua o faturamento em Listar Faturamentos Gerados.</p>}
       {loaded?.billing?.file_generated && <p className="real-alert" role="note">Esta conta está na remessa nº {loaded.billing.remittance_sequence}, com arquivo gerado. Alterar vencimento ou dados do boleto pode exigir registrar o título de novo no banco.</p>}
@@ -310,7 +310,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
               <label className="finance-drawer-switch finance-drawer-wide"><input type="checkbox" role="switch" checked={values.business_days} onChange={event => set('business_days', event.target.checked)} />Considerar dias úteis</label>
               {plan ? <div className="finance-installments finance-drawer-wide"><table className="data-table"><thead><tr><th>Parcela</th><th>Vencimento</th><th className="numeric">Valor</th></tr></thead><tbody>{plan.map((part, index) => <tr key={index}><td>{index + 1}/{plan!.length}</td><td>{financeDate(part.due_on)}</td><td className="numeric">{financeMoney(part.amount_cents)}</td></tr>)}</tbody></table></div>
                 : <p className="real-help finance-drawer-wide">{planError || 'Informe o valor e o vencimento para ver as parcelas.'}</p>}
-              <p className="real-help finance-drawer-wide">Cada parcela tem o valor informado, como no Origin. A primeira (1/{plan?.length ?? values.count}) é incluída agora, na data de Vencimento; as seguintes, no dia de vencimento de cada mês, são geradas em Gerenciar contas recorrentes, pelo painel Gerar contas, até a última parcela. Com dias úteis, sábados, domingos e feriados nacionais passam para o próximo dia útil.</p>
+              <p className="real-help finance-drawer-wide">Cada parcela tem o valor informado. A primeira (1/{plan?.length ?? values.count}) é incluída agora, na data de Vencimento; as seguintes, no dia de vencimento de cada mês, são geradas em Gerenciar contas recorrentes, pelo painel Gerar contas, até a última parcela. Com dias úteis, sábados, domingos e feriados nacionais passam para o próximo dia útil.</p>
             </>}
           </>}
         </fieldset>}
@@ -354,7 +354,7 @@ export default function FinanceTitleDrawer({ controller, kind, mode, title, clon
           <label htmlFor="finance-propagation-all"><input id="finance-propagation-all" type="radio" name="finance-propagation-scope" checked={propagation.scope === 'all'} onChange={() => setPropagation(previous => previous && { ...previous, scope: 'all' })} />Atualizar todas as contas em aberto vinculadas</label>
         </fieldset>
         <label htmlFor="finance-propagation-future"><input id="finance-propagation-future" type="checkbox" checked={propagation.future} onChange={event => { const checked = event.target.checked; setPropagation(previous => previous && { ...previous, future: checked }); }} />Alterar lançamentos de contas futuras.</label>
-        <p className="real-help">Vão para as outras contas: {Object.keys(propagation.changes).map(key => PROPAGATED_LABEL[key]).join(', ')}. Contas com baixa, boleto, documento de origem ou importadas do Origin ficam como estão.</p>
+        <p className="real-help">Vão para as outras contas: {Object.keys(propagation.changes).map(key => PROPAGATED_LABEL[key]).join(', ')}. Contas com baixa, boleto, documento de origem ou importadas ficam como estão.</p>
       </div>
     </Modal>}
     {originalOpen && title && <Modal title="Histórico original da conta" onClose={() => setOriginalOpen(false)} actions={<button type="button" className="secondary-button" onClick={() => setOriginalOpen(false)}>Fechar</button>}>

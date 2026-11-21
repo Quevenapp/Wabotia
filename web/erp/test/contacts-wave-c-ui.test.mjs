@@ -305,5 +305,5 @@ test('contact history keeps the contact-scoped native coverage visible',async()=
  const service=pickerServer(),read=service.controller.catalog;
  service.controller.catalog=async(...args)=>{const raw=await read(...args);return args[0].includes('/historico?')?{...raw,origin:'brufap',mirror_excluded_count:2,coverage:{partial:true,reason:'native_effects_only'}}:raw;};
  const view=await mountComponent('ContactPickerTools.tsx',{controller:service.controller,contact:{id:uuid(30),name:'Fornecedor Sintético'},tools:{history:'purchase_orders'}},{componentName:'ContactPickerTools'});
- try{const button=view.nodes().find(n=>n.props?.['aria-label']==='Visualizar histórico do cliente');assert.ok(button);button.props.onClick();await view.flush();assert.match(view.text(),/2 documentos Origin não entram neste cálculo/);}finally{view.unmount();}
+ try{const button=view.nodes().find(n=>n.props?.['aria-label']==='Visualizar histórico do cliente');assert.ok(button);button.props.onClick();await view.flush();assert.match(view.text(),/2 documentos importados não entram neste cálculo/);}finally{view.unmount();}
 });

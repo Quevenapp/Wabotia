@@ -48,29 +48,38 @@
 }
 .management-topnav-link:hover, .management-topnav-link[aria-expanded="true"] { background: var(--hover); }
 .management-topnav-link[aria-current="page"], .management-topnav-selected { background: var(--brand-soft); color: var(--brand-strong); }
-.management-topnav-link:focus-visible, .management-topnav-items a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.management-topnav-link:focus-visible, .management-topnav-column a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Painel do grupo: colunas com título lado a lado, que descem para a linha de baixo se não couberem. */
 .management-topnav-panel {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 40;
-  max-width: min(760px, 92vw);
-  max-height: 70vh;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 12px;
+  width: max-content;
+  max-width: min(980px, 96vw);
+  max-height: 72vh;
   overflow: auto;
-  padding: 14px 12px 12px;
+  padding: 12px;
   border: 1px solid var(--divider);
   border-radius: 12px;
   background: var(--surface);
   box-shadow: var(--shadow-3);
 }
 .management-topnav-panel-right { left: auto; right: 0; }
-.management-topnav-panel > strong { display: block; margin: 0 10px 8px; font-size: 13px; color: var(--text-2); }
-.management-topnav-items { display: grid; grid-auto-flow: column; column-gap: 8px; }
-.management-topnav-items a { display: block; padding: 8px 10px; border-radius: 8px; color: var(--text); white-space: nowrap; text-decoration: none; }
-.management-topnav-items a:hover { background: var(--hover); }
-.management-topnav-items a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
+.management-topnav-column { display: flex; flex-direction: column; min-width: 170px; padding: 4px; border-radius: 10px; }
+.management-topnav-column > strong { margin: 2px 10px 6px; font-size: 12px; font-weight: 700; color: var(--text-2); }
+.management-topnav-column-selected { background: var(--hover); }
+.management-topnav-column-selected > strong { color: var(--brand-strong); }
+.management-topnav-column a { display: block; padding: 7px 10px; border-radius: 8px; color: var(--text); white-space: nowrap; text-decoration: none; }
+.management-topnav-column a:hover { background: var(--hover); }
+.management-topnav-column a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }
 .management-menu { display: none; overflow: auto; padding: 12px; border-right: 1px solid var(--divider); background: var(--surface); }
 .management-menu h2 { margin: 20px 8px 6px; font-size: 12px; color: var(--text-2); }
+.management-menu h3 { margin: 12px 10px 4px; font-size: 11px; font-weight: 600; color: var(--text-2); }
 .management-menu a { display: block; padding: 9px 10px; color: var(--text); border-radius: 8px; text-decoration: none; }
 .management-menu a:hover { background: var(--hover); }
 .management-menu a[aria-current="page"] { background: var(--brand-soft); color: var(--brand-strong); font-weight: 600; }

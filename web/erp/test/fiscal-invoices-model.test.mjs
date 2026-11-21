@@ -26,7 +26,7 @@ test('query parameters follow the API contract and refuse invalid filters before
 test('situação labels, tones and six-digit numbers like Origin; NFC-e shows Emitida', () => {
   assert.equal(invoiceNumber({ number: 42 }), '000042'); assert.equal(invoiceNumber({ number: null }), '—');
   assert.equal(statusLabel({ status: 6, status_raw: '5' }, '55'), 'Autorizada'); assert.equal(statusLabel({ status: 7, status_raw: null }, '65'), 'Emitida');
-  assert.equal(statusLabel({ status: null, status_raw: '99' }, '55'), 'Situação 99 do Origin');
+  assert.equal(statusLabel({ status: null, status_raw: '99' }, '55'), 'Situação 99 do sistema de origem');
   assert.equal(statusClass({ status: 6 }, '55'), 'status-badge status-success is-bold'); assert.equal(statusClass({ status: 10 }, '55'), 'status-badge status-overdue');
   assert.equal(statusClass({ status: 3 }, '55'), 'status-badge status-warning is-bold'); assert.equal(statusClass({ status: 8 }, '55'), 'status-badge status-info');
   assert.equal(orderIndicator(row({ orders: [{ id: id(5), kind: 'sales_orders', number: '15', date: '2026-10-19', contact_name: 'Cliente' }] })).title, 'Número pedido: 15 - Data: 19/10/2026 - Cliente: Cliente');

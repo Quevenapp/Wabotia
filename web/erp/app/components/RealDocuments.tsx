@@ -123,7 +123,7 @@ const aborted=(error:unknown)=>error instanceof DOMException&&error.name==='Abor
 const errorText=(error:unknown)=>error instanceof AccessError&&error.code==='MODULE_OWNED_BY_ORIGIN'?DOCUMENT_MIRROR_READ_ONLY:error instanceof AccessError&&error.code==='ERP_DOCUMENT_CREDIT_LIMIT'?'O valor total parcelado da proposta, somado às contas a receber em aberto do cliente, excede o limite de crédito do cliente (Preferências › Vendas › Propostas). Revise as parcelas ou o limite no cadastro do cliente.'
   // 202610200269: a proposta with a newer version is only consulted.
   // 016: the Origin already has contas or a nota for this document.
-  :error instanceof AccessError&&error.code==='ERP_DOCUMENT_ORIGIN_EFFECTS'?'Este documento já tem contas lançadas ou nota fiscal gerada no Origin. Somente Observações e Observações internas podem ser alteradas.'
+  :error instanceof AccessError&&error.code==='ERP_DOCUMENT_ORIGIN_EFFECTS'?'Este documento já tem contas lançadas ou nota fiscal gerada no sistema de origem. Somente Observações e Observações internas podem ser alteradas.'
   :error instanceof AccessError&&error.code==='ERP_DOCUMENT_VERSION_LOCKED'?'Esta proposta tem uma versão mais nova e fica só para consulta. Abra a versão mais nova para alterá-la ou salvar outra versão.'
   :error instanceof AccessError ? error.status===409?'O documento mudou ou a ação não é permitida nesta situação. Suas alterações continuam no formulário; reabra o documento para conferir a versão atual.'
   // 202610200239: Sistema › Usuários › Permissões and the approval of the discount.

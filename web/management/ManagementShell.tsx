@@ -5,6 +5,7 @@ import type { PortedTargetState } from "./host-contract";
 import { href, linkProps, navigate, parseRoute, useRoute } from "../lib/routes";
 import { Button, Empty, Spinner } from "../ui";
 import { managementEntryState, managementLanding, normalizedManagementHref } from "./registry";
+import { managementMenu, type MenuColumn } from "./menu-groups";
 import "./management.css";
 
 export function managementRoute(to: string) {
@@ -69,6 +70,15 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
   const [menuGroup, setMenuGroup] = useState<string | null>(null);
   const [menuRight, setMenuRight] = useState(false);
   const topnav = useRef<HTMLElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const focusFirst = useRef(false);
+  const menuId = useId();
+  useEffect(() => {
+    // Seta para baixo no grupo: abre o painel e leva o foco à primeira tela dele.
+    if (menuGroup === null || !focusFirst.current) return;
+    focusFirst.current = false;
+    panel.current?.querySelector<HTMLElement>("a[href]")?.focus();
+  }, [menuGroup]);
   useEffect(() => {
     // navigate(true) pode ser somente delegação; fechar apenas após publicação.
     if (current !== accepted.current) { accepted.current = current; setOpen(false); setMenuGroup(null); }
@@ -152,10 +162,38 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       linkProps(managementRoute(to)).onClick(event);
     },
   });
-  // Até 8 itens por coluna, no máximo 3 colunas; o painel rola se passar disso.
-  const panelGrid = (count: number): React.CSSProperties => {
-    const columns = Math.min(3, Math.ceil(count / 8));
-    return { gridTemplateColumns: `repeat(${columns}, minmax(190px, max-content))`, gridTemplateRows: `repeat(${Math.ceil(count / columns)}, auto)` };
+  // Grupos do topo e colunas vêm do mapa único (menu-groups.ts); a página inicial continua pelos grupos dos módulos.
+  const menu = managementMenu(items, groupTitle);
+  // Título de coluna que repete o nome de um item dela (Agenda › Agenda) some na gaveta, como antes.
+  const repeatsItem = (column: MenuColumn<ResolvedManagementItem>) => column.items.some(item => item.resolvedLabel === column.title);
+  // Setas esquerda e direita andam entre os grupos do topo; com um painel aberto, abrem o grupo vizinho.
+  const topnavKeys = (event: React.KeyboardEvent<HTMLElement>) => {
+    const roots = Array.from(topnav.current?.querySelectorAll<HTMLElement>("[data-topnav-root]") ?? []);
+    const target = event.target as HTMLElement;
+    const index = roots.indexOf(target);
+    if (index >= 0 && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
+      event.preventDefault();
+      const next = roots[(index + (event.key === "ArrowRight" ? 1 : roots.length - 1)) % roots.length];
+      next.focus();
+      const group = next.dataset.topnavGroup;
+      if (menuGroup !== null) { if (group) showGroup(group, next, false); else setMenuGroup(null); }
+      return;
+    }
+    if (index >= 0 && event.key === "ArrowDown" && target.dataset.topnavGroup) {
+      event.preventDefault();
+      if (menuGroup === target.dataset.topnavGroup) { panel.current?.querySelector<HTMLElement>("a[href]")?.focus(); return; }
+      focusFirst.current = true;
+      showGroup(target.dataset.topnavGroup, target, false);
+      return;
+    }
+    // Dentro do painel, setas para cima e para baixo andam entre as telas (Tab também percorre).
+    const openPanel = target.closest(".management-topnav-panel");
+    if (openPanel && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+      event.preventDefault();
+      const links = Array.from(openPanel.querySelectorAll<HTMLElement>("a[href]"));
+      const at = links.indexOf(target);
+      links[(at + (event.key === "ArrowDown" ? 1 : links.length - 1)) % links.length]?.focus();
+    }
   };
   return <div className="management-shell">
     <header className="management-header">
@@ -166,27 +204,36 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       <div className="management-tools" ref={chromeRef} />
     </header>
     {mobile && open && <div className="management-backdrop" onClick={() => setOpen(false)} />}
-    {!mobile && <nav ref={topnav} className="management-topnav" aria-label="Menu do ERP">
-      <a {...link("/app/erp")} className="management-topnav-link" aria-current={entry ? "page" : undefined}>Início</a>
-      {[...groups].map(([group, entries]) => {
-        const title = groupTitle(entries[0]), selected = entries.some(selectedItem);
-        if (entries.length === 1) return <a key={group} {...link(entries[0].href)} className="management-topnav-link"
-          aria-current={selected ? "page" : undefined}>{entries[0].resolvedLabel}</a>;
-        const expanded = menuGroup === group;
-        return <div key={group} className="management-topnav-group">
+    {!mobile && <nav ref={topnav} className="management-topnav" aria-label="Menu do ERP" onKeyDown={topnavKeys}>
+      <a {...link("/app/erp")} className="management-topnav-link" data-topnav-root=""
+        aria-current={entry ? "page" : undefined}>Início</a>
+      {menu.map((group) => {
+        const selected = group.items.some(selectedItem);
+        if (group.items.length === 1) return <a key={group.key} {...link(group.items[0].href)} className="management-topnav-link"
+          data-topnav-root="" aria-current={selected ? "page" : undefined}>{group.items[0].resolvedLabel}</a>;
+        const expanded = menuGroup === group.key, panelId = `${menuId}-${group.key}`;
+        return <div key={group.key} className="management-topnav-group" onBlur={(event) => {
+          // Tab saiu do grupo (botão e painel): o painel fecha sozinho.
+          if (expanded && event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) setMenuGroup(null);
+        }}>
           <button type="button" className={"management-topnav-link" + (selected ? " management-topnav-selected" : "")}
-            aria-haspopup="true" aria-expanded={expanded}
-            onClick={(event) => showGroup(group, event.currentTarget, true)}
-            onMouseEnter={(event) => { if (menuGroup !== null && menuGroup !== group) showGroup(group, event.currentTarget, false); }}>
-            {title}<ChevronDown size={14} aria-hidden="true" />
+            data-topnav-root="" data-topnav-group={group.key}
+            aria-haspopup="true" aria-expanded={expanded} aria-controls={expanded ? panelId : undefined}
+            onClick={(event) => showGroup(group.key, event.currentTarget, true)}
+            onMouseEnter={(event) => { if (menuGroup !== null && menuGroup !== group.key) showGroup(group.key, event.currentTarget, false); }}>
+            {group.label}<ChevronDown size={14} aria-hidden="true" />
           </button>
-          {expanded && <div className={"management-topnav-panel" + (menuRight ? " management-topnav-panel-right" : "")}>
-            <strong>{title}</strong>
-            <div className="management-topnav-items" style={panelGrid(entries.length)}>
-              {entries.map((item) => <a key={item.id} {...link(item.href)} aria-current={
-                selectedItem(item) ? "page" : undefined
-              }>{item.resolvedLabel}</a>)}
-            </div>
+          {expanded && <div id={panelId} ref={panel} className={"management-topnav-panel" + (menuRight ? " management-topnav-panel-right" : "")}>
+            {group.columns.map((column) => {
+              const titleId = `${panelId}-${column.key}`;
+              return <div key={column.key} role="group" aria-labelledby={titleId} className={"management-topnav-column" +
+                (column.items.some(selectedItem) ? " management-topnav-column-selected" : "")}>
+                <strong id={titleId}>{column.title}</strong>
+                {column.items.map((item) => <a key={item.id} {...link(item.href)} aria-current={
+                  selectedItem(item) ? "page" : undefined
+                }>{item.resolvedLabel}</a>)}
+              </div>;
+            })}
           </div>}
         </div>;
       })}
@@ -199,12 +246,14 @@ export function ManagementShell({ context, items, entry, chromeRef, children }: 
       <nav aria-label="Módulos de gestão">
         <a {...linkProps({ area: mobile ? "more" : "conversations" })}>Áreas do painel</a>
         <a {...link("/app/erp")} aria-current={entry ? "page" : undefined}>Início da gestão</a>
-        {[...groups].map(([group, entries]) => <section key={group}>
-          {!(entries[0].module === "os" && entries.some(item => item.resolvedLabel === groupTitle(entries[0]))) &&
-            <h2>{groupTitle(entries[0])}</h2>}
-          {entries.map((item) => <a key={item.id} {...link(item.href)} aria-current={
-            selectedItem(item) ? "page" : undefined
-          }>{item.resolvedLabel}</a>)}
+        {menu.map((group) => <section key={group.key}>
+          <h2>{group.label}</h2>
+          {group.columns.map((column) => <React.Fragment key={column.key}>
+            {!repeatsItem(column) && group.columns.length > 1 && <h3>{column.title}</h3>}
+            {column.items.map((item) => <a key={item.id} {...link(item.href)} aria-current={
+              selectedItem(item) ? "page" : undefined
+            }>{item.resolvedLabel}</a>)}
+          </React.Fragment>)}
         </section>)}
       </nav>
     </aside>

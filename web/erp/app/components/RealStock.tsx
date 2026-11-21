@@ -213,7 +213,7 @@ export default function RealStock({ controller, onPrepareWarehouses }: { control
   const priceEditable = (row: StockLedgerMovement) => row.origin.type !== 'invoices' && (!row.origin.document_kind || originReadable(row.origin, role));
   // Wabotia: sem o espelho de estoque do Origin (Origin fora, motor 91213b8), nem o título que separava o estoque nativo dele.
   return <>
-    {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Preparar depósitos do Origin</button></p>}
+    {role === 'admin' && onPrepareWarehouses && <p><button type="button" className="text-button" onClick={prepareWarehouses}>Preparar depósitos importados</button></p>}
     <header className="real-heading"><div className="stock-title"><h1>Estoque</h1><span className="origin-title-divider" aria-hidden="true" /><fieldset className="stock-inline-fieldset" disabled={editing}><legend className="real-sr-only">Depósito dos lançamentos</legend><OriginSelector label="Depósito" value={warehouseLabel} options={[ALL_WAREHOUSES, ...options.keys()]} onChange={chooseWarehouse} /></fieldset></div><span className="real-mode">{writable ? 'Edição autorizada' : 'Somente consulta'}</span></header>
     <p className="real-notice">Movimentos desta área atualizam o estoque do ERP e podem ser corrigidos por estorno, preservando o histórico.{negativeAllowed !== null && <> Estoque negativo: <strong>{negativeAllowed ? 'permitido' : 'não permitido'}</strong> pela política da empresa.</>}</p>
     {notice && <p className="real-success" role="status">{notice}</p>}{(error || productError) && <p className="real-alert" role="alert">{productError || error}</p>}

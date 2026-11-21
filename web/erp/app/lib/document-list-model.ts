@@ -197,14 +197,14 @@ export function listIndicators(row: DocumentListRow): ListIndicator[] {
   if (row.source_proposal_number) out.push({ key: 'P', letter: { text: 'P', color: 'red' }, title: `Proposta comercial ${row.source_proposal_number}` });
   if (row.finance_active) out.push({ key: 'C', letter: { text: 'C', color: 'green' }, title: 'Contas lançadas' });
   // 018: contas lançadas in the Origin for a converted document (no Brufap posting).
-  else if (row.origin_finance) out.push({ key: 'C', letter: { text: 'C', color: 'green' }, title: 'Contas lançadas no Origin' });
+  else if (row.origin_finance) out.push({ key: 'C', letter: { text: 'C', color: 'green' }, title: 'Contas lançadas no sistema de origem' });
   if (row.stock_active || row.receipt_active) out.push({ key: 'E', letter: { text: 'E', color: 'blue' }, title: `Estoque lançado${row.warehouse_name ? ` - Depósito: ${row.warehouse_name}` : ''}` });
   // Origin "Origem NF <n> - Data: <data>" (NF-e dark red, NFC-e dark green); a draft without number keeps the emitter wording.
   if (row.invoice) out.push({ key: 'N', letter: { text: 'N', color: row.invoice.model === '65' ? 'darkgreen' : 'darkred' }, title: row.invoice.number ? `Origem ${row.invoice.model === '65' ? 'NFC-e' : 'NF'} ${row.invoice.number} - Data: ${brDay(row.invoice.issue_date)}` : `Nota fiscal vinculada (em preparação) - Data: ${brDay(row.invoice.issue_date)}` });
   else if (row.fiscal_draft === true) out.push({ key: 'N', letter: { text: 'N', color: 'darkred' }, title: 'Nota fiscal vinculada (rascunho no emissor)' });
   // 202610200163: the other profiles see that a nota exists; its number and date stay with administrador and fiscal (113).
   else if (row.invoice_linked === true) out.push({ key: 'N', letter: { text: 'N', color: 'darkred' }, title: row.kind === 'service_orders' ? 'Ordem de serviço com nota fiscal vinculada' : 'Pedido com nota fiscal vinculada' });
-  else if (row.origin_invoice) out.push({ key: 'N', letter: { text: 'N', color: 'darkred' }, title: 'Nota fiscal gerada no Origin' });
+  else if (row.origin_invoice) out.push({ key: 'N', letter: { text: 'N', color: 'darkred' }, title: 'Nota fiscal gerada no sistema de origem' });
   if (row.service_order_number) out.push({ key: 'O', letter: { text: 'O', color: 'midgreen' }, title: `Ordem de serviço ${row.service_order_number}` });
   if (row.pendencies === true) out.push({ key: 'PEND', icon: 'triangle-exclamation', className: 'is-pending', title: 'Este pedido contém pendências' });
   if (row.internal_notes) out.push({ key: 'OBS', icon: 'comment', className: 'is-comment', title: row.internal_notes });

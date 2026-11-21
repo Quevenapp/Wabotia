@@ -50,7 +50,7 @@ test('222 Estrutura tab: a mirrored composition without structure, the Component
  try{
   assert.match(view.text(),/Composição: os componentes, o tipo de estoque/);
   await view.click('Estrutura');
-  assert.match(view.text(),/As composições espelhadas do Origin chegam sem a estrutura/);
+  assert.match(view.text(),/As composições sincronizadas chegam sem a estrutura/);
   assert.match(view.text(),/Tipo de estoque.*Lançar estoque/);
   assert.match(view.text(),/salve-o como Físico e zere esse saldo com um Balanço antes de mudar para Virtual/,'the server refuses Virtual for a product with its own balance');
   assert.match(view.text(),/nºComponenteCódigo \(SKU\)QtdeEstoquePreço custoPreço custo totalPreço vendaPreço venda total/);

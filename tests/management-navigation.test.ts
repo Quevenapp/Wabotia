@@ -66,6 +66,7 @@ import {
 import { ErpArea, contextBoundResponse, createDeferredHostSlot, loadAuthorizedPorted, startAuthorizedPortedPrefetch } from "../web/erp/ErpArea";
 import { activeNavigationTypes, useWorkNavigation } from "../web/modules/os/work-navigation";
 import { ManagementShell } from "../web/management/ManagementShell";
+import { managementMenu } from "../web/management/menu-groups";
 
 const context = (input: Partial<Parameters<typeof managementContext>[0]> = {}) => managementContext({
   statusLoaded: true, role: "admin", access: null, modules: {}, ...input,
@@ -95,8 +96,10 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     mocks.app.modules = { agenda: true, erp: true };
     const html = render();
     const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
-    expect(headings[0]).toBe("Agenda");
-    expect(headings[1]).toBe("Resultados");
+    // A gaveta segue os grupos do topo (menu-groups.ts): a Agenda nativa entra em Serviços, depois dos grupos portados anteriores.
+    expect(headings[0]).toBe("Meu negócio");
+    expect(headings[1]).toBe("Cadastros");
+    expect(headings.indexOf("Serviços")).toBeGreaterThan(1);
   });
 
   it("entrada e menu usam grupos, nativos primeiro, com cinco destinos e Ver todos", () => {
@@ -108,7 +111,8 @@ describe("elegibilidade, ativação e autorização independentes", () => {
     const titles = [...new Set(items.map(item => item.module === "os" ? "Atendimentos" : item.groupLabel))];
     expect(titles.slice(0, 2)).toEqual(["Atendimentos", "Agenda"]);
     const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
-    expect(headings).toEqual([...titles.filter(title => title !== "Atendimentos"), ...titles]);
+    // Gaveta: os grupos do topo; página inicial: os grupos dos módulos, como antes.
+    expect(headings).toEqual([...managementMenu(items).map(group => group.label), ...titles]);
     expect(headings).not.toContain("Dashboard geral");
     const cards = [...html.split('class="management-cards"')[1].matchAll(/<section>([\s\S]*?)<\/section>/g)];
     expect(cards).toHaveLength(titles.length);

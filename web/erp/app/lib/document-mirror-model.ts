@@ -8,7 +8,7 @@ export interface DocumentOrigin {
   origin?: 'brufap' | 'origin'; authority?: 'brufap' | 'origin'; readonly?: boolean; mirror?: DocumentMirrorMeta | null;
 }
 // Wabotia: dormente. A trava genérica por bloco de integração externa (Bling, componente externo) vai reaproveitar este ramo: o motor responderá 409 com outro código quando o bloco pertencer à integração (decisão de 16/11).
-export const DOCUMENT_MIRROR_READ_ONLY = 'Documento do Origin ainda em conversão para o ERP: aguarde a próxima sincronização para editar.';
+export const DOCUMENT_MIRROR_READ_ONLY = 'Documento importado ainda em conversão para o ERP: aguarde a próxima sincronização para editar.';
 // Wabotia: sempre falso desde Origin fora (motor 91213b8); fica enquanto telas de fora dos documentos ainda o chamam.
 export const isDocumentMirror = (document: DocumentOrigin): document is DocumentOrigin & { origin: 'origin'; mirror: DocumentMirrorMeta } => document.authority === 'origin';
 /** Decimal strings are formatted without converting them to Number or rounding them. */

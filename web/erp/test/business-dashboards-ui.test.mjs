@@ -133,5 +133,5 @@ test('business indicators identify native coverage after the shared parser', asy
  const f=createBusinessFixture(),read=f.controller.system;
  f.controller.system=async(...args)=>{const raw=await read(...args);return args[0].startsWith('/v1/meu-negocio/')?{...raw,origin:'brufap',mirror_excluded_count:17,coverage:{partial:true,reason:'native_effects_only'}}:raw;};
  const view=await mount(f);
- try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos Origin não entram neste cálculo/); } finally { view.unmount(); }
+ try { assert.match(view.text(),/Indicadores operacionais do ERP; 17 documentos importados não entram neste cálculo/); } finally { view.unmount(); }
 });

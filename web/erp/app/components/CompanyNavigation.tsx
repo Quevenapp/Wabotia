@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { ErpHostView } from '../../host-runtime';
 import { targetEnabled } from '../../blocks';
 import { portedPermissionAllowed } from '../../../management/ported-policy';
+import { erpDestinationPlacement } from '../../../management/menu-groups.ts';
 import { Link, useLocation } from 'react-router-dom';
 import type { AccessState } from '../lib/real-access';
 import { ROLE_LABELS } from '../lib/real-access';
@@ -53,9 +54,9 @@ export default function CompanyNavigation({ host, state, onLogout, controller, e
   const system = ready && typeof controller?.system === 'function' ? controller as SystemController : null;
   // Wabotia: o botão de sincronizar com o Origin saiu; a capacidade originIntegration nunca vem (Origin fora, motor 91213b8).
   // The trail names the same module the sidebar shows (Comercial, Catálogo…), so both read alike.
-  const moduleName = useMemo(() => current?.to ? workspaceMenu(groups, role).find(group => group.columns.some(column => column.items.some(item => item.to === current.to)))?.name ?? active?.name : active?.name, [groups, role, current?.to, active?.name]);
+  const moduleName = useMemo(() => current?.to ? (embedded ? erpDestinationPlacement(current.to)?.group : undefined) ?? workspaceMenu(groups, role).find(group => group.columns.some(column => column.items.some(item => item.to === current.to)))?.name ?? active?.name : active?.name, [groups, role, current?.to, active?.name, embedded]);
   const trail = ready ? location.pathname === '/acesso' ? <nav aria-label="Localização"><span aria-current="page">Visão geral</span></nav> : <nav aria-label="Localização"><Link to="/acesso">Início</Link>
-      {preparationPage ?<><span aria-hidden="true">›</span><Link to="/preferencias">Preferências</Link><span aria-hidden="true">›</span><Link to="/preparacao-virada">Preparação da virada</Link><span aria-hidden="true">›</span>{stockPage ? <><Link to="/preparacao-virada/depositos">Depósitos do Origin</Link><span aria-hidden="true">›</span><span aria-current="page">Estoque informado pelo Origin</span></> : <span aria-current="page">Depósitos do Origin</span>}</>
+      {preparationPage ?<><span aria-hidden="true">›</span><Link to="/preferencias">Preferências</Link><span aria-hidden="true">›</span><Link to="/preparacao-virada">Preparação da virada</Link><span aria-hidden="true">›</span>{stockPage ? <><Link to="/preparacao-virada/depositos">Depósitos importados</Link><span aria-hidden="true">›</span><span aria-current="page">Estoque informado na importação</span></> : <span aria-current="page">Depósitos importados</span>}</>
         : active ? <><span aria-hidden="true">›</span><span>{moduleName}</span>{current && current.label !== 'Dashboard geral' && <><span aria-hidden="true">›</span><span aria-current="page">{current.label}</span></>}</>
         : location.pathname === '/preferencias' ? <><span aria-hidden="true">›</span><span aria-current="page">Preferências</span></>
         : hubCategory ? <><span aria-hidden="true">›</span><Link to="/preferencias">Preferências</Link><span aria-hidden="true">›</span><span aria-current="page">{hubCategory.label}</span></>

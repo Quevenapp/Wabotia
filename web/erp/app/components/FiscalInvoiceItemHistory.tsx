@@ -27,7 +27,7 @@ export default function FiscalInvoiceItemHistory({ controller, contactId, contac
     <p className="real-help">{productName} · {contactName}. Últimas 20 notas, as mais recentes primeiro.</p>
     {error ? <p className="real-alert" role="alert">{error}</p> : !history ? <p role="status">Consultando…</p> : !history.items.length ? <p className="real-help">Nenhuma nota anterior deste produto para este contato.</p>
       : <div className="table-scroll" tabIndex={0}><table className="data-table"><thead><tr><th>Origem</th><th>Número</th><th>Data emissão</th><th className="numeric">Qtde</th><th className="numeric">Preço un</th><th className="numeric">Preço total</th></tr></thead>
-        <tbody>{history.items.map((row, index) => <tr key={`${row.origin}:${row.id}:${index}`}><td>{row.origin === 'origin' ? 'Nota do Origin' : 'ERP (homologação ou registrada)'}</td>
+        <tbody>{history.items.map((row, index) => <tr key={`${row.origin}:${row.id}:${index}`}><td>{row.origin === 'origin' ? 'Nota importada' : 'ERP (homologação ou registrada)'}</td>
           <td>{row.number === null ? '—' : String(row.number).padStart(6, '0')}</td><td>{brDay(row.issue_date)}</td><td className="numeric">{quantity(row.quantity)}</td>
           <td className="numeric">{row.unit_price === null ? '—' : quantity(row.unit_price)}</td><td className="numeric">{row.total === null ? '—' : decimalMoney(row.total)}</td></tr>)}</tbody></table></div>}
   </Modal>;

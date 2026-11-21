@@ -405,8 +405,8 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
     const found = lookups[key];
     if (found === undefined) return null;
     if (found === 'error') return <small className="real-help"> · não foi possível conferir a chave.</small>;
-    if (!found.length) return <small className="real-help"> · chave não encontrada nas notas do ERP nem no acervo de XML do Origin.</small>;
-    return <small className="real-help">{found.map(n => ` · ${n.model === '65' ? 'NFC-e' : 'NF-e'} ${n.number === null ? 'sem número' : `nº ${String(n.number).padStart(6, '0')}`}${n.issue_date ? ` de ${n.issue_date.split('-').reverse().join('/')}` : ''}${n.name ? ` · ${n.name}` : ''}${n.total ? ` · ${decimalMoney(n.total)}` : ''} (${n.origin === 'origin' ? 'nota do Origin' : 'nota do ERP'})`).join('')}</small>;
+    if (!found.length) return <small className="real-help"> · chave não encontrada nas notas do ERP nem no acervo de XML importado.</small>;
+    return <small className="real-help">{found.map(n => ` · ${n.model === '65' ? 'NFC-e' : 'NF-e'} ${n.number === null ? 'sem número' : `nº ${String(n.number).padStart(6, '0')}`}${n.issue_date ? ` de ${n.issue_date.split('-').reverse().join('/')}` : ''}${n.name ? ` · ${n.name}` : ''}${n.total ? ` · ${decimalMoney(n.total)}` : ''} (${n.origin === 'origin' ? 'nota importada' : 'nota do ERP'})`).join('')}</small>;
   };
   const referenceTab = <>
     <div className="document-grid">
@@ -466,7 +466,7 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
   };
   const contactSearch = (target: typeof contactTarget, id: string, placeholder: string) => <span className="fiscal-contact-search">
     <input id={id} type="search" placeholder={placeholder} disabled={locked} value={contactTarget === target ? contactQuery : ''} onChange={event => { setContactTarget(target); setContactQuery(event.target.value); }} />
-    {contactTarget === target && contacts.length > 0 && target === 'carrier' && contactsUntyped && <span className="real-help" role="status">Nenhum contato com o Tipo de contato Transportador: a busca mostra todos os contatos (os contatos do Origin chegam sem tipo).</span>}
+    {contactTarget === target && contacts.length > 0 && target === 'carrier' && contactsUntyped && <span className="real-help" role="status">Nenhum contato com o Tipo de contato Transportador: a busca mostra todos os contatos (os contatos importados chegam sem tipo).</span>}
     {contactTarget === target && contacts.length > 0 && <ul className="fiscal-picker" role="listbox" aria-label="Contatos">{contacts.map(c => <li key={c.id}><button type="button" onClick={() => pickContact(c)}>{c.name}{typeof c.document === 'string' && c.document ? ` · ${c.document}` : ''}</button></li>)}</ul>}</span>;
   const r = draft.recipient;
   const recipientTab = <>

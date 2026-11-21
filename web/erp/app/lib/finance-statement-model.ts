@@ -105,7 +105,7 @@ export function statementPrintPage(pages: readonly StatementPage[]): StatementPa
 export function originBadge(line: StatementLine): { text: string; color: string; title: string } | null {
   if (line.line_kind !== 'settlement') return null;
   // SQL 363: a conta imported from the Origin shows the origin the Origin declares (number of the Origin, not opened in the Brufap).
-  const origin = line.document?.source === 'origin' ? ' no Origin' : '';
+  const origin = line.document?.source === 'origin' ? ' no sistema de origem' : '';
   if (line.document?.kind === 'sales_orders') return { text: 'V', color: '#3b7dd8', title: `Pedido de venda nº ${line.document.number}${origin}` };
   // SQL 247: N = Nota fiscal (the baixa of a conta lançada by a note).
   if (line.document?.kind === 'fiscal_invoices') return { text: 'N', color: '#7a5af8', title: `Nota fiscal nº ${line.document.number}${origin}` };

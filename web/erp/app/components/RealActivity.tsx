@@ -14,6 +14,8 @@ import './real-activity.css';
 
 const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const admin=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';
+/** Wabotia: o motor descreve com o nome do sincronizador antigo (texto igual ao oráculo); a tela usa "sistema de origem". */
+const describe=(text:string|null)=>text&&text.replace(/\bdo Origin\b/g,'do sistema de origem').replace(/ \(Origin\)/g,' (importada)');
 /** Antes e depois by top-level field; nested values are shown as compact JSON. */
 export function detailRows(detail:ActivityDetail){
  const plain=(v:unknown):v is Record<string,unknown>=>v!==null&&typeof v==='object'&&!Array.isArray(v),before=plain(detail.before)?detail.before:{},after=plain(detail.after)?detail.after:{};
@@ -90,8 +92,8 @@ export default function RealActivity({controller,mode='activity'}:{controller:Sy
   {error&&<p className="real-alert" role="alert">{error}</p>}
   {loading?<p role="status" className="real-help">Carregando registros, aguarde...</p>:!query?<div className="empty-state"><h2>Nenhuma pesquisa realizada</h2><p>Selecione os filtros e clique em Pesquisar.</p></div>:page&&!items.length?<div className="empty-state"><h2>Nenhum registro encontrado</h2><p>Ajuste o período ou os filtros.</p></div>:null}
   {page&&items.length>0&&<><div className="table-scroll" role="region" aria-label={deletions?'Exclusões realizadas':'Atividades'} tabIndex={0}><table className="data-table"><thead><tr><th scope="col">Data/Hora</th>{deletions?<><th scope="col">Tipo</th><th scope="col">Descrição</th></>:<><th scope="col">Usuário</th><th scope="col">Módulo</th><th scope="col">Operação</th><th scope="col">Código</th><th scope="col">Descrição</th></>}<th scope="col">Detalhe</th></tr></thead>
-   <tbody>{items.map(e=><tr key={`${e.source}:${e.id}`}><td>{moment(e.created_at)}</td>{deletions?<><td>{MODULE_TEXT[e.module]}</td><td>{e.description??'—'}{e.code?` (${e.code})`:''} excluído pelo usuário {e.actor.label}</td></>
-    :<><td>{e.actor.label}</td><td>{MODULE_TEXT[e.module]}</td><td>{OPERATION_TEXT[e.operation]}</td><td>{e.code??'—'}</td><td>{e.description??'—'}</td></>}
+   <tbody>{items.map(e=><tr key={`${e.source}:${e.id}`}><td>{moment(e.created_at)}</td>{deletions?<><td>{MODULE_TEXT[e.module]}</td><td>{describe(e.description)??'—'}{e.code?` (${e.code})`:''} excluído pelo usuário {e.actor.label}</td></>
+    :<><td>{e.actor.label}</td><td>{MODULE_TEXT[e.module]}</td><td>{OPERATION_TEXT[e.operation]}</td><td>{e.code??'—'}</td><td>{describe(e.description)??'—'}</td></>}
      <td>{ACTIVITY_DETAIL_SOURCES.includes(e.source)?<button type="button" className="text-button" aria-label={`Ver detalhe de ${OPERATION_TEXT[e.operation]} em ${moment(e.created_at)}`} onClick={()=>setDetailEntry(e)}>Ver detalhe</button>:<span className="real-help" title="Este módulo não guarda antes e depois na auditoria.">—</span>}</td></tr>)}</tbody></table></div>
    <p className="real-help">{page.total.toLocaleString('pt-BR')} registro(s) de {page.from.split('-').reverse().join('/')} a {page.to.split('-').reverse().join('/')} (horário de São Paulo).
     {page.offset>0&&<button type="button" className="text-button" onClick={()=>setQuery(q=>q&&{...q,offset:Math.max(0,q.offset-q.limit)})}>Página anterior</button>}

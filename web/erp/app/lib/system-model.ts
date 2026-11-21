@@ -56,5 +56,5 @@ export function storageSummary(value:Pick<StorageUsage,'total_bytes'|'limit_byte
  const tenths=Number(BigInt(value.total_bytes)*1000n/BigInt(value.limit_bytes)),percent=Math.min(tenths,1000)/10;
  return{label:`${used}/${bytesText(value.limit_bytes)}`,percent,warn:tenths>900};
 }
-export const STORAGE_LABELS:Record<string,string>={anexos:'Anexos dos documentos',fiscal:'XMLs e documentos fiscais',cobranca:'Arquivos de cobrança',backup:'Backup do Origin',certificado:'Certificado digital',outros:'Outros arquivos'};
+export const STORAGE_LABELS:Record<string,string>={anexos:'Anexos dos documentos',fiscal:'XMLs e documentos fiscais',cobranca:'Arquivos de cobrança',backup:'Backup importado',certificado:'Certificado digital',outros:'Outros arquivos'};
 export const initials=(name:string)=>name.split(/\s+/).filter(Boolean).slice(0,2).map(p=>p[0]!.toUpperCase()).join('')||'B';
