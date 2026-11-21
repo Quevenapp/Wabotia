@@ -69,8 +69,9 @@ describe("catálogo da casa de gestão", () => {
     const linked = originItems.filter((item) => item.real);
     // + 3 dos relatórios do ERP: DRE gerencial, Pagamento da equipe e Relatórios em gráfico.
     // + 1 do contador: Para o contador (Fiscal).
-    expect(linked).toHaveLength(53);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(54);
+    // + 1 da Produção: Ordens de produção (Estoque).
+    expect(linked).toHaveLength(54);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(55);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,

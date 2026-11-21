@@ -8,6 +8,7 @@ import type { PeoplePort } from "./people";
 import type { EmissorPort } from "./emissor";
 import type { CommercialNfePort } from "./commercial-nfe";
 import type { RecebidasPort } from "./recebidas";
+import type { ProducaoPort } from "./producao";
 
 export type ErpPorts = {
   /** Controlador iniciado pelo hospedeiro; telas legadas criam o próprio quando ausente. */
@@ -63,6 +64,8 @@ export type ErpPorts = {
   commercialNfe?: CommercialNfePort;
   /** Compras › Notas recebidas: nota do fornecedor, conferência e entrada (web/erp/recebidas.ts). */
   recebidas?: RecebidasPort;
+  /** Estoque › Ordens de produção: ordem, apontamento, estorno e planejamento (web/erp/producao.ts). */
+  producao?: ProducaoPort;
 };
 
 let current: ErpPorts | null = null;

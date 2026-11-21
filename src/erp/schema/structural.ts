@@ -240,4 +240,10 @@ export const ERP_STRUCTURAL: readonly StructuralDifference[] = [
     reason: "Para o contador: o pacote do período com os XML das notas emitidas pelo emissor do Wabotia (NF-e, NFC-e e NFS-e, com cancelamentos, cartas de correção e inutilizações), das recebidas com entrada e do acervo do Bling, os PDFs que o emissor oferece e a planilha de índice, montado aos poucos no alarme do objeto da área, com as partes no R2, para baixar pela tela ou pelo link enviado ao contador.",
     replaced_by: "Versão 22 aditiva (21→22): erp_contador__package (um pacote por ambiente e período, com etapa, cursor, contagens, avisos e o deslocamento do ZIP) e erp_contador__part (cada parte gravada no R2, com os arquivos e as linhas da planilha). O cadastro do contador, os envios e os links ficam no D1 (migração 0195).",
   },
+  {
+    id: "ordem-producao",
+    oracle: "O Estoque tem composição (estrutura e kit) e lotes, mas não tem ordem de produção: transformar insumos em produto acabado era um lançamento manual de saída e outro de entrada, sem custo do acabado.",
+    reason: "Produção: a ordem de produção (produto acabado, quantidade, depósitos de insumos e do acabado, data, responsável) com os insumos vindos da composição e editáveis, a conclusão total ou parcial que dá baixa dos insumos e entrada do acabado numa transação, com o custo dos insumos mais o custo adicional, o estorno pelas guardas do Estoque e o planejamento a partir dos pedidos de venda em aberto.",
+    replaced_by: "Versão 23 aditiva (22→23): erp_production__order, erp_production__order_input, erp_production__completion, erp_production__completion_input e erp_production__command. Os lançamentos são os do Estoque (erp_stock_post para a saída dos insumos, erp_stock_launch ou erp_stock_lot_launch para a entrada do acabado com o custo, erp_stock_reverse no estorno); RPCs só do motor erp_production_* (domains/production), na parte Produção; a rota do Wabotia /api/v1/profiles/:profile/erp-producao (src/erp/production) atende o painel e os bots.",
+  },
 ];

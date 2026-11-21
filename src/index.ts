@@ -1296,6 +1296,12 @@ app.all("/api/v1/profiles/:profile/erp-contato-campos", erpContactFields);
 app.all("/api/v1/profiles/:profile/erp-contato-campos/*", erpContactFields);
 // Relatórios do ERP (DRE, gráficos, lotes vencendo e pagamento da equipe):
 // pessoa com papel no ERP e as partes da operação ligadas (src/erp/relatorios/routes.ts).
+// Produção do ERP (ordem de produção; módulo erp-producao, que depende de
+// Estoque e Produtos): pessoa com papel no ERP e as partes ligadas (src/erp/production/routes.ts).
+app.all("/api/v1/profiles/:profile/erp-producao/*", async (c: any) => {
+  const { erpProducaoRoute } = await import("./erp/production/routes");
+  return erpProducaoRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+});
 app.all("/api/v1/profiles/:profile/erp-relatorios/*", async (c: any) => {
   const { erpRelatoriosRoute } = await import("./erp/relatorios/routes");
   return erpRelatoriosRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));

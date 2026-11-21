@@ -62,7 +62,7 @@ test("ausência e nove partes ligadas produzem os mesmos DTOs, erros e tabelas",
       })) };
     } finally { lite.close(); }
   };
-  assert.equal(ERP_PART_KEYS.length, 9);
+  assert.equal(ERP_PART_KEYS.length, 10);
   assert.deepEqual(run(true), run(false));
 });
 

@@ -4,6 +4,7 @@ import { ERP_CONVERSA_MODULE_CONTRACT } from "../../erp/conversa/contract.ts";
 import { ERP_CONTACT_FIELDS_MODULE_CONTRACT } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
+import { ERP_PRODUCAO_MODULE_CONTRACT } from "../../erp/production/contract.ts";
 import { ERP_MANAGEMENT_ITEMS } from "./panel-menu";
 import type { ModuleDefinition } from "../types";
 import { ERP_PART_DEPENDENCIES, ERP_PART_NAMES, type ErpModuleId } from "../../erp/parts.ts";
@@ -89,3 +90,10 @@ export const erpFiscalModule: ModuleDefinition = {
 };
 export const erpCobrancaModule = definition("erp-cobranca", "Boletos, remessas, retornos e liquidação bancária de títulos do Financeiro.");
 export const erpPdvModule = definition("erp-pdv", "Venda no balcão e devolução, integradas a vendas, estoque e caixa financeiro.");
+// Produção (src/erp/production/contract.ts): ordem de produção com a composição do produto.
+export const erpProducaoModule: ModuleDefinition = {
+  ...definition("erp-producao", "Ordem de produção: transforma insumos em produto acabado pela composição do produto, com custo, lote e estorno, e sugere o que fabricar pelos pedidos de venda. Precisa de Estoque e de Produtos ligados."),
+  routes: [...ERP_PRODUCAO_MODULE_CONTRACT.routes],
+  operations: [...ERP_PRODUCAO_MODULE_CONTRACT.operations],
+  bot: ERP_PRODUCAO_MODULE_CONTRACT.definition.bot,
+};

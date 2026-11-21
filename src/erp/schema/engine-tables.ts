@@ -1479,6 +1479,147 @@ const CONTADOR_TABLES: readonly EngineTable[] = [
   ]),
 ];
 
+/** Ordem de produção (parte Produção, src/erp/domains/production): a ordem, a
+ * lista de insumos dela (vinda da composição e editável), os apontamentos
+ * (conclusão total ou parcial, com os dois lançamentos do Estoque: a saída dos
+ * insumos e a entrada do acabado com o custo) e os comandos (repetição segura).
+ * Quantidades em texto na escala 6; custos em texto na escala 10. */
+const P_ORDER = "erp_production__order";
+const P_INPUT = "erp_production__order_input";
+const P_COMPLETION = "erp_production__completion";
+const P_COMPLETION_INPUT = "erp_production__completion_input";
+const P_COMMAND = "erp_production__command";
+const QTY6 = (c: string) => `(${c} GLOB '[0-9]*.${DIGITS(6)}' AND ${c} NOT GLOB '*[^0-9.]*')`;
+const DEC10 = (c: string) => `(${c} GLOB '[0-9]*.${DIGITS(10)}' AND ${c} NOT GLOB '*[^0-9.]*')`;
+const PRODUCTION_TABLES: readonly EngineTable[] = [
+  {
+    table: P_ORDER,
+    ddl: [
+      `CREATE TABLE "${P_ORDER}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "number" INTEGER NOT NULL,
+  "product_id" TEXT NOT NULL,
+  "quantity" TEXT NOT NULL,
+  "produced" TEXT NOT NULL DEFAULT '0.000000',
+  "unit" TEXT,
+  "source_warehouse_id" TEXT NOT NULL,
+  "target_warehouse_id" TEXT NOT NULL,
+  "planned_on" TEXT,
+  "responsible" TEXT,
+  "notes" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'draft',
+  "origin" TEXT NOT NULL DEFAULT 'manual',
+  "sales_order_ids" TEXT NOT NULL DEFAULT '[]',
+  "cancel_reason" TEXT,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "created_at" INTEGER NOT NULL,
+  "created_by" TEXT NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${P_ORDER}_number_key" UNIQUE (number),
+  CONSTRAINT "${P_ORDER}_product_fkey" FOREIGN KEY (product_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${P_ORDER}_source_fkey" FOREIGN KEY (source_warehouse_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${P_ORDER}_target_fkey" FOREIGN KEY (target_warehouse_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${P_ORDER}_status_check" CHECK (status IN ('draft','released','in_progress','done','cancelled')),
+  CONSTRAINT "${P_ORDER}_origin_check" CHECK (origin IN ('manual','plan')),
+  CONSTRAINT "${P_ORDER}_quantity_check" CHECK (${QTY6("quantity")} AND ${QTY6("produced")}),
+  CONSTRAINT "${P_ORDER}_planned_check" CHECK (planned_on IS NULL OR ${DATE10("planned_on")}),
+  CONSTRAINT "${P_ORDER}_sales_check" CHECK (${JSON_OF("sales_order_ids", "array")}),
+  CONSTRAINT "${P_ORDER}_number_check" CHECK (number > 0 AND version > 0)
+) STRICT`,
+      `CREATE INDEX "${P_ORDER}_status_idx" ON "${P_ORDER}" (status, planned_on)`,
+      `CREATE INDEX "${P_ORDER}_product_idx" ON "${P_ORDER}" (product_id)`,
+    ],
+    since: 23, owner: "producao", structural: "ordem-producao",
+  },
+  {
+    table: P_INPUT,
+    ddl: [
+      `CREATE TABLE "${P_INPUT}" (
+  "order_id" TEXT NOT NULL,
+  "position" INTEGER NOT NULL,
+  "product_id" TEXT NOT NULL,
+  "per_unit" TEXT NOT NULL,
+  "loss_percent" TEXT NOT NULL DEFAULT '0.000000',
+  "from_composition" INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT "${P_INPUT}_pkey" PRIMARY KEY (order_id, position),
+  CONSTRAINT "${P_INPUT}_product_key" UNIQUE (order_id, product_id),
+  CONSTRAINT "${P_INPUT}_order_fkey" FOREIGN KEY (order_id) REFERENCES "${P_ORDER}" (id),
+  CONSTRAINT "${P_INPUT}_product_fkey" FOREIGN KEY (product_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${P_INPUT}_quantity_check" CHECK (${QTY6("per_unit")} AND ${QTY6("loss_percent")} AND position > 0 AND from_composition IN (0,1))
+) STRICT`,
+    ],
+    since: 23, owner: "producao", structural: "ordem-producao",
+  },
+  {
+    table: P_COMPLETION,
+    ddl: [
+      `CREATE TABLE "${P_COMPLETION}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "order_id" TEXT NOT NULL,
+  "position" INTEGER NOT NULL,
+  "quantity" TEXT NOT NULL,
+  "occurred_on" TEXT NOT NULL,
+  "lot_id" TEXT,
+  "inputs_cost" TEXT NOT NULL,
+  "extra_cost" TEXT NOT NULL,
+  "unit_cost" TEXT NOT NULL,
+  "note" TEXT,
+  "issue_movement_id" TEXT,
+  "receipt_movement_id" TEXT NOT NULL,
+  "state" TEXT NOT NULL DEFAULT 'active',
+  "reversed_at" INTEGER,
+  "reversed_by" TEXT,
+  "reverse_reason" TEXT,
+  "actor" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${P_COMPLETION}_position_key" UNIQUE (order_id, position),
+  CONSTRAINT "${P_COMPLETION}_command_key" UNIQUE (command_id),
+  CONSTRAINT "${P_COMPLETION}_order_fkey" FOREIGN KEY (order_id) REFERENCES "${P_ORDER}" (id),
+  CONSTRAINT "${P_COMPLETION}_issue_fkey" FOREIGN KEY (issue_movement_id) REFERENCES "erp_stock__movement" (id),
+  CONSTRAINT "${P_COMPLETION}_receipt_fkey" FOREIGN KEY (receipt_movement_id) REFERENCES "erp_stock__movement" (id),
+  CONSTRAINT "${P_COMPLETION}_lot_fkey" FOREIGN KEY (lot_id) REFERENCES "erp_stock__lot" (id),
+  CONSTRAINT "${P_COMPLETION}_state_check" CHECK ((state = 'active' AND reversed_at IS NULL) OR (state = 'reversed' AND reversed_at IS NOT NULL AND reverse_reason IS NOT NULL)),
+  CONSTRAINT "${P_COMPLETION}_value_check" CHECK (${QTY6("quantity")} AND ${DEC10("inputs_cost")} AND ${DEC10("extra_cost")} AND ${DEC10("unit_cost")} AND ${DATE10("occurred_on")})
+) STRICT`,
+    ],
+    since: 23, owner: "producao", structural: "ordem-producao",
+  },
+  {
+    table: P_COMPLETION_INPUT,
+    ddl: [
+      `CREATE TABLE "${P_COMPLETION_INPUT}" (
+  "completion_id" TEXT NOT NULL,
+  "position" INTEGER NOT NULL,
+  "product_id" TEXT NOT NULL,
+  "quantity" TEXT NOT NULL,
+  "unit_cost" TEXT,
+  "total_cost" TEXT NOT NULL,
+  CONSTRAINT "${P_COMPLETION_INPUT}_pkey" PRIMARY KEY (completion_id, position),
+  CONSTRAINT "${P_COMPLETION_INPUT}_completion_fkey" FOREIGN KEY (completion_id) REFERENCES "${P_COMPLETION}" (id),
+  CONSTRAINT "${P_COMPLETION_INPUT}_product_fkey" FOREIGN KEY (product_id) REFERENCES "erp_catalog__record" (id),
+  CONSTRAINT "${P_COMPLETION_INPUT}_value_check" CHECK (${QTY6("quantity")} AND (unit_cost IS NULL OR ${DEC10("unit_cost")}) AND ${DEC10("total_cost")})
+) STRICT`,
+    ],
+    since: 23, owner: "producao", structural: "ordem-producao",
+  },
+  {
+    table: P_COMMAND,
+    ddl: [
+      `CREATE TABLE "${P_COMMAND}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "actor" TEXT NOT NULL,
+  "action" TEXT NOT NULL,
+  "request_hash" TEXT NOT NULL,
+  "result" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${P_COMMAND}_result_check" CHECK (json_valid(result))
+) STRICT`,
+    ],
+    since: 23, owner: "producao", structural: "ordem-producao",
+  },
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1542,6 +1683,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...REPORT_TABLES,
   // Versão 22: o pacote do contador (src/erp/contador/package.ts).
   ...CONTADOR_TABLES,
+  // Versão 23: a ordem de produção (parte Produção; a 22 é de outra frente).
+  ...PRODUCTION_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

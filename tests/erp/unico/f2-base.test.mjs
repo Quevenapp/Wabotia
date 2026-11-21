@@ -26,7 +26,7 @@ function kv() {
 }
 
 test("normalização: só false desliga; cópia congelada, inclusive na forma ObjectLookup", () => {
-  assert.equal(ERP_MODULE_IDS.length, 9);
+  assert.equal(ERP_MODULE_IDS.length, 10);
   assert.ok(ERP_PART_KEYS.every(k => normalizeErpParts()[k]));
   assert.equal(normalizeErpParts({ stock: false }).stock, false);
   const input = { stock: false };

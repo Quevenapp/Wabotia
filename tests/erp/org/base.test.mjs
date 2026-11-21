@@ -304,7 +304,7 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     assert.deepEqual(tableSnapshot(db), before);
     assert.deepEqual(sqliteSchema(db), oldSchema);
     // A subida segue até a versão atual (12 acrescenta as 4 tabelas da adoção; 13, as 3 de documentos e contas; 19, as 6 da mão dupla; 22, as 2 do pacote do contador).
-    assert.equal(migrate(storage).version, 22);
+    assert.equal(migrate(storage).version, 23);
     assert.deepEqual(tableSnapshot(db, oldTables.filter(table => table !== "erp_meta")), Object.fromEntries(Object.entries(before).filter(([table]) => table !== "erp_meta")));
     const upgradedSchema = sqliteSchema(db);
     for (const object of oldSchema) assert.ok(upgradedSchema.some(after => JSON.stringify(after) === JSON.stringify(object)), object.name);

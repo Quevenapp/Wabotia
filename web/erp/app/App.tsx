@@ -13,7 +13,7 @@ export default function App() {
     '/notas-entrada','/naturezas-operacao','/inutilizacoes-nfe','/cartas-correcao',
     '/categorias-produtos','/grupos-produtos','/tags','/grupos-tags','/exportacao-produtos','/listas-precos','/campos-customizados',
     '/tipos-contatos-empresa','/vendedores-empresa','/formas-pagamento-empresa','/funcionarios-empresa','/importar-contatos','/numeracao-contatos',
-    '/visao-geral','/meu-negocio','/frente-caixa-empresa','/receber-bling','/notas-bling','/notas-recebidas-compras','/contador-fiscal'].includes(pathname) || pathname.startsWith('/preferencias/') || pathname === '/ajuda' || pathname.startsWith('/ajuda/')
+    '/visao-geral','/meu-negocio','/frente-caixa-empresa','/receber-bling','/notas-bling','/notas-recebidas-compras','/producao','/contador-fiscal'].includes(pathname) || pathname.startsWith('/preferencias/') || pathname === '/ajuda' || pathname.startsWith('/ajuda/')
     ? <NativeModuleBoundary resetKey="company-access" label="Carregando acesso…"><RealAccess /></NativeModuleBoundary>
     : <Navigate to="/acesso" replace />;
 }

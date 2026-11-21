@@ -36,11 +36,13 @@
 //     team_payment em erp_finance; 20→21, somente adição).
 // 22: duas tabelas do pacote do contador (package e part em erp_contador;
 //     21→22, somente adição).
+// 23: cinco tabelas da ordem de produção (order, order_input, completion,
+//     completion_input e command em erp_production; 22→23, somente adição).
 import { createHash } from "node:crypto";
 import { ERP_DDL_GENERATED, ERP_DDL_HASH as GENERATED_HASH } from "./ddl.generated.ts";
 import { ERP_ENGINE_DDL } from "./engine-tables.ts";
 
-export const ERP_DDL_VERSION = 22;
+export const ERP_DDL_VERSION = 23;
 export const ERP_DDL: readonly string[] = [...ERP_DDL_GENERATED, ...ERP_ENGINE_DDL];
 /** Hash do esquema: o do gerado; com tabelas do motor, o do gerado mais o DDL delas. */
 export const ERP_DDL_HASH: string = ERP_ENGINE_DDL.length
