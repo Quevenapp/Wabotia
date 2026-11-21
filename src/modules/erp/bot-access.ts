@@ -13,6 +13,7 @@ import { BLING_ADOPTION_OPERATIONS, BLING_ADOPTION_PARAMS } from "../../erp/blin
 import { erpCommercialOperations } from "./commercial-operations.ts";
 import { ERP_BACKUP_OPERATIONS } from "../../erp/engine/backup-operations.ts";
 import { ERP_CHARGE_OPERATIONS, ERP_CONVERSA_OPERATIONS, ERP_CONVERSA_ROUTE, erpConversaParams } from "../../erp/conversa/contract.ts";
+import { ERP_EMAIL_OPERATIONS, ERP_EMAIL_ROUTE, erpEmailParams } from "../../erp/email/contract.ts";
 import { RECEBIDAS_OPERATIONS, RECEBIDAS_ROUTE } from "../../erp/recebidas/operations.ts";
 import { ERP_CONTACT_FIELD_OPERATIONS, ERP_CONTACT_FIELDS_ROUTE } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_ROUTE, ERP_REPORT_OPERATIONS, erpReportParams } from "../../erp/relatorios/contract.ts";
@@ -40,6 +41,7 @@ export const ERP_BOT_GROUPS: readonly { id: string; title: string }[] = [
   { id: "bling", title: "Receber dados do Bling" },
   { id: "backup", title: "Backup do ERP" },
   { id: "conversa", title: "Enviar documentos pelo WhatsApp" },
+  { id: "email", title: "Enviar documentos por e-mail" },
   { id: "producao", title: "Produção (ordens de produção)" },
   { id: "expedicao", title: "Expedição" },
   { id: "frete", title: "Frete e rastreio" },
@@ -131,6 +133,9 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   // Cobrança de conta a receber (gerar e confirmar a sugestão de baixa) fica no assunto Financeiro.
   ...[...ERP_CHARGE_OPERATIONS, ...ERP_CONVERSA_OPERATIONS].filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
     group: op.group ?? "conversa", description: op.description, params: erpConversaParams(op) })),
+  // Documento do ERP por e-mail: preparar e ver os envios são leitura comum; enviar e reenviar são sensíveis (o bot propõe, a pessoa confirma).
+  ...ERP_EMAIL_OPERATIONS.filter(op => op.bot !== false).map(op => ({ id: op.name, method: op.method, path: op.path, summary: op.summary, sensitive: op.sensitive,
+    group: "email", description: op.description, params: erpEmailParams(op) })),
   // Compra pela nota recebida: buscar, importar, cadastrar fornecedor, dar entrada, estornar e manifestar gravam (sensíveis: o bot propõe, a pessoa confirma).
   ...RECEBIDAS_OPERATIONS.filter(op => op.bot).map(op => ({ id: op.name, method: op.method, path: `${RECEBIDAS_ROUTE}/${op.path}`, summary: op.summary,
     sensitive: op.sensitive, group: "nfe", description: op.description, params: { type: "object" as const, properties: {
@@ -195,6 +200,8 @@ export function erpBotModules(op: Pick<ErpBotOperation, "method" | "path">): rea
   // A parte de cada documento é conferida na rota (proposta e pedido: Vendas; nota: Fiscal; conta: Financeiro).
   if (op.path.startsWith(`${ERP_CONVERSA_ROUTE}/conta/:id/cobranca`)) return erpRequirement("erp-financeiro").all;
   if (op.path === ERP_CONVERSA_ROUTE || op.path.startsWith(`${ERP_CONVERSA_ROUTE}/`)) return erpRequirement("erp").all;
+  // E-mail: a parte de cada documento é conferida na rota.
+  if (op.path === ERP_EMAIL_ROUTE || op.path.startsWith(`${ERP_EMAIL_ROUTE}/`)) return erpRequirement("erp").all;
   // Campos próprios de contato: só a parte Cadastros.
   if (op.path === ERP_CONTACT_FIELDS_ROUTE || op.path.startsWith(`${ERP_CONTACT_FIELDS_ROUTE}/`)) return erpRequirement("erp").all;
   const report = op.path.startsWith(`${ERP_RELATORIOS_ROUTE}/`) ? ERP_REPORT_OPERATIONS.find(item => item.method === op.method && item.path === op.path) : undefined;

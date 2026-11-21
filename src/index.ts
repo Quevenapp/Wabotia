@@ -1295,6 +1295,15 @@ const erpConversa = async (c: any) => {
 };
 app.all("/api/v1/profiles/:profile/erp-conversa", erpConversa);
 app.all("/api/v1/profiles/:profile/erp-conversa/*", erpConversa);
+// Documentos do ERP por e-mail (proposta, pedido, compra, NF-e, NFC-e e
+// cobrança) pelo e-mail da instalação: pessoa com o documento visível no ERP
+// (src/erp/email/routes.ts).
+const erpEmail = async (c: any) => {
+  const { erpEmailRoute } = await import("./erp/email/routes");
+  return erpEmailRoute(c.get("pre") ?? c.env, c.req.raw, c.req.param("profile"), c.get("actor"));
+};
+app.all("/api/v1/profiles/:profile/erp-email", erpEmail);
+app.all("/api/v1/profiles/:profile/erp-email/*", erpEmail);
 // Consulta de CNPJ para o cadastro de contato (bases públicas da Receita, pelo servidor;
 // nada é gravado): src/erp/cnpj/routes.ts.
 app.get("/api/v1/profiles/:profile/erp-cnpj/:cnpj", async (c: any) => {

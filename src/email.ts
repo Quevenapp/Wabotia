@@ -40,7 +40,22 @@ export interface EmailMessage {
   subject: string;
   text: string;
   html?: string;
+  /** Opcionais (documentos do ERP, src/erp/email): cópias, responder-para, nome do remetente e anexos. */
+  cc?: readonly string[];
+  replyTo?: string;
+  fromName?: string;
+  attachments?: readonly EmailAttachment[];
 }
+
+/** Anexo de e-mail (PDF, XML); vai em base64 no pedido ao provedor. */
+export interface EmailAttachment {
+  name: string;
+  type: string;
+  bytes: Uint8Array;
+}
+/** Soma dos anexos de um e-mail (antes do base64), abaixo do limite de 25 MiB da mensagem. */
+export const EMAIL_ATTACHMENTS_MAX_BYTES = 15 * 1024 * 1024;
+export const EMAIL_CC_MAX = 5;
 
 /** Fachada exclusiva da outbox do canal. Módulos e transcrição não a utilizam. */
 export interface ChannelEmailMessage {
@@ -366,6 +381,35 @@ class ProviderError extends ApiError {
   }
 }
 
+function base64(bytes: Uint8Array): string {
+  const parts: string[] = [];
+  for (let start = 0; start < bytes.length; start += 24_576)
+    parts.push(btoa(String.fromCharCode(...bytes.subarray(start, start + 24_576))));
+  return parts.join("");
+}
+
+/** Cópias, responder-para, nome do remetente e anexos: conferidos antes de qualquer gravação. */
+function checkExtras(msg: EmailMessage, to: string): Pick<EmailMessage, "cc" | "replyTo" | "fromName" | "attachments"> {
+  const bad = (message: string): never => { throw new ApiError(400, "invalid_request", message); };
+  const cc = [...new Set((msg.cc ?? []).map(value => String(value || "").trim().toLowerCase()))].filter(value => value && value !== to);
+  if (cc.length > EMAIL_CC_MAX) bad(`Use no máximo ${EMAIL_CC_MAX} endereços de cópia.`);
+  if (cc.some(value => !validEmail(value))) bad("E-mail de cópia inválido.");
+  const replyTo = msg.replyTo === undefined ? undefined : String(msg.replyTo).trim().toLowerCase();
+  if (replyTo !== undefined && !validEmail(replyTo)) bad("E-mail de resposta inválido.");
+  const fromName = msg.fromName === undefined ? undefined : String(msg.fromName).trim();
+  if (fromName !== undefined && (fromName.length > 100 || /[\r\n<>"]/.test(fromName))) bad("Nome do remetente inválido: até 100 caracteres, sem aspas nem quebras de linha.");
+  const attachments = msg.attachments ?? [];
+  if (attachments.length > 10) bad("Use no máximo 10 anexos.");
+  let total = 0;
+  for (const file of attachments) {
+    if (!file.name || file.name.length > 200 || /[\u0000-\u001f\u007f/\\]/.test(file.name) || !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(file.type) ||
+        !(file.bytes instanceof Uint8Array) || !file.bytes.byteLength) bad("Anexo inválido.");
+    total += file.bytes.byteLength;
+  }
+  if (total > EMAIL_ATTACHMENTS_MAX_BYTES) throw new ApiError(413, "attachment_too_large", "Os anexos passam de 15 MB. Envie menos arquivos.");
+  return { ...(cc.length ? { cc } : {}), ...(replyTo ? { replyTo } : {}), ...(fromName ? { fromName } : {}), ...(attachments.length ? { attachments } : {}) };
+}
+
 /** Transporte comum, mantendo o contrato de módulos e transcrição. */
 function emailProviderRequest(cfg: EmailConfig, body: string): Promise<Response> {
   return safeFetch(`${API}/accounts/${cfg.account_id}/email/sending/send`, {
@@ -380,14 +424,22 @@ async function deliver(
 ): Promise<EmailStatus> {
   let response: Response;
   try {
+    // cc, reply_to e attachments (content em base64, filename, type,
+    // disposition): campos do envio da Cloudflare a conferir com a conta real,
+    // como o resto deste contrato (docs/EMAIL.md). Só vão quando pedidos.
+    const fromName = msg.fromName || cfg.from_name;
     response = await emailProviderRequest(cfg, JSON.stringify({
           to: msg.to,
-          from: cfg.from_name
-            ? { address: cfg.from_address, name: cfg.from_name }
+          from: fromName
+            ? { address: cfg.from_address, name: fromName }
             : cfg.from_address,
           subject: msg.subject,
           text: msg.text,
           ...(msg.html ? { html: msg.html } : {}),
+          ...(msg.cc?.length ? { cc: [...msg.cc] } : {}),
+          ...(msg.replyTo ? { reply_to: msg.replyTo } : {}),
+          ...(msg.attachments?.length ? { attachments: msg.attachments.map(file => ({
+            content: base64(file.bytes), filename: file.name, type: file.type, disposition: "attachment" })) } : {}),
         }));
   } catch (e) {
     if (e instanceof ApiError) throw e;
@@ -457,6 +509,7 @@ export async function sendEmail(
     (typeof msg.html !== "string" || msg.html.length > 200000)
   )
     throw new ApiError(400, "invalid_request", "HTML do e-mail inválido.");
+  const extras = checkExtras(msg, to);
   const cfg = await emailConfig(env);
   if (!configured(cfg))
     throw new ApiError(
@@ -488,7 +541,7 @@ export async function sendEmail(
     return { id: previous.id, status: previous.status, repeated: true };
   }
   try {
-    const status = await deliver(cfg, { ...msg, to });
+    const status = await deliver(cfg, { to, subject: msg.subject, text: msg.text, ...(msg.html !== undefined ? { html: msg.html } : {}), ...extras });
     await exec(env, "UPDATE email_log SET status=? WHERE id=?", status, id);
     return { id, status };
   } catch (e) {

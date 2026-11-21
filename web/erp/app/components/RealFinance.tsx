@@ -11,6 +11,8 @@ import { boletoMenu, sameRemittance, shareableCharge, whatsappMessage, whatsappU
 import FinanceWhatsappShare, { type WhatsappShare } from './FinanceWhatsappShare';
 import { WhatsappSendDialog } from './WhatsappSend';
 import { useWhatsappLines, whatsappButtonState } from '../lib/whatsapp-send';
+import { EmailSendDialog } from './EmailSend';
+import { emailButtonState, useEmailSituation } from '../lib/email-send';
 import { Icon } from './Icon';
 import { useUnsavedChanges, useUnsavedChangesGuard, useUnsavedForm } from '../hooks/useUnsavedChanges';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
@@ -339,6 +341,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
   const [settleSelection, setSettleSelection] = useState<{ scope: string; titles: FinanceTitle[] } | null>(null);
   const [share, setShare] = useState<WhatsappShare | null>(null);
   const whatsappLines = useWhatsappLines(); const [whatsappSend, setWhatsappSend] = useState<string | null>(null);
+  const emailState = useEmailSituation(); const [emailSend, setEmailSend] = useState<string | null>(null);
   // Wabotia: "Boleto já baixado no banco" (title_bank_writeoff) aberto pelo ⋮ da conta a receber em remessa.
   const [writeoff, setWriteoff] = useState<{ scope: string; title: FinanceTitle } | null>(null);
   const [printJob, setPrintJob] = useState<{ scope: string; print: FinancePrint; prefs?: boolean } | null>(null), [printMenu, setPrintMenu] = useState(false), [printNotes, setPrintNotes] = useState(false);
@@ -559,6 +562,10 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
     const send = title.kind === 'receivable' && !title.cancelled && (title.status === 'open' || title.status === 'partial') ? whatsappButtonState('conta', whatsappLines) : null;
     if (send) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
       items.splice(at < 0 ? items.length : at, 0, { label: 'Enviar pelo WhatsApp', icon: 'whatsapp', disabled: send.disabled, title: send.title, onClick: () => setWhatsappSend(title.id) }); }
+    // Documentos por e-mail (src/erp/email): a cobrança da conta a receber em aberto (boleto, Pix ou link) pelo e-mail da instalação.
+    const mail = title.kind === 'receivable' && !title.cancelled && (title.status === 'open' || title.status === 'partial') ? emailButtonState('conta', emailState) : null;
+    if (mail) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
+      items.splice(at < 0 ? items.length : at, 0, { label: 'Enviar por e-mail', icon: 'paper-plane', disabled: mail.disabled, title: mail.title, onClick: () => setEmailSend(title.id) }); }
     // Leva H (FIN-052): the boleto entries by the real situation of the conta and of its cobrança.
     // Wabotia: boletos e remessas são do bloco Cobrança bancária (web/erp/blocks.ts); desligado, os itens somem.
     if (blockEnabled('erp-cobranca')) { const boleto = boletoMenu(title as FinanceTitleRow, Boolean(permissions?.write) && financePermitted(permissions, 'financas.remessas.ie')); if (boleto.length) { const at = items.findIndex(item => item.label === 'Clonar' || item.label === 'Excluir');
@@ -687,6 +694,7 @@ export default function RealFinance({ controller, initialTab = 'receivable' }: {
       history={titleDrawer.title && <FinancialHistory key={titleDrawer.title.id} controller={controller} title={titleDrawer.title} writable={titleDrawer.mode === 'edit'} onReverse={payment => leaveGuard.confirmLeave(() => { if (!mayRead() || permissionScope.current !== authScope || !permissions?.write) return; setNotice(''); setView(previous => ({ ...previous, editor: { mode: 'reverse', payment } })); })} />} />}
     {share && share.scope === routeKey && <FinanceWhatsappShare share={share} onClose={() => setShare(null)} />}
     {whatsappSend && <WhatsappSendDialog type="conta" id={whatsappSend} onClose={() => setWhatsappSend(null)} />}
+    {emailSend && <EmailSendDialog type="conta" id={emailSend} onClose={() => setEmailSend(null)} />}
     {writeoff && writeoff.scope === routeKey && <FinanceBankWriteoff key={`${writeoff.title.id}:${writeoff.title.version}`} controller={controller} title={writeoff.title} onClose={() => setWriteoff(null)} onDone={() => { setWriteoff(null); setNotice(BANK_WRITEOFF_DONE); setReload(value => value + 1); }} />}
     {printVisible && entity === 'titles' && (!financePreferences.loaded || printVisible.print.mode === 'credit' && !printVisible.prefs) ? prefsWait : printVisible && entity === 'titles' && <FinancePrintPreview controller={controller} kind={kind} print={printVisible.print} receiptHeader={financePreferences.values[kind === 'receivable' ? 'financas.receber_cabecalho_recibo' : 'financas.pagar_cabecalho_recibo'] === true} onClose={() => setPrintJob(null)} />}
     {columnsOpen && entity === 'titles' && <ColumnsDialog kind={kind} chosen={chosenColumns} onCancel={() => setColumnsOpen(false)} onApply={next => { const value = { view: 'customizada' as const, columns: customColumns(kind, next) }; setColumnState({ key: columnKey, ...value }); storeColumns(kind, owner, value); if (listPreferencesOn) listPrefs.saveColumns(value.columns); setColumnsOpen(false); }} />}

@@ -1,6 +1,7 @@
 import { COM1_MODULE_CONTRACT } from "../../erp/commercial-nfe/metadata.ts";
 import { ERP_BACKUP_MODULE_CONTRACT } from "../../erp/engine/backup-operations.ts";
 import { ERP_CONVERSA_MODULE_CONTRACT } from "../../erp/conversa/contract.ts";
+import { ERP_EMAIL_MODULE_CONTRACT } from "../../erp/email/contract.ts";
 import { ERP_CONTACT_FIELDS_MODULE_CONTRACT } from "../../erp/contact-fields/contract.ts";
 import { ERP_RELATORIOS_MODULE_CONTRACT } from "../../erp/relatorios/contract.ts";
 import { ERP_CONTADOR_MODULE_CONTRACT } from "../../erp/contador/contract.ts";
@@ -33,11 +34,12 @@ export const erpModule: ModuleDefinition = {
   // Envio de documentos pela conversa (src/erp/conversa/contract.ts): o mesmo contrato.
   // Campos próprios de contato (src/erp/contact-fields/contract.ts): o mesmo contrato.
   // Relatórios do ERP (src/erp/relatorios/contract.ts): DRE, gráficos, lotes vencendo e pagamento da equipe.
-  routes: ["erp", ...ERP_BACKUP_MODULE_CONTRACT.routes, ...ERP_CONVERSA_MODULE_CONTRACT.routes, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.routes, ...ERP_RELATORIOS_MODULE_CONTRACT.routes],
-  operations: [...ERP_BACKUP_MODULE_CONTRACT.operations, ...ERP_CONVERSA_MODULE_CONTRACT.operations, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.operations, ...ERP_RELATORIOS_MODULE_CONTRACT.operations],
+  // Envio de documentos por e-mail (src/erp/email/contract.ts): o mesmo contrato.
+  routes: ["erp", ...ERP_BACKUP_MODULE_CONTRACT.routes, ...ERP_CONVERSA_MODULE_CONTRACT.routes, ...ERP_EMAIL_MODULE_CONTRACT.routes, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.routes, ...ERP_RELATORIOS_MODULE_CONTRACT.routes],
+  operations: [...ERP_BACKUP_MODULE_CONTRACT.operations, ...ERP_CONVERSA_MODULE_CONTRACT.operations, ...ERP_EMAIL_MODULE_CONTRACT.operations, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.operations, ...ERP_RELATORIOS_MODULE_CONTRACT.operations],
   bot: {
-    sensitive: [...ERP_BACKUP_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONVERSA_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_RELATORIOS_MODULE_CONTRACT.definition.bot.sensitive],
-    hints: { ...ERP_BACKUP_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONVERSA_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.definition.bot.hints, ...ERP_RELATORIOS_MODULE_CONTRACT.definition.bot.hints },
+    sensitive: [...ERP_BACKUP_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONVERSA_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_EMAIL_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.definition.bot.sensitive, ...ERP_RELATORIOS_MODULE_CONTRACT.definition.bot.sensitive],
+    hints: { ...ERP_BACKUP_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONVERSA_MODULE_CONTRACT.definition.bot.hints, ...ERP_EMAIL_MODULE_CONTRACT.definition.bot.hints, ...ERP_CONTACT_FIELDS_MODULE_CONTRACT.definition.bot.hints, ...ERP_RELATORIOS_MODULE_CONTRACT.definition.bot.hints },
   },
   grants: [
     {

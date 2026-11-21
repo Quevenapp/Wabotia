@@ -50,6 +50,8 @@ import PurchaseEffectsBatch, { PURCHASE_EFFECT_LABELS, PURCHASE_EFFECT_ROLES, ty
 import DocumentPrintPreview from './DocumentPrintPreview';
 import { WhatsappSendDialog } from './WhatsappSend';
 import { useWhatsappLines, whatsappButtonState, type WhatsappDocType } from '../lib/whatsapp-send';
+import { EmailSendDialog } from './EmailSend';
+import { emailButtonState, useEmailSituation, type EmailDocType } from '../lib/email-send';
 import DocumentBatchPrint from './DocumentBatchPrint';
 import { Icon } from './Icon';
 import { CatalogPicker } from './DocumentCatalogPicker';
@@ -184,6 +186,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
   const [trashAction, setTrashAction] = useState<'delete' | 'restore' | null>(null);
   const [printOptions, setPrintOptions] = useState<{ detailed: boolean; order: PrintItemOrder; explode: boolean; hideThirdParty: boolean }>({ detailed: false, order: 'insertion', explode: false, hideThirdParty: false }); const [labels, setLabels] = useState<AddressLabel[] | null>(null), [labelReading, setLabelReading] = useState(false);
   const whatsappLines = useWhatsappLines(); const [whatsappSend, setWhatsappSend] = useState<{ type: WhatsappDocType; id: string } | null>(null);
+  const emailState = useEmailSituation(); const [emailSend, setEmailSend] = useState<{ type: EmailDocType; id: string } | null>(null);
   const [busy, setBusy] = useState(false); const [uncertain, setUncertain] = useState(false); const [actionError, setActionError] = useState(''); const [actionNotice, setActionNotice] = useState('');
   const [catalogRead, setCatalogRead] = useState<string[]>([]); const [warehouses, setWarehouses] = useState<CatalogRecord[]>([]);
   const [productQuery, setProductQuery] = useState(''); const [products, setProducts] = useState<CatalogRecord[]>([]); const [productSearching, setProductSearching] = useState(false);
@@ -487,6 +490,14 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
       items.splice(at < 0 ? items.length : at + 1, 0, { label: 'Enviar pelo WhatsApp', icon: 'whatsapp', disabled: send.disabled, title: send.title,
         onClick: () => setWhatsappSend({ type: sendType, id: row.id }) });
     }
+    // Documentos por e-mail (src/erp/email): no painel da área, o "Enviar por e-mail" desligado do menu passa a abrir o envio.
+    const mailType = kind === 'sales_proposals' ? 'proposta' : kind === 'sales_orders' ? 'pedido' : kind === 'purchase_orders' ? 'compra' : null;
+    const mailBlocked = row.template ? 'Modelo de documento não vai por e-mail.' : row.status === 'cancelled' ? `${mailType === 'compra' ? 'Pedido de compra cancelado' : mailType === 'proposta' ? 'Proposta cancelada' : 'Pedido cancelado'} não vai por e-mail.`
+      : row.status === 'draft' && mailType !== 'compra' ? `${mailType === 'proposta' ? 'Proposta' : 'Pedido'} em digitação não vai ao cliente.` : null;
+    const mail = mailType && !readonly ? emailButtonState(mailType, emailState, mailBlocked) : null;
+    const mailAt = items.findIndex(item => item.label === 'Enviar por e-mail');
+    if (mailType && mail && mailAt >= 0)
+      items.splice(mailAt, 1, { ...items[mailAt]!, disabled: mail.disabled, title: mail.title, onClick: () => setEmailSend({ type: mailType, id: row.id }) });
     return items;
   };
 
@@ -723,6 +734,7 @@ function DocumentListBody(props: DocumentListProps & { readonlyIds: string[] }) 
         <label className="document-check" htmlFor="documents-print-third" title="Não imprime os itens cujo produto tem Produção: Terceiros no cadastro (os totais do pedido continuam os mesmos)."><input id="documents-print-third" type="checkbox" checked={printOptions.hideThirdParty} onChange={event => { const hideThirdParty = event.target.checked; setPrintOptions(previous => ({ ...previous, hideThirdParty })); }} />Ocultar itens produzidos por terceiros</label></fieldset>}
       <p className="real-help">Lê a versão salva de cada documento selecionado. A prévia abre ao fechar este resumo.</p></>} />}
     {whatsappSend && <WhatsappSendDialog type={whatsappSend.type} id={whatsappSend.id} onClose={() => setWhatsappSend(null)} />}
+    {emailSend && <EmailSendDialog type={emailSend.type} id={emailSend.id} onClose={() => setEmailSend(null)} />}
     {printRecord && <DocumentPrintPreview record={printRecord.record} variant={printRecord.variant} options={printRecord.options} controller={controller} onClose={() => setPrintRecord(null)} />}
     {printQuestion && <CustomFieldsPrintQuestion onCancel={() => setPrintQuestion(null)} onPrint={include => { const asked = printQuestion; setPrintQuestion(null);
       setPrintRecord({ record: asked.record, variant: asked.variant, options: include ? { ...asked.options, customFields: asked.fields } : asked.options }); }} />}

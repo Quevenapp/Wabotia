@@ -196,6 +196,12 @@ export async function commercialNfeRoute(env: Env, request: Request, profile: st
     if (result.headers.get("Content-Type")?.includes("application/json")) {
       const data = await result.clone().json();
       if (containsRestrictedContact(data, new Set(currentPrivacy.restricted_contact_ids))) throw new ApiError(403, "erp_customer_restricted", "O resultado contém cadastro restrito.");
+      // NF-e autorizada agora: e-mail ao destinatário se a preferência estiver ligada (src/erp/email; nasce desligada).
+      // Nunca derruba a emissão: o que não sai fica no registro da nota.
+      if ((operation.name === "com1.emit" || operation.name === "com1.resume") && result.ok && id && (data as { status?: unknown })?.status === "autorizada") {
+        const { autoSendInvoiceEmail } = await import("../email/service.ts");
+        await autoSendInvoiceEmail(env, profile, actor, id).catch(() => null);
+      }
     }
     const headers = new Headers(result.headers);
     headers.set("Cache-Control", "private, no-store"); headers.set("X-Content-Type-Options", "nosniff");

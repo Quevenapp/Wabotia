@@ -131,8 +131,9 @@ async function companyLogo(env: Env, profile: string, actor: Actor) {
   }
 }
 
-/** O PDF igual à impressão da tela (mesmo modelo); documento que o modelo recusa: a via simples. */
-async function salesPdf(env: Env, profile: string, actor: Actor, doc: Record<string, any>, printable: PrintableDocument, status: string | null): Promise<Uint8Array> {
+/** O PDF igual à impressão da tela (mesmo modelo); documento que o modelo recusa: a via simples.
+ * Exportado também para o pedido de compra por e-mail (src/erp/email/documents.ts). */
+export async function salesPdf(env: Env, profile: string, actor: Actor, doc: Record<string, any>, printable: PrintableDocument, status: string | null): Promise<Uint8Array> {
   try {
     const [{ documentPrintModel }, { printModelPdf }] = await Promise.all([import("../../../web/erp/app/lib/document-print-model.ts"), import("./print-pdf.ts")]);
     let company = null;
