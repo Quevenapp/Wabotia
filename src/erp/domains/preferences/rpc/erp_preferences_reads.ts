@@ -16,6 +16,9 @@ import { bool, date, int, text, uuid } from "../args.ts";
 import { nowMicros } from "../platform.ts";
 import { compareText } from "../order.ts";
 
+/** Versão 28: o tipo real do lote (import_job_kind) vale sobre o tipo de apoio de import_job. */
+export const IMPORT_JOB_KIND_SQL = `coalesce((SELECT k.kind FROM "erp_preferences__import_job_kind" k WHERE k.job_id="erp_preferences__import_job".id), "erp_preferences__import_job".kind)`;
+
 const ts = (v: unknown) => (v === null || v === undefined ? null : jsonTimestamp(String(v)));
 
 /** Membro ativo administrador? null quando não é membro ativo. */
@@ -29,7 +32,7 @@ function importAdmin(db: SqlDriver, user: string | null): boolean {
 export function importJobDto(db: SqlDriver, id: string) {
   const j = one(
     db,
-    `SELECT id, kind, file_name, total_rows, rows_done, created, updated, unchanged, invalid, status, actor,
+    `SELECT id, ${IMPORT_JOB_KIND_SQL} kind, file_name, total_rows, rows_done, created, updated, unchanged, invalid, status, actor,
      CAST(created_at AS TEXT) created_at, CAST(updated_at AS TEXT) updated_at, CAST(finished_at AS TEXT) finished_at
      FROM "erp_preferences__import_job" WHERE id=?`,
     id,
@@ -103,7 +106,7 @@ export function erpPreferencesImportJobs(ctx: RpcContext, a: RpcArgs) {
     raise("22023", "erp_preferences_import_invalid");
   const allowedKinds = Object.values(ERP_IMPORT_KINDS).filter(kind => queryAvailable(ctx.parts, erpImportRequirement(kind)));
   const split = Object.values(ctx.parts).some(value => !value);
-  const where = "(? OR actor=?) AND (? IS NULL OR status=?)" + (split ? ` AND kind IN (${allowedKinds.map(() => "?").join(",")})` : "");
+  const where = "(? OR actor=?) AND (? IS NULL OR status=?)" + (split ? ` AND ${IMPORT_JOB_KIND_SQL} IN (${allowedKinds.map(() => "?").join(",")})` : "");
   const args = [admin ? 1 : 0, user, status, status, ...(split ? allowedKinds : [])];
   const total = Number(one(db, `SELECT count(*) n FROM "erp_preferences__import_job" WHERE ${where}`, ...args)!.n);
   const ids = db

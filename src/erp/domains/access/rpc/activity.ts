@@ -1,6 +1,6 @@
 import { ErpPartDisabled } from "../../../engine/parts-gate.ts";
 import { erpRequirement, erpRequirementMet, type ErpModuleId, type ErpRequirement } from "../../../parts.ts";
-import { erpEntityRequirement, erpListRequirement, erpFieldRequirement, erpPreferenceFieldRequirement, erpReportRequirement, erpDestinationRequirement, erpOperationRequirement } from "../../../parts-requirements.ts";
+import { erpEntityRequirement, erpListRequirement, erpFieldRequirement, erpPreferenceFieldRequirement, erpReportRequirement, erpDestinationRequirement, erpOperationRequirement, erpImportRequirement } from "../../../parts-requirements.ts";
 import { projectCatalogRecord, CONTACT_FINANCE_FIELDS, PAYMENT_FINANCE_FIELDS, SELLER_FINANCE_FIELDS, PRODUCT_STOCK_FIELDS } from "../../catalog/part-projection.ts";
 import { projectDocument } from "../../documents/internal.ts";
 // Atividade: public.erp_activity_list e erp_activity_detail.
@@ -21,6 +21,7 @@ const MODULES = [
 ];
 const OPERATIONS = ["atualizacao", "atualizacao_situacao", "criacao", "envio", "estorno", "exclusao", "lancamento", "transferencia"];
 const btrim = (t: string) => t.replace(/^ +| +$/g, "");
+const IMPORT_TEXT: Record<string, string> = { product_taxes: "dados fiscais dos produtos", natures: "naturezas de operação", opening_balances: "saldos iniciais das contas" };
 
 registerRpc("erp_activity_list", (ctx: RpcContext, a: RpcArgs) => {
   const db = ctx.db;
@@ -56,6 +57,9 @@ registerRpc("erp_activity_list", (ctx: RpcContext, a: RpcArgs) => {
         const [prefix, target] = d.slice("@users:".length).split("|");
         r.description = [...(prefix + actorLabel(db, target))].slice(0, 200).join("");
       }
+      // Versão 28: a planilha fiscal, de naturezas e de saldos tem o tipo real em import_job_kind.
+      const real = r.source === "imports" && d !== null ? one(db, "SELECT kind FROM erp_preferences__import_job_kind WHERE job_id=?", r.entry_id) : null;
+      if (real) r.description = [...d!.replace(/^Importação de planilha de .+? · /, `Importação de planilha de ${IMPORT_TEXT[String(real.kind)] ?? "dados"} · `)].slice(0, 200).join("");
       return r;
     })
     .filter(
@@ -217,6 +221,9 @@ function eventRequirement(ctx: RpcContext, entry: Row, audit: Row): ErpRequireme
   }
   if (source === "imports") {
     const row = one(ctx.db, 'SELECT kind FROM erp_preferences__import_job WHERE id=?', entry.entry_id);
+    // Versão 28: o tipo real das importações fiscal, de naturezas e de saldos.
+    const real = row && one(ctx.db, 'SELECT kind FROM erp_preferences__import_job_kind WHERE job_id=?', entry.entry_id);
+    if (real) return erpImportRequirement(real.kind);
     if (row?.kind === "compositions") return erpOperationRequirement("composition");
     if (row?.kind === "product_suppliers") return erpRequirement("erp-produtos", "erp-compras", "erp-estoque");
     return entity(row?.kind);

@@ -295,7 +295,8 @@ export function rpcPartsRequirement(ctx: RpcContext, name: string, a: RpcArgs): 
   }
   if (rule === "import") {
     const saved = rowAt(ctx.db, "erp_preferences__import_job", a.p_job_id ?? a.p_id);
-    const kind = saved?.kind ?? a.p_kind;
+    // Versão 28: o tipo real das importações fiscal, de naturezas e de saldos.
+    const kind = (saved ? rowAt(ctx.db, "erp_preferences__import_job_kind", saved.id, "job_id")?.kind ?? saved.kind : null) ?? a.p_kind;
     const batch = name === "erp_preferences_import_batch";
     const supplied = erpImportRequirement(a.p_kind), stored = erpImportRequirement(kind);
     if (batch && supplied) add(supplied);

@@ -2,11 +2,13 @@ import {useEffect,useMemo,useRef,useState,useSyncExternalStore} from 'react';
 import {Link} from 'react-router-dom';
 import {AccessError,type AccessState,type NativeRequestOptions} from '../lib/real-access';
 import {SCREEN_TEMPLATES,readSpreadsheet,SheetReadError,autoMapping,batches,batchPath,reasonText,STATUS_TEXT,ACTION_TEXT,IMPORT_JOBS_SCREEN,importScreen,parseImportBatchResult,plural,
- IMPORT_FILE_ROWS,spreadsheetImportPlan,type ImportKind,type ImportItem,type ImportResult,type ImportJob} from '../lib/spreadsheet-import';
+ IMPORT_FILE_ROWS,IMPORT_PREVIEW_KINDS,IMPORT_DEFAULT_CHANGE,spreadsheetImportPlan,type ImportKind,type ImportItem,type ImportResult,type ImportJob} from '../lib/spreadsheet-import';
 import {CSV_TYPE,XLSX_TYPE,downloadFile} from '../lib/spreadsheet-export';
 import type {ContactTypeItem} from '../lib/contact-list-model';
 import {useUnsavedChanges} from '../hooks/useUnsavedChanges';
 import {Icon} from './Icon';
+import {ERP_BLOCK_LABELS} from '../../blocks.ts';
+import {erpImportRequirement} from '../../../../src/erp/parts-requirements.ts';
 import './spreadsheet-import.css';
 
 export interface ImportController{getSnapshot:()=>AccessState;subscribe:(fn:()=>void)=>()=>void;system:(path:string,options?:NativeRequestOptions)=>Promise<unknown>;
@@ -18,7 +20,10 @@ const aborted=(e:unknown)=>e instanceof DOMException&&e.name==='AbortError';
 const admin=(s:AccessState)=>s.phase==='ready'&&s.membership?.role==='admin';
 // An answer that did not arrive (timeout, network, 5xx or "unconfirmed") may have been recorded: only the same command can tell.
 const uncertain=(e:unknown)=>!(e instanceof AccessError)||[0,408,500,502,503,504].includes(e.status);
-const refusal=(e:unknown)=>e instanceof AccessError&&e.code==='module_disabled'?'Esta importação depende de uma parte desligada. Ative as partes necessárias nas configurações da área.'
+// Wabotia: a parte desligada é dita pelo nome (Gestão → Módulos).
+const partsOf=(kind:ImportKind)=>{const ids=(erpImportRequirement(kind)?.all??[]).filter(id=>id!=='erp').map(id=>ERP_BLOCK_LABELS[id as keyof typeof ERP_BLOCK_LABELS]??id);
+ return ids.length>1?`${ids.slice(0,-1).join(', ')} e ${ids.at(-1)}`:ids[0]??null;};
+const refusal=(e:unknown,kind:ImportKind)=>e instanceof AccessError&&e.code==='module_disabled'?(partsOf(kind)?`Esta importação depende de ${partsOf(kind)}. Ligue em Gestão → Módulos e tente de novo.`:'Esta importação depende de uma parte desligada. Ative as partes necessárias nas configurações da área.')
  :e instanceof AccessError&&['erp_parts_stale','erp_parts_unavailable'].includes(e.code??'')?'Não foi possível conferir as partes do ERP. Atualize a página e tente novamente.'
  :e instanceof AccessError&&e.status===403?'Somente administradores importam planilhas.'
  :e instanceof AccessError&&e.status===409?'Esta importação mudou ou já foi concluída. Valide a planilha de novo.':'O servidor recusou o lote; nada dele foi gravado. Confira a planilha e valide de novo.';
@@ -35,6 +40,8 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
  const allowed=admin(snapshot)&&snapshot.membership?.user_id===actor.current;
  const [file,setFile]=useState<{name:string;cells:string[][]}|null>(null),[mapping,setMapping]=useState<Record<string,string>>({}),[step,setStep]=useState<Step>('file');
  const [results,setResults]=useState<Map<number,ImportResult>>(new Map()),[job,setJob]=useState<ImportJob|null>(null),[pending,setPending]=useState<Batch|null>(null);
+ // Versão 28: trocar a natureza padrão pela planilha só com esta confirmação.
+ const [confirmDefault,setConfirmDefault]=useState(false);
  const [busy,setBusy]=useState(false),[progress,setProgress]=useState(''),[error,setError]=useState(''),[types,setTypes]=useState<ContactTypeItem[]>([]);
  const request=useRef<AbortController|null>(null),remaining=useRef<Batch[]>([]),alive=useRef(true),generation=useRef(0),jobRef=useRef<{id:string;total:number}|null>(null);
  const guard=useUnsavedChanges(Boolean(file)&&step!=='done',busy||Boolean(pending?.uncertain));
@@ -46,7 +53,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
   void controller.catalog('/v1/cadastros/tipos-contato',{signal:p.signal}).then(v=>{const items=(v as {items?:ContactTypeItem[]}).items;if(!p.signal.aborted&&Array.isArray(items))setTypes(items);}).catch(()=>undefined);
   return()=>p.abort();},[controller,kind]);
  const parsed=useMemo(()=>file?template.parse(file.cells,mapping,{types}):null,[file,mapping,types,template]);
- const reset=()=>{generation.current++;request.current?.abort();request.current=null;setResults(new Map());setJob(null);setPending(null);remaining.current=[];jobRef.current=null;setError('');setProgress('');setBusy(false);};
+ const reset=()=>{setConfirmDefault(false);generation.current++;request.current?.abort();request.current=null;setResults(new Map());setJob(null);setPending(null);remaining.current=[];jobRef.current=null;setError('');setProgress('');setBusy(false);};
  const read=async(selected:File)=>{
   reset();setFile(null);setStep('file');const gen=generation.current;
   try{
@@ -77,7 +84,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
     for(const r of out.items)found.set(r.row,r);
    }
    setResults(found);setStep('checked');
-  }catch(e){if(may(gen)&&!aborted(e))setError(e instanceof SheetReadError?e.message:e instanceof AccessError&&([403,409].includes(e.status)||e.code==='erp_parts_unavailable')?refusal(e):'Não foi possível validar a planilha agora. Tente de novo.');}
+  }catch(e){if(may(gen)&&!aborted(e))setError(e instanceof SheetReadError?e.message:e instanceof AccessError&&([403,409].includes(e.status)||e.code==='erp_parts_unavailable'||e.code==='module_disabled')?refusal(e,kind):'Não foi possível validar a planilha agora. Tente de novo.');}
   finally{if(request.current===current){request.current=null;setBusy(false);setProgress('');}}
  };
  const run=async(list:Batch[])=>{
@@ -96,7 +103,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
     catch(e){
      if(!sameFile())return;
      if(!may(gen)||current.signal.aborted){unconfirmed(batch,i);return;}
-     if(!batch.uncertain&&!uncertain(e)){setPending(null);remaining.current=[];setError(`Lote ${i+1}: ${refusal(e)}`);setStep('checked');return;}
+     if(!batch.uncertain&&!uncertain(e)){setPending(null);remaining.current=[];setError(`Lote ${i+1}: ${refusal(e,kind)}`);setStep('checked');return;}
      unconfirmed(batch,i);return;
     }
     if(!sameFile())return;
@@ -108,7 +115,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
  };
  const importValid=async()=>{
   if(!parsed||busy||step!=='checked'||!allowed||pending)return;
-  const valid=parsed.items.filter(i=>results.get(i.row)?.status==='valid');if(!valid.length)return;
+  const valid=parsed.items.filter(i=>results.get(i.row)?.status==='valid').map(i=>confirmDefault&&changesDefault(i)?{...i,data:{...i.data,confirm_default:true}}:i);if(!valid.length)return;
   const gen=generation.current;setBusy(true);setError('');
   try{
    const plan=await spreadsheetImportPlan(controller.importScope??'',actor.current!,kind,file!.name,parsed.items,valid);
@@ -117,6 +124,8 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
   }catch(e){if(may(gen))setError(e instanceof SheetReadError?e.message:'Não foi possível preparar a importação. Tente novamente.');}
   finally{if(may(gen))setBusy(false);}
  };
+ const changesDefault=(item:ImportItem)=>kind==='natures'&&Boolean(results.get(item.row)?.reference?.startsWith(IMPORT_DEFAULT_CHANGE));
+ const preview=IMPORT_PREVIEW_KINDS.includes(kind);
  if(!allowed)return <section className="real-state-panel"><h1>{template.title}</h1><p>Importar planilhas é uma ferramenta do administrador da empresa.</p></section>;
  const items=parsed?.items??[],missing=parsed?.missing??[],header=file?.cells[0]??[];
  const valid=items.filter(i=>results.get(i.row)?.status==='valid').length,problems=items.filter(i=>i.problems.length||results.get(i.row)?.status==='invalid').length;
@@ -125,7 +134,7 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
   if(item.problems.length)return{bad:true,text:item.problems.join('; ')};
   if(!r)return{bad:false,text:step==='mapping'?'Aguardando validação':'—'};
   if(r.status==='invalid')return{bad:true,text:reasonText(kind,r)};
-  return{bad:false,text:r.status==='valid'?`${STATUS_TEXT.valid} · ${ACTION_TEXT[r.action!]}`:`${STATUS_TEXT[r.status]}${r.reference?` · ${r.reference}`:''}`};};
+  return{bad:false,text:r.status==='valid'?`${STATUS_TEXT.valid} · ${ACTION_TEXT[r.action!]}${preview&&r.reference?` · ${r.reference}`:''}`:`${STATUS_TEXT[r.status]}${r.reference?` · ${r.reference}`:''}`};};
  const download=(format:'xlsx'|'csv')=>downloadFile(`${template.kind==='contacts'?'modelo-contatos':SCREEN_TEMPLATES[kind].slug}.${format}`,template.model(format) as BlobPart,format==='xlsx'?XLSX_TYPE:CSV_TYPE);
  return <section className="spreadsheet-import" aria-labelledby="import-title">
   <header className="real-heading"><div><h1 id="import-title">{template.title}</h1><p className="real-help">Importações de Dados · planilha modelo</p></div>
@@ -153,6 +162,9 @@ export default function SpreadsheetImport({controller,kind}:{controller:ImportCo
   {error&&<p className="real-alert" role="alert">{error}</p>}
   {progress&&<p role="status">{progress}</p>}
   {pending?.uncertain&&<p><button type="button" className="primary-button" disabled={busy} onClick={()=>void run([pending,...remaining.current])}>Conferir resultado</button></p>}
+  {step==='checked'&&items.some(changesDefault)&&<p className="real-alert" role="note"><label><input type="checkbox" checked={confirmDefault} disabled={busy||Boolean(pending)}
+   onChange={event=>setConfirmDefault((event.target as HTMLInputElement).checked)}/> Trocar a natureza padrão como na planilha ({plural(items.filter(changesDefault).length,template.noun)}).
+   Sem marcar, essas naturezas são importadas e a padrão de hoje continua.</label></p>}
   {file&&<div className="real-editor-actions">
    <button type="button" className="secondary-button" disabled={busy||missing.length>0||Boolean(pending)||!items.some(i=>!i.problems.length)} onClick={()=>void validate()}>Validar</button>
    <button type="button" className="primary-button" disabled={busy||step!=='checked'||!valid||Boolean(pending)} onClick={()=>void importValid()}>Importar {valid?plural(valid,template.noun):''}</button></div>}

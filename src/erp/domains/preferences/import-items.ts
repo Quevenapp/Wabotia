@@ -10,6 +10,7 @@ import { pgBtrim, pgLeft, pgLower } from "../../engine/text.ts";
 import { saoPauloParts } from "../../engine/time.ts";
 import { compact, compositionKits, compositionSync, compositionSyncOn, unitPriceNumeric } from "../catalog/public.ts";
 import { get } from "./public.ts";
+import { importNature, importOpeningBalance, importProductTaxes } from "./import-fiscal.ts";
 
 type Data = Record<string, unknown>;
 export interface ImportItemResult {
@@ -171,7 +172,7 @@ export function importItemLot(ctx: RpcContext, user: string, command: string, da
   return result(out.outcome === "created" ? "create" : "update", out.lot.id, reference("Lote ", arrow(data, "lot"), " · ", arrow(data, "code")), out.outcome === "unchanged");
 }
 
-export function importItem(ctx: RpcContext, user: string, kind: string, command: string, file: string, input: Data | undefined): ImportItemResult {
+export function importItem(ctx: RpcContext, user: string, kind: string, command: string, file: string, input: Data | undefined, dry = false): ImportItemResult {
   // A ausência de data no envelope é SQL NULL, não um objeto vazio. Os
   // cadastros recusam esse argumento; os demais ramos falham em seus lookups.
   if (input === undefined && (kind === "products" || kind === "contacts")) {
@@ -268,6 +269,10 @@ export function importItem(ctx: RpcContext, user: string, kind: string, command:
   }
   if (["compositions", "custom_fields", "product_suppliers"].includes(kind)) return importItemE(ctx, user, kind, command, data);
   if (kind === "lots") return importItemLot(ctx, user, command, data);
+  // Versão 28: fiscal dos produtos, naturezas e regras fiscais, saldos iniciais (import-fiscal.ts).
+  if (kind === "product_taxes") return importProductTaxes(ctx, user, command, data);
+  if (kind === "natures") return importNature(ctx, user, command, data, dry);
+  if (kind === "opening_balances") return importOpeningBalance(ctx, user, command, file, data);
   // A importação fiscal continua na frente fiscal e na lista de telas pendentes.
   if (kind === "nfe") return notPorted("erp_preferences.import_item:nfe");
   return importFail("erp_preferences_import_kind_invalid");

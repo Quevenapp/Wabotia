@@ -15,10 +15,21 @@ export const ERP_IMPORT_KINDS: Readonly<Record<string, string>> = Object.freeze(
   produtos: "products", contatos: "contacts", "pedidos-compra": "purchase_orders", "movimentacoes-estoque": "stock_movements",
   "contas-receber": "receivables", "contas-pagar": "payables", vendas: "sales_orders", "notas-fiscais": "nfe",
   composicoes: "compositions", "campos-customizados": "custom_fields", "fornecedores-produtos": "product_suppliers", lotes: "lots",
+  // Versão 28: dados fiscais dos produtos, naturezas e regras fiscais, saldos iniciais das contas.
+  "fiscal-produtos": "product_taxes", "naturezas-operacao": "natures", "saldos-iniciais": "opening_balances",
 });
 export function erpImportRequirement(kind: unknown): ErpRequirement | null {
   if (typeof kind !== "string" || !Object.values(ERP_IMPORT_KINDS).includes(kind)) return null;
+  if (kind === "product_taxes") return erpRequirement(P, N);
+  if (kind === "natures") return erpRequirement(N);
+  if (kind === "opening_balances") return erpRequirement(F);
   return kind === "lots" || kind === "compositions" ? erpRequirement(P, E) : erpEntityRequirement(kind);
+}
+/** Parte dona da tela de importação (menu e aviso de parte desligada). */
+export function erpImportOwner(kind: unknown): ErpModuleId | null {
+  if (kind === "product_taxes" || kind === "natures") return N;
+  if (kind === "opening_balances") return F;
+  return erpImportRequirement(kind) ? erpEntityRequirement(kind)?.all[0] ?? null : null;
 }
 export const ERP_PREFERENCE_PARTS = groups([
   [B, "empresa-geral empresa-armazenamento sistema-interface cadastros-contatos central-notificacoes"],

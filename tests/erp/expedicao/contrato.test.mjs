@@ -70,7 +70,7 @@ function storage(db) {
 }
 
 test("esquema 25: oito tabelas só da Expedição, com a decisão em structural.ts e a subida a partir da 21", () => {
-  assert.equal(ERP_DDL_VERSION, 25);
+  assert.ok(ERP_DDL_VERSION >= 25);
   const mine = ERP_ENGINE_TABLES.filter((t) => t.since === 25);
   assert.deepEqual(mine.map((t) => t.table), ["erp_shipping__package", "erp_shipping__pick_list", "erp_shipping__order", "erp_shipping__pick_line",
     "erp_shipping__pending", "erp_shipping__volume", "erp_shipping__return", "erp_shipping__command"]);
@@ -78,11 +78,11 @@ test("esquema 25: oito tabelas só da Expedição, com a decisão em structural.
   assert.equal(ERP_ENGINE_TABLES.filter((t) => t.since >= 22 && t.since <= 24).length, 0, "22 a 24 ficam para as outras frentes");
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys=ON");
-  assert.equal(migrate(storage(db)).version, 25);
+  assert.equal(migrate(storage(db)).version, ERP_DDL_VERSION);
   for (const t of [...mine].reverse()) db.exec(`DROP TABLE "${t.table}"`);
   db.exec("UPDATE erp_meta SET value='21' WHERE key='schema_version'");
   const upgraded = migrate(storage(db));
-  assert.deepEqual([upgraded.status, upgraded.version], ["applied", 25]);
+  assert.deepEqual([upgraded.status, upgraded.version], ["applied", ERP_DDL_VERSION]);
   assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'erp_shipping__%'").get().n, 8);
   db.close();
 });

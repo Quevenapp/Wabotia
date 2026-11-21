@@ -3,14 +3,14 @@
 // every cell is normalized to the canonical value the Worker accepts, and only the rows are sent, in batches.
 // Another lane adopts the framework by adding its template to packages/erp-domain/src/spreadsheet-import.mjs and its row
 // handler to erp_preferences.import_item; the screen (SpreadsheetImport) and Consultar gestão de ações work unchanged.
-import {IMPORT_BASE,IMPORT_BODY_BYTES,IMPORT_TEMPLATES,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,IMPORT_FILE_BYTES,templateRows,templateHeader,foldHeader,importKindOf,isGroupedKind,
+import {IMPORT_BASE,IMPORT_BODY_BYTES,IMPORT_TEMPLATES,IMPORT_PREVIEW_KINDS,IMPORT_DEFAULT_CHANGE,templateInstructions,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,IMPORT_FILE_BYTES,templateRows,templateHeader,foldHeader,importKindOf,isGroupedKind,
  parseImportBatchResult,captureJobsQuery,parseJobs,captureJobQuery,parseJob,
  type ImportKind,type ImportItem,type ImportResult,type ImportJob,type ImportJobsPage,type ImportJobPage,type ImportJobsQuery,type ImportJobQuery,type ImportBatchResult,type TemplateRows} from '../../../../packages/erp-domain/src/spreadsheet-import.mjs';
 import {parseXls,XlsError} from './xls-reader.ts';
 import {SHEET_COLUMNS,type ContactTypeItem} from './contact-list-model.ts';
 import {importRows as contactImportRows,modelCsv as contactModelCsv,modelXlsx as contactModelXlsx} from './contact-import-model.ts';
-import {textCell,toCsv,toXlsx} from './spreadsheet-export.ts';
-export {IMPORT_TEMPLATES,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,importKindOf,isGroupedKind,parseImportBatchResult,captureJobsQuery,parseJobs,captureJobQuery,parseJob};
+import {textCell,toCsv,toXlsx,toXlsxBook} from './spreadsheet-export.ts';
+export {IMPORT_TEMPLATES,IMPORT_PREVIEW_KINDS,IMPORT_DEFAULT_CHANGE,IMPORT_SLUGS,IMPORT_BATCH_ITEMS,IMPORT_BATCH_LINES,IMPORT_FILE_ROWS,importKindOf,isGroupedKind,parseImportBatchResult,captureJobsQuery,parseJobs,captureJobQuery,parseJob};
 export type {ImportKind,ImportItem,ImportResult,ImportJob,ImportJobsPage,ImportJobPage,ImportJobsQuery,ImportJobQuery,ImportBatchResult,TemplateRows};
 
 export const MAX_COLUMNS=150;
@@ -63,9 +63,18 @@ const entity=(v:string)=>v.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi,
  :({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'"} as Record<string,string>)[code.toLowerCase()]!);
 const runs=(xml:string)=>[...xml.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m=>entity(m[1]!)).join('');
 const columnIndex=(ref:string)=>{let n=0;for(const c of ref.replace(/\d+$/,''))n=n*26+c.charCodeAt(0)-64;return n-1;};
+/** Wabotia: the import models put the instructions on a first sheet named "Instruções"; the data is the next sheet of the workbook. */
+function dataSheet(files:Map<string,string>){
+ const sheets=[...(files.get('xl/workbook.xml')??'').matchAll(/<sheet\b[^>]*>/g)].map(m=>({name:entity(/\bname="([^"]*)"/.exec(m[0])?.[1]??''),id:/\br:id="([^"]*)"/.exec(m[0])?.[1]}));
+ if(sheets.length<2||foldHeader(sheets[0]!.name)!=='instrucoes')return null;
+ const rel=[...(files.get('xl/_rels/workbook.xml.rels')??'').matchAll(/<Relationship\b[^>]*>/g)].map(m=>m[0]).find(r=>/\bId="([^"]*)"/.exec(r)?.[1]===sheets[1]!.id);
+ const target=rel?/\bTarget="([^"]*)"/.exec(rel)?.[1]:undefined;
+ const path=target?(target.startsWith('/')?target.slice(1):`xl/${target}`):null;
+ return path&&files.has(path)?path:null;
+}
 export async function readXlsx(bytes:Uint8Array):Promise<string[][]>{
- const files=await unzip(bytes,name=>name==='xl/sharedStrings.xml'||/^xl\/worksheets\/sheet\d+\.xml$/.test(name));
- const sheet=[...files.keys()].filter(n=>n.startsWith('xl/worksheets/')).sort((a,b)=>Number(a.match(/\d+/)![0])-Number(b.match(/\d+/)![0]))[0];
+ const files=await unzip(bytes,name=>name==='xl/sharedStrings.xml'||name==='xl/workbook.xml'||name==='xl/_rels/workbook.xml.rels'||/^xl\/worksheets\/sheet\d+\.xml$/.test(name));
+ const sheet=dataSheet(files)??[...files.keys()].filter(n=>n.startsWith('xl/worksheets/')).sort((a,b)=>Number(a.match(/\d+/)![0])-Number(b.match(/\d+/)![0]))[0];
  if(!sheet)fail('A planilha não tem nenhuma aba.');
  const shared=[...(files.get('xl/sharedStrings.xml')??'').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>runs(m[1]!)),rows:string[][]=[];
  for(const r of files.get(sheet!)!.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g)){
@@ -117,7 +126,10 @@ const declarative=(kind:ImportKind):ScreenTemplate=>{
  return{kind,slug:IMPORT_SLUGS[kind],title:t.title,noun:t.noun,rule:t.rule,readOnly:t.readOnly,
   columns:t.columns!.map(c=>({label:c.label,key:c.key,required:Boolean(c.required||(c.group))})),
   parse:(cells,mapping)=>templateRows(kind,cells,mapping),
-  model:format=>{const header=[templateHeader(kind).map(label=>textCell(label))];return format==='xlsx'?toXlsx(t.title.slice(0,31),header):toCsv(header);},
+  // Wabotia (versão 28): the fiscal, naturezas and saldos models have the instructions, columns and examples on the first sheet.
+  model:format=>{const header=[templateHeader(kind).map(label=>textCell(label))];
+   if(format==='xlsx'&&IMPORT_PREVIEW_KINDS.includes(kind))return toXlsxBook([{name:'Instruções',rows:templateInstructions(kind).map(r=>r.map(v=>textCell(v)))},{name:'Planilha',rows:header}]);
+   return format==='xlsx'?toXlsx(t.title.slice(0,31),header):toCsv(header);},
   identity:item=>{const d=item.data as Record<string,unknown>,n=(d.items as unknown[]|undefined)?.length??0;
    // 265: Composição <código> · N componentes, Produto <código> · N campos, <produto> · <fornecedor>.
    if(kind==='compositions')return `Composição ${String(d.code??'—')} · ${n} ${n===1?'componente':'componentes'}`;
@@ -125,6 +137,10 @@ const declarative=(kind:ImportKind):ScreenTemplate=>{
    if(kind==='product_suppliers')return [d.code,d.supplier_name??d.supplier_document].filter(Boolean).join(' · ')||'—';
    // 300: <produto> · Lote <lote>.
    if(kind==='lots')return [d.code,d.lot?`Lote ${String(d.lot)}`:null].filter(Boolean).join(' · ')||'—';
+   // Versão 28: produto e natureza da regra, natureza e regras, conta e data do saldo.
+   if(kind==='product_taxes')return [d.code??d.gtin,d.nature].filter(Boolean).join(' · ')||'—';
+   if(kind==='natures'){const rules=(d.items as Record<string,unknown>[]|undefined)?.filter(i=>i.tax!==undefined).length??0;return `${String(d.description??'—')} · ${rules} ${rules===1?'regra':'regras'}`;}
+   if(kind==='opening_balances')return [d.account,typeof d.date==='string'?d.date.split('-').reverse().join('/'):null].filter(Boolean).join(' · ')||'—';
    return String(isGroupedKind(kind)?`${kind==='nfe'?'Nota':'Pedido'} ${d.number??'—'} · ${n} itens`
    :kind==='products'?[d.code,d.name].filter(Boolean).join(' · ')||'—':kind==='stock_movements'?[d.code,d.warehouse].filter(Boolean).join(' · '):[d.contact_name??d.contact_document,d.description].filter(Boolean).join(' · '));}};
 };
@@ -141,7 +157,8 @@ const contacts:ScreenTemplate={kind:'contacts',slug:IMPORT_SLUGS.contacts,title:
  identity:item=>{const d=item.data as Record<string,unknown>;return[d.name,d.document].filter(Boolean).join(' · ')||'—';}};
 export const SCREEN_TEMPLATES:Readonly<Record<ImportKind,ScreenTemplate>>={products:declarative('products'),contacts,purchase_orders:declarative('purchase_orders'),
  stock_movements:declarative('stock_movements'),receivables:declarative('receivables'),payables:declarative('payables'),sales_orders:declarative('sales_orders'),nfe:declarative('nfe'),
- compositions:declarative('compositions'),custom_fields:declarative('custom_fields'),product_suppliers:declarative('product_suppliers'),lots:declarative('lots')};
+ compositions:declarative('compositions'),custom_fields:declarative('custom_fields'),product_suppliers:declarative('product_suppliers'),lots:declarative('lots'),
+ product_taxes:declarative('product_taxes'),natures:declarative('natures'),opening_balances:declarative('opening_balances')};
 /** Automatic "Relacionar colunas": each field takes the sheet column with its name (accents and case ignored), else none. */
 export function autoMapping(template:ScreenTemplate,header:readonly string[]){
  const out:Record<string,string>={};
@@ -189,7 +206,7 @@ export const IMPORT_JOBS_SCREEN='/preferencias/sistema/gestao-acoes';
 export const importScreen=(kind:ImportKind)=>`/preferencias/importacoes/${IMPORT_SLUGS[kind]}`;
 
 // ---- Texts ----
-const FIELD_EXTRA:Record<string,string>={item_code:'Código do produto',name:'Nome',document:'CPF/CNPJ',post_mode:'Lançar estoque'};
+const FIELD_EXTRA:Record<string,string>={item_code:'Código do produto',name:'Nome',document:'CPF/CNPJ',post_mode:'Lançar estoque',nature:'Natureza de operação',crt:'Regime tributário'};
 export function fieldLabel(kind:ImportKind,field:string|null){
  if(!field)return null;
  const own=SCREEN_TEMPLATES[kind].columns.find(c=>c.key===field)?.label;
@@ -211,7 +228,20 @@ const REASONS:Record<string,string>={erp_catalog_name_required:'obrigatório par
  // 300: lotes (erp_stock_lot_import, 258/277).
  erp_stock_lot_control_off:'O produto não tem Controle de lote (aba Estoque do produto) ou não é um produto simples',erp_stock_lot_invalid:'Lote, datas ou Obs. fora do formato (a fabricação vem antes da validade)',
  erp_stock_lot_expiry_required:'Data de validade obrigatória pelas Preferências (Controle de lotes)',erp_stock_lot_manufacture_required:'Data de fabricação obrigatória pelas Preferências (Controle de lotes)',
- erp_stock_product_not_found:'Produto não encontrado',erp_stock_lot_conflict:'O lote mudou durante a importação; importe a linha de novo'};
+ erp_stock_product_not_found:'Produto não encontrado',erp_stock_lot_conflict:'O lote mudou durante a importação; importe a linha de novo',
+ // Versão 28: fiscal dos produtos, naturezas e saldos iniciais.
+ erp_preferences_import_cest_without_ncm:'o produto precisa ter NCM: informe o NCM na mesma linha',
+ erp_preferences_import_tax_unit:'o ERP usa a Unidade do produto como unidade tributável: deixe vazia ou igual à Unidade do cadastro',
+ erp_preferences_import_icms_regime:'use CST na natureza do Regime normal e CSOSN na do Simples Nacional',
+ erp_preferences_import_ipi_direction:'use 50 a 55 ou 99 na natureza de saída e 00 a 05 ou 49 na de entrada',
+ erp_preferences_import_rules_full:'a natureza chegou ao limite de regras (50 por imposto, 250 no total): junte produtos por NCM na planilha de naturezas',
+ erp_preferences_import_before_start:'data anterior ao início da conta ou ao saldo inicial dela: mude a Data de início em Financeiro › Caixas e bancos ou use uma data a partir dela',
+ erp_preferences_import_nature_inactive:'a natureza está inativa: ative-a em Naturezas de operação para ela ser a padrão',
+ erp_fiscal_rule_invalid:'Regra fiscal fora do formato',erp_fiscal_rule_situation_invalid:'CST do IPI não vale para a direção da natureza',erp_fiscal_rule_product_invalid:'Produtos ou NCMs da regra fora do formato',
+ erp_fiscal_nature_version_conflict:'A natureza mudou durante a importação; importe a linha de novo',erp_fiscal_invoice_forbidden:'Sem permissão para gravar naturezas de operação (Notas fiscais)',
+ erp_fiscal_nature_default_direction:'Padrão para não vale para o Tipo da natureza',erp_fiscal_unknown_field:'Regra com campo que a natureza deste regime não aceita',
+ erp_finance_invalid_account:'Conta financeira inativa ou excluída',erp_finance_access_denied:'Sem permissão no Financeiro',erp_finance_before_account_start:'Data anterior ao início da conta: mude a Data de início em Financeiro › Caixas e bancos',
+ erp_finance_payment_before_opening:'Data anterior ao saldo inicial da conta'};
 /** Portuguese text of one refused line: the field when the server names it, then the reason. */
 export function reasonText(kind:ImportKind,result:Pick<ImportResult,'reason'|'field'>){
  const reason=result.reason??'',[base]=reason.split(':'),label=fieldLabel(kind,result.field);

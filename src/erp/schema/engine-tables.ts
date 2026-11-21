@@ -1994,6 +1994,28 @@ const STORE_TABLES: readonly EngineTable[] = [
   ]),
 ];
 
+
+// Versão 28: o tipo das importações por planilha que o CHECK de kind de
+// erp_preferences__import_job (gerado) não aceita e não se reescreve: dados
+// fiscais dos produtos, naturezas e regras fiscais e saldos iniciais das
+// contas. O lote continua em import_job (com um tipo de apoio), import_row e
+// import_command; esta linha diz o tipo real e vale sobre o de apoio.
+const IMPORT_JOB_KIND = "erp_preferences__import_job_kind";
+const IMPORT_TABLES: readonly EngineTable[] = [
+  {
+    table: IMPORT_JOB_KIND,
+    ddl: [
+      `CREATE TABLE "${IMPORT_JOB_KIND}" (
+  "job_id" TEXT NOT NULL PRIMARY KEY,
+  "kind" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  CONSTRAINT "${IMPORT_JOB_KIND}_kind_check" CHECK (kind IN ('product_taxes','natures','opening_balances')),
+  CONSTRAINT "${IMPORT_JOB_KIND}_job_id_fkey" FOREIGN KEY ("job_id") REFERENCES "erp_preferences__import_job" ("id")
+) STRICT`,
+    ],
+    since: 28, owner: "planilha-fiscal", structural: "importacao-fiscal",
+  },
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -2067,6 +2089,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...REFORM_CALC_TABLES,
   // Versão 27: lojas e filiais da mesma empresa (a 26 é de outra frente).
   ...STORE_TABLES,
+  // Versão 28: o tipo das importações fiscal e de saldos iniciais (26 e 27 são de outras frentes).
+  ...IMPORT_TABLES,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

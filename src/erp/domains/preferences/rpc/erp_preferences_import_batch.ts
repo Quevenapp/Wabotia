@@ -10,9 +10,13 @@ import { registerRpc, type RpcArgs, type RpcContext } from "../../../engine/regi
 import { pgBtrim, pgHasCntrl, pgLeft, pgLength, PG_CNTRL } from "../../../engine/text.ts";
 import { bool, int, json, text, uuid } from "../args.ts";
 import { importItem, type ImportItemResult } from "../import-items.ts";
-import { importJobDto } from "./erp_preferences_reads.ts";
+import { IMPORT_JOB_KIND_SQL, importJobDto } from "./erp_preferences_reads.ts";
 
-const KINDS = ["products", "contacts", "purchase_orders", "stock_movements", "receivables", "payables", "sales_orders", "nfe", "compositions", "custom_fields", "product_suppliers", "lots"];
+const KINDS = ["products", "contacts", "purchase_orders", "stock_movements", "receivables", "payables", "sales_orders", "nfe", "compositions", "custom_fields", "product_suppliers", "lots",
+  "product_taxes", "natures", "opening_balances"];
+// Versão 28: o CHECK de kind de import_job não aceita os tipos novos; o lote fica com um tipo de apoio e o
+// tipo real em import_job_kind (as leituras usam o real). A validação desses tipos devolve a prévia em reference.
+const CARRIER: Record<string, string> = { product_taxes: "products", natures: "nfe", opening_balances: "receivables" };
 const LINE_ERRORS = new Set(["P0001", "22023", "22P02", "22003", "22007", "22008", "22001", "23505", "23503", "23502", "23514", "P0002", "40001"]);
 const DRY_RUN = Symbol("erp_preferences_import_dry_run");
 const invalid = (): never => raise("22023", "erp_preferences_import_invalid");
@@ -96,10 +100,11 @@ export function erpPreferencesImportBatch(ctx: RpcContext, args: RpcArgs) {
       if (receipt.actor !== user || receipt.request_hash !== hash) raise("40001", "erp_preferences_import_command_conflict");
       return { ...JSON.parse(String(receipt.result)), replayed: true, job: importJobDto(db, String(receipt.job_id)) };
     }
-    savedJob = one(db, 'SELECT actor, kind, file_name, total_rows, rows_done, status FROM "erp_preferences__import_job" WHERE id=?', job);
+    savedJob = one(db, `SELECT actor, ${IMPORT_JOB_KIND_SQL} kind, file_name, total_rows, rows_done, status FROM "erp_preferences__import_job" WHERE id=?`, job);
     if (!savedJob) {
       db.exec('INSERT INTO "erp_preferences__import_job"(id, kind, actor, file_name, total_rows, created_at, updated_at) VALUES(?,?,?,?,?,?,?)',
-        job, kind, user, file, total, ctx.clock.next().toString(), ctx.clock.next().toString());
+        job, CARRIER[kind!] ?? kind, user, file, total, ctx.clock.next().toString(), ctx.clock.next().toString());
+      if (CARRIER[kind!]) db.exec('INSERT INTO "erp_preferences__import_job_kind"(job_id, kind, created_at) VALUES(?,?,?)', job, kind, ctx.clock.next().toString());
       savedJob = { rows_done: 0 };
     } else if (savedJob.actor !== user) raise("42501", "erp_preferences_import_job_denied");
     else if (savedJob.kind !== kind || savedJob.file_name !== file || savedJob.total_rows !== total) raise("22023", "erp_preferences_import_job_mismatch");
@@ -114,7 +119,7 @@ export function erpPreferencesImportBatch(ctx: RpcContext, args: RpcArgs) {
     }
     let out: ImportItemResult | null = null, reason: string | null = null;
     try {
-      out = lineTransaction(ctx, dry!, () => importItem(ctx, user!, kind!, importItemCommand(seed, item.row), file!, item.data));
+      out = lineTransaction(ctx, dry!, () => importItem(ctx, user!, kind!, importItemCommand(seed, item.row), file!, item.data, dry!));
     } catch (error) {
       const e = fromSqlite(error);
       if (!LINE_ERRORS.has(e.code)) throw e;
@@ -125,7 +130,7 @@ export function erpPreferencesImportBatch(ctx: RpcContext, args: RpcArgs) {
       row: item.row, status, action: reason === null ? out?.action ?? null : null, reason,
       field: reason === null ? null : importField(reason),
       record_id: ["created", "updated", "unchanged"].includes(status) ? out?.record_id ?? null : null,
-      reference: reason === null && !dry && out?.reference != null ? pgLeft(out.reference.replace(new RegExp(PG_CNTRL, "gu"), " "), 120) || null : null,
+      reference: reason === null && (!dry || Boolean(CARRIER[kind!])) && out?.reference != null ? pgLeft(out.reference.replace(new RegExp(PG_CNTRL, "gu"), " "), 120) || null : null,
     };
     items.push(entry);
     if (!dry) {

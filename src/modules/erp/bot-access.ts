@@ -105,8 +105,8 @@ export const ERP_BOT_OPERATIONS: readonly ErpBotOperation[] = [
   { id: "erp_preferences_import_job", method: "GET", path: "erp/v1/importacoes/:id", summary: "Consultar resultado de uma importação", sensitive: false, group: "importacao",
     description: "Mostra o resultado de uma importação por planilha, linha a linha, com o motivo das recusas. Só consulta.",
     params: { type: "object", properties: { id: uuid }, required: ["id"] } },
-  { id: "erp_preferences_import_batch", method: "POST", path: "erp/v1/importacoes/:tipo/lote", summary: "Simular ou confirmar um lote de importação por planilha", sensitive: false, group: "importacao",
-    description: "Grava (ou só simula, com dry_run) um lote de até mil linhas de planilha no cadastro escolhido. Administrador do ERP; exige a parte do ERP do cadastro ligada. A pessoa confirma antes de gravar.",
+  { id: "erp_preferences_import_batch", method: "POST", path: "erp/v1/importacoes/:tipo/lote", summary: "Simular ou confirmar um lote de importação por planilha", sensitive: true, group: "importacao",
+    description: "Grava (ou só simula, com dry_run) um lote de até mil linhas de planilha no cadastro escolhido, inclusive os dados fiscais dos produtos, as naturezas de operação com as regras fiscais e os saldos iniciais das contas financeiras. Só do administrador do ERP; exige a parte do ERP do cadastro ligada. Sensível: o bot propõe e a pessoa confirma antes de gravar.",
     params: { type: "object", required: ["tipo", "command_id", "job_id", "file_name", "total_rows", "dry_run", "items"], properties: {
       tipo: { type: "string", enum: Object.keys(ERP_IMPORT_KINDS) }, command_id: uuid, job_id: uuid,
       file_name: { type: "string", minLength: 1, maxLength: 200 }, total_rows: { type: "integer", minimum: 1, maximum: 10000 }, dry_run: { type: "boolean" },
