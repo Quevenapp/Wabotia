@@ -36,6 +36,20 @@ export const ENGINE_SIGNATURES: Record<string, ArgSpec[]> = {
   erp_com1_os_prepare: [["p_user_id", "u"], ["p_input", "j"]],
   erp_com1_nfse_config_get: [["p_user_id", "u"]],
   erp_com1_nfse_config_save: [["p_user_id", "u"], ["p_input", "j"]],
+  // Compra pela nota recebida: src/erp/domains/inbound/rpc.ts (rota em src/erp/recebidas/).
+  erp_inbound_list: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_get: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_register: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_fetch_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_fetch_record: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_review: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_supplier_create: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_enter: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_reverse: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_settings_get: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_settings_save: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_manifest_claim: [["p_user_id", "u"], ["p_input", "j"]],
+  erp_inbound_manifest_record: [["p_user_id", "u"], ["p_input", "j"]],
   // src/erp/domains/fiscal/reform.ts (sessão G; structural.ts, reforma-classificacao)
   erp_fiscal_reform_nature_class_get: [
     ["p_user_id", "u"],

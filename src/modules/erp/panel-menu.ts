@@ -235,6 +235,13 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","financeiro","estoque","fiscal"] },
   },
   {
+    id: "erp.received-invoices", module: "erp-compras", part: "compras",
+    ...ERP_MENU_GROUPS.compras, order: 265,
+    label: "Notas recebidas",
+    target: { kind: "ported", to: "/notas-recebidas-compras" },
+    permission: { kind: "erp", roles: ["admin","consulta","estoque","financeiro","fiscal"] },
+  },
+  {
     id: "erp.incoming-invoices", module: "erp-fiscal", part: "fiscal",
     ...ERP_MENU_GROUPS.fiscal, order: 270,
     label: "Notas fiscais de entrada",

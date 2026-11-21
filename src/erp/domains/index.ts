@@ -13,3 +13,4 @@ import "./cnab/index.ts";
 import "./pos/index.ts";
 import "./preferences/index.ts";
 import "./sync/index.ts";
+import "./inbound/index.ts";

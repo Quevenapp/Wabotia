@@ -959,6 +959,113 @@ const serviceTables: readonly EngineTable[] = BASE_ENGINE_TABLES
  * com o padrão e as exceções por serviço do catálogo. O que é do emitente
  * (inscrição municipal, série da DPS, regime especial, certificado) fica no cofre. */
 const C_SERVICE_SETTINGS = `${SERVICE_PREFIX}settings`;
+// Compra pela nota recebida (versão 17, só tabelas novas): o índice de cada
+// nota que chegou para a empresa (do cofre ou importada à mão; o XML fica no
+// R2 da área, aqui só a chave e o SHA-256), a entrada que a conferência deu
+// (estoque, custo e contas a pagar pelas rotinas das telas, uma entrada ativa
+// por nota) e o interruptor do administrador para manifestar. O vínculo
+// "código do fornecedor → produto" é o erp_catalog.product_supplier e a
+// conversão de unidade é o erp_stock.unit_conversion, que já existiam.
+// Instantes em microssegundos (relógio do motor), dinheiro em centavos.
+const I_NOTE = "erp_purchase_inbound__note";
+const I_ENTRY = "erp_purchase_inbound__entry";
+const I_SETTINGS = "erp_purchase_inbound__settings";
+const inbound = (table: string, ddl: readonly string[]): EngineTable => ({ table, ddl, since: 17, owner: "compra-nota", structural: "compra-nota-recebida" });
+const inboundTables: readonly EngineTable[] = [
+  inbound(I_NOTE, [
+    `CREATE TABLE "${I_NOTE}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "source" TEXT NOT NULL,
+  "received_id" TEXT,
+  "environment" TEXT NOT NULL,
+  "access_key" TEXT NOT NULL,
+  "role" TEXT NOT NULL DEFAULT 'destinatario',
+  "emitter_document" TEXT,
+  "emitter_name" TEXT,
+  "series" INTEGER,
+  "number" INTEGER,
+  "issued_on" TEXT,
+  "total_cents" INTEGER,
+  "situation" TEXT NOT NULL DEFAULT 'autorizada',
+  "nature" TEXT,
+  ${ARRAY("cfops")},
+  "purpose" TEXT,
+  "xml_key" TEXT,
+  "xml_sha256" TEXT,
+  "xml_size" INTEGER,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "created_by" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "updated_at" INTEGER NOT NULL,
+  CONSTRAINT "${I_NOTE}_access_key_key" UNIQUE ("access_key"),
+  CONSTRAINT "${I_NOTE}_source_check" CHECK ((source IN ('cofre', 'manual') AND (source = 'manual' OR received_id IS NOT NULL))),
+  CONSTRAINT "${I_NOTE}_environment_check" CHECK ((environment IN ('producao', 'homologacao'))),
+  CONSTRAINT "${I_NOTE}_access_key_check" CHECK (${KEY44("access_key")}),
+  CONSTRAINT "${I_NOTE}_role_check" CHECK ((role IN ('destinatario', 'terceiro'))),
+  CONSTRAINT "${I_NOTE}_emitter_name_check" CHECK ((emitter_name IS NULL OR length(emitter_name) BETWEEN 1 AND 200)),
+  CONSTRAINT "${I_NOTE}_issued_on_check" CHECK ((issued_on IS NULL OR issued_on GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]')),
+  CONSTRAINT "${I_NOTE}_total_check" CHECK ((total_cents IS NULL OR total_cents >= 0)),
+  CONSTRAINT "${I_NOTE}_situation_check" CHECK ((situation IN ('autorizada', 'cancelada', 'denegada'))),
+  CONSTRAINT "${I_NOTE}_nature_check" CHECK ((nature IS NULL OR length(nature) <= 120)),
+  CONSTRAINT "${I_NOTE}_purpose_check" CHECK ((purpose IS NULL OR purpose IN ('compra', 'devolucao', 'bonificacao', 'remessa', 'outra'))),
+  CONSTRAINT "${I_NOTE}_xml_check" CHECK ((((xml_key IS NULL) = (xml_sha256 IS NULL)) AND ((xml_key IS NULL) = (xml_size IS NULL)) AND (xml_sha256 IS NULL OR ${HEX64("xml_sha256")}) AND (xml_size IS NULL OR xml_size BETWEEN 1 AND 1048576) AND (xml_key IS NULL OR length(xml_key) <= 300))),
+  CONSTRAINT "${I_NOTE}_version_check" CHECK ((version BETWEEN 1 AND 2147483647)),
+  CONSTRAINT "${I_NOTE}_received_id_fkey" FOREIGN KEY ("received_id") REFERENCES "${T_RECEIVED}" ("id")
+) STRICT`,
+    `CREATE UNIQUE INDEX "${I_NOTE}_received" ON "${I_NOTE}" ("received_id") WHERE received_id IS NOT NULL`,
+    `CREATE INDEX "${I_NOTE}_list" ON "${I_NOTE}" ("environment", "issued_on")`,
+  ]),
+  inbound(I_ENTRY, [
+    `CREATE TABLE "${I_ENTRY}" (
+  "id" TEXT NOT NULL PRIMARY KEY,
+  "note_id" TEXT NOT NULL,
+  "command_id" TEXT NOT NULL,
+  "state" TEXT NOT NULL DEFAULT 'active',
+  "supplier_id" TEXT,
+  "order_id" TEXT,
+  "stock_status" TEXT NOT NULL,
+  "finance_status" TEXT NOT NULL,
+  ${ARRAY("movement_ids")},
+  ${ARRAY("title_ids")},
+  "snapshot" TEXT NOT NULL,
+  "result" TEXT NOT NULL,
+  "actor" TEXT NOT NULL,
+  "via" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "reversed_at" INTEGER,
+  "reversed_by" TEXT,
+  "reversal_reason" TEXT,
+  "reversal_command_id" TEXT,
+  "reversal" TEXT,
+  CONSTRAINT "${I_ENTRY}_command_id_key" UNIQUE ("command_id"),
+  CONSTRAINT "${I_ENTRY}_reversal_command_id_key" UNIQUE ("reversal_command_id"),
+  CONSTRAINT "${I_ENTRY}_state_check" CHECK ((state IN ('active', 'reversed'))),
+  CONSTRAINT "${I_ENTRY}_stock_status_check" CHECK ((stock_status IN ('done', 'part_disabled', 'not_chosen', 'role_missing', 'nothing'))),
+  CONSTRAINT "${I_ENTRY}_finance_status_check" CHECK ((finance_status IN ('done', 'part_disabled', 'not_chosen', 'role_missing', 'nothing'))),
+  CONSTRAINT "${I_ENTRY}_snapshot_check" CHECK (${JSON_OF("snapshot", "object")}),
+  CONSTRAINT "${I_ENTRY}_result_check" CHECK (${JSON_OF("result", "object")}),
+  CONSTRAINT "${I_ENTRY}_reversal_check" CHECK ((((state = 'reversed') = (reversed_at IS NOT NULL)) AND ((reversed_at IS NULL) = (reversed_by IS NULL)) AND ((reversed_at IS NULL) = (reversal_reason IS NULL)) AND ((reversed_at IS NULL) = (reversal_command_id IS NULL)) AND ((reversed_at IS NULL) = (reversal IS NULL)) AND (reversal_reason IS NULL OR length(reversal_reason) BETWEEN 3 AND 500) AND (reversal IS NULL OR ${JSON_OF("reversal", "object")}))),
+  CONSTRAINT "${I_ENTRY}_note_id_fkey" FOREIGN KEY ("note_id") REFERENCES "${I_NOTE}" ("id"),
+  CONSTRAINT "${I_ENTRY}_supplier_id_fkey" FOREIGN KEY ("supplier_id") REFERENCES "erp_catalog__contact" ("record_id"),
+  CONSTRAINT "${I_ENTRY}_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "erp_documents__document" ("id")
+) STRICT`,
+    // Uma entrada ativa por nota: dar entrada duas vezes não duplica nada.
+    `CREATE UNIQUE INDEX "${I_ENTRY}_active" ON "${I_ENTRY}" ("note_id") WHERE state = 'active'`,
+    `CREATE INDEX "${I_ENTRY}_note" ON "${I_ENTRY}" ("note_id")`,
+  ]),
+  inbound(I_SETTINGS, [
+    `CREATE TABLE "${I_SETTINGS}" (
+  "id" INTEGER NOT NULL PRIMARY KEY DEFAULT 1,
+  "version" INTEGER NOT NULL DEFAULT 1,
+  "manifest_enabled" INTEGER NOT NULL DEFAULT 0,
+  "updated_at" INTEGER NOT NULL,
+  "updated_by" TEXT NOT NULL,
+  CONSTRAINT "${I_SETTINGS}_singleton_check" CHECK (id = 1),
+  CONSTRAINT "${I_SETTINGS}_version_check" CHECK (version BETWEEN 1 AND 2147483647),
+  CONSTRAINT "${I_SETTINGS}_manifest_enabled_check" CHECK (manifest_enabled IN (0, 1))
+) STRICT`,
+  ]),
+];
 export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
   ...BASE_ENGINE_TABLES,
   ...counterTables,
@@ -1009,6 +1116,8 @@ export const ERP_ENGINE_TABLES: readonly EngineTable[] = [
     ],
     since: 16, owner: "os5-fiscal", structural: "nota-servico-os",
   },
+  // Versão 17: a compra pela nota recebida (nota, entrada e configuração).
+  ...inboundTables,
 ];
 
 export const ERP_ENGINE_DDL: readonly string[] = ERP_ENGINE_TABLES.flatMap((t) => t.ddl);

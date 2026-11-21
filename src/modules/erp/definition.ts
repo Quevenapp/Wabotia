@@ -65,7 +65,11 @@ export const erpModule: ModuleDefinition = {
 };
 export const erpProdutosModule = definition("erp-produtos", "Catálogo de produtos e serviços, preços, categorias e listas de preços.");
 export const erpVendasModule = definition("erp-vendas", "Propostas, pedidos de venda e ordens de serviço comerciais, com integrações opcionais de estoque e financeiro.");
-export const erpComprasModule = definition("erp-compras", "Pedidos de compra e acompanhamento comercial; recebimento físico quando o Estoque estiver ligado.");
+export const erpComprasModule: ModuleDefinition = {
+  ...definition("erp-compras", "Pedidos de compra e acompanhamento comercial; recebimento físico quando o Estoque estiver ligado."),
+  // Compra pela nota recebida (src/erp/recebidas/): notas do fornecedor, conferência e entrada.
+  routes: ["erp-recebidas"],
+};
 export const erpEstoqueModule = definition("erp-estoque", "Depósitos, saldos, movimentos, reservas, lotes, composições físicas e inventário.");
 export const erpFinanceiroModule = definition("erp-financeiro", "Contas a pagar e receber, baixas, caixa, conciliação e comissões.");
 export const erpFiscalModule: ModuleDefinition = {

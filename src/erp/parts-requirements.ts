@@ -164,6 +164,8 @@ export function erpDestinationRequirement(value: URL | string): ErpDestinationRe
   else if (["/cobranca-empresa", "/cobranca-operacional", "/retornos-operacionais"].includes(path)) owner = K;
   else if (["/historico-fiscal", "/notas-bling", "/notas-entrada", "/notas-recebidas", "/numeracao-fiscal", "/naturezas-operacao", "/inutilizacoes-nfe", "/cartas-correcao", "/certificado-a1", "/conexao-sefaz", "/emissor-fiscal"].includes(path)) owner = N;
   else if (path === "/checkin-recebimentos") { owner = N; extra.push(E); if (q.get("order_id")) extra.push(C); }
+  // Compras › Notas recebidas: Estoque, Financeiro e Fiscal são conferidos por ação na rota.
+  else if (path === "/notas-recebidas-compras") owner = C;
   else if (path === "/frente-caixa-empresa") owner = V;
   else if (path === "/meu-negocio") { owner = S; if (q.get("painel")?.includes("margem")) extra.push(C, E); if (/previsao|cobertura/.test(q.get("painel") ?? "")) extra.push(E); }
   else if (/^\/(tipos-contatos-empresa|vendedores-empresa|formas-pagamento-empresa|funcionarios-empresa|importar-contatos|numeracao-contatos|tipos-contato|numeros-contato|importacao-contatos|vendedores|funcionarios|formas-pagamento|tags|grupos-tags)$/.test(path)) owner = B;
