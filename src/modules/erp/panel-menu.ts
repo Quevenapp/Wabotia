@@ -517,6 +517,8 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
   { name: 'Estoque', columns: [
     { title: 'Compras', items: [
       legacyItems["erp.purchase-orders"],
+      // Compra pela nota recebida: notas do fornecedor, conferência e entrada.
+      legacyItems["erp.received-invoices"],
       legacyItems["erp.incoming-invoices"],
       legacyItems["erp.suppliers"],
       legacyItems["erp.purchase-suggestions"],
