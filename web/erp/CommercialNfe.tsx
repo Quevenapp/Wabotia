@@ -52,6 +52,35 @@ function Blockers({ blockers, documentId }: { blockers: FiscalBlocker[]; documen
   return blockers.length ? <section className="commercial-nfe-blockers" role="alert"><h2>Corrija antes de emitir</h2><ol>{blockers.map((blocker, index) => <li key={`${blocker.code}:${blocker.field}:${index}`}><strong>{blocker.message}</strong><p>Campo: {blocker.field}{blocker.item_id ? ` · Item: ${blocker.item_id}` : ""}</p><Link to={target(blocker)}>Abrir correção</Link></li>)}</ol></section> : null;
 }
 
+/**
+ * Reforma tributária na NF-e: o cálculo de IBS, CBS e IS guardado na revisão
+ * (calculation.reform, src/erp/domains/fiscal/comnfe/taxes.ts), em bloco
+ * próprio e informativo. Diz se o grupo vai na nota ou por que não vai (cofre
+ * que ainda não recebe a reforma, Simples Nacional, teste de conexão antigo).
+ */
+function ReformNfeBlock({ calculation }: { calculation: unknown }) {
+  const reform = (calculation && typeof calculation === "object" ? (calculation as Record<string, unknown>).reform : null) as ReformNfeView | null | undefined;
+  if (!reform || typeof reform !== "object" || !reform.totals) return null;
+  const brl = (value: string) => Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return <section className="commercial-nfe-card" aria-label="Reforma tributária: IBS, CBS e IS">
+    <h2>Reforma tributária: IBS, CBS e IS ({reform.year})</h2>
+    <p role="status">{reform.sent ? "O grupo IBS/CBS vai na nota." : "A nota sai sem o grupo IBS/CBS."} {reform.message ?? ""}</p>
+    <dl><dt>Base</dt><dd>{brl(reform.totals.base)}</dd><dt>CBS</dt><dd>{brl(reform.totals.cbs)}</dd>
+      <dt>IBS estadual</dt><dd>{brl(reform.totals.ibs_uf)}</dd><dt>IBS municipal</dt><dd>{brl(reform.totals.ibs_mun)}</dd>
+      {reform.rates?.selective && <><dt>Imposto Seletivo</dt><dd>{brl(reform.totals.selective)}</dd></>}</dl>
+    <ol>{reform.items.map((item, index) => <li key={index}>{item.description ?? `Item ${index + 1}`}: {item.cst ? `CST ${item.cst}, classificação ${item.cclasstrib}` : "sem classificação"}
+      {item.cbs ? ` · CBS ${brl(item.cbs.value)} · IBS ${brl(item.ibs ?? "0")}` : item.message ? ` · ${item.message}` : ""}</li>)}</ol>
+    {(reform.notices ?? []).map(notice => <p key={notice.code} className="commercial-nfe-warning">{notice.message}</p>)}
+    <p>{reform.informative ? "Em 2026 IBS e CBS são informativos: não mudam o total a pagar da nota." : "O total da nota não soma IBS, CBS e IS nesta versão: confira com o contador."}</p>
+  </section>;
+}
+type ReformNfeView = {
+  year: number; sent: boolean; message: string | null; informative: boolean; rates?: { selective?: boolean };
+  totals: { base: string; cbs: string; ibs_uf: string; ibs_mun: string; ibs: string; selective: string };
+  items: { description: string | null; cst: string | null; cclasstrib: string | null; message: string | null; cbs: { value: string } | null; ibs: string | null }[];
+  notices?: { code: string; message: string }[];
+};
+
 export default function CommercialNfe({ controller, port: injected }: { controller: AccessController; access?: AccessState; port?: CommercialNfePort }) {
   const location = useLocation();
   const port = injected ?? erpPorts()?.commercialNfe;
@@ -232,6 +261,7 @@ function CommercialWorkspace({ port, controller, documentId, emissionId }: { por
     {localReadPending && <p className="commercial-nfe-warning" role="status">O resultado do efeito local precisa ser conferido. Atualize o acompanhamento antes de aplicar outro efeito. <button type="button" disabled={Boolean(busy)} onClick={() => setReload(n => n + 1)}>Conferir efeitos registrados</button></p>}
     {!uncertain && intents.current.has("prepare") && <p className="commercial-nfe-warning">Confira o resultado da preparação pendente antes de alterar as escolhas. <button type="button" disabled={Boolean(busy)} onClick={() => prepare(true)}>Repetir a mesma preparação</button></p>}
     <Blockers blockers={blockers} documentId={selectedOrder} />
+    {view && <ReformNfeBlock calculation={view.revision.calculation} />}
     {view ? <>
       <section className="commercial-nfe-card" aria-label="Situação fiscal"><h2>{stateLabels[view.status]}</h2><p><Link to={orderLink(view.document_id)}>Abrir pedido de venda</Link> · Versão fiscal {view.fiscal_version} · Revisão {view.current_body_revision}</p><p>Referência: <span className="commercial-nfe-code">{view.reference}</span></p>
         {view.environment !== config?.environment && <p>Esta emissão permanece em {environmentLabel(view.environment)}. A configuração atual da área não altera sua origem.</p>}

@@ -15,6 +15,8 @@ import { natureReviewText, type NatureReview } from '../lib/fiscal-invoice-list-
 import { Modal } from './Modal';
 import { Icon } from './Icon';
 import FiscalTaxSettings from './FiscalTaxSettings';
+import NatureReformRules from './NatureReformRules';
+import { reformAvailable } from '../lib/reform';
 import './fiscal-invoices.css';
 
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
@@ -218,7 +220,9 @@ function OperationNatureForm({ controller, id, writable, onBack, onSaved }: { co
     {!ruleRows(tax).length && <p className="real-help">Nenhuma regra registrada</p>}
     <button type="button" className="secondary-button" disabled={locked} onClick={() => setRule({ index: null, tax, value: { tax, destinations: [], product_scope: 'any', ncms: [], product_ids: [], data: {}, additional_info: null, fiscal_info: null, products: [] } })}><Icon name="plus" size={10} /> Adicionar regra</button>
   </>;
-  const tabs: [string, string][] = [['dados', 'Dados gerais'], ['icms', 'ICMS'], ['ipi', 'IPI'], ['pis', 'PIS'], ['cofins', 'COFINS'], ...(draft.direction === '0' ? [['ii', 'II'] as [string, string]] : []), ['outros', 'Outros'], ['retencoes', 'Retenções'], ['informacoes', 'Informações adicionais']];
+  const tabs: [string, string][] = [['dados', 'Dados gerais'], ['icms', 'ICMS'], ['ipi', 'IPI'], ['pis', 'PIS'], ['cofins', 'COFINS'], ...(draft.direction === '0' ? [['ii', 'II'] as [string, string]] : []), ['outros', 'Outros'], ['retencoes', 'Retenções'], ['informacoes', 'Informações adicionais'],
+    // Wabotia: reforma tributária (classificação de IBS/CBS), só na natureza já salva e com a parte Fiscal no painel da área.
+    ...(record && reformAvailable() ? [['reforma', 'Reforma (IBS/CBS)'] as [string, string]] : [])];
   return <section className="fiscal-nature-form">
     <header className="real-heading"><div><h1>Natureza da operação{record ? ` - ${record.description}` : ''}</h1>{record && <p>{record.active ? 'Ativa' : 'Inativa'} · versão {record.version}</p>}</div>
       <div className="real-editor-actions"><button type="button" className="secondary-button" disabled={cmd.busy} onClick={() => guard.confirmLeave(onBack)}>Cancelar</button>
@@ -249,6 +253,7 @@ function OperationNatureForm({ controller, id, writable, onBack, onSaved }: { co
       {field('nature-discount-type', 'Tipo desconto', <select id="nature-discount-type" disabled={locked} value={String(draft.others.discount_type ?? '')} onChange={event => setOther('discount_type', event.target.value)}><option value="">Selecione</option>{T.DISCOUNT_TYPE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>)}
       {draft.crt !== '3' && field('nature-simples-credit', 'Crédito de ICMS do Simples %', rate('nature-simples-credit', draft.others.simples_credit_rate, v => setOther('simples_credit_rate', v)))}
     </div>}
+    {tab === 'reforma' && record && <NatureReformRules natureId={record.id} writable={writable} />}
     {tab === 'retencoes' && <div className="document-grid">
       {field('nature-csrf', 'Possui retenção de CSRF', yesNo('nature-csrf', draft.retentions.csrf as boolean, v => update({ retentions: { ...draft.retentions, csrf: v } })))}
       {field('nature-csrf-rate', 'Alíquota CSRF retido %', rate('nature-csrf-rate', draft.retentions.csrf_rate, v => update({ retentions: { ...draft.retentions, csrf_rate: v } })))}

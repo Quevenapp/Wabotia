@@ -16,6 +16,7 @@ import { EDITABLE, FISCAL_BASE, statusClass, statusLabel, type ScreenConfig } fr
 import { CONTACT_WRITER_ROLES, quickContactInitial } from '../lib/document-editor-pickers';
 import type { CatalogPage, CatalogRecord } from '../lib/catalog-model';
 import FiscalInvoiceItemDialog from './FiscalInvoiceItemDialog';
+import { useReformVault } from '../lib/reform';
 import FiscalReconcilePanel from './FiscalReconcilePanel';
 import FiscalInstallmentDialog from './FiscalInstallmentDialog';
 import DocumentQuickContact from './DocumentQuickContact';
@@ -103,6 +104,8 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
   // Section shortcuts keep the full document mounted and preserve field focus/state.
   const [tab, selectSection] = useState<Tab>(initialTab), [itemIndex, setItemIndex] = useState<number | null>(null), [showMore, setShowMore] = useState(false);
   const sectionRoot = useRef<HTMLElement>(null);
+  // Wabotia: nota de crédito e de débito (finalidades 5 e 6 da reforma) só aparecem quando o cofre as aceita.
+  const reformVault = useReformVault();
   const scrollSection = (value: Tab) => {
     const section = sectionRoot.current?.querySelector<HTMLElement>(`#fiscal-section-${value}`);
     section?.scrollIntoView({ block: 'start' });
@@ -384,7 +387,8 @@ export default function FiscalInvoiceForm({ controller, config, directionOnly, i
     {field('fiscal-exit-date', draft.direction === '0' ? 'Data entrada' : 'Data saída', <input id="fiscal-exit-date" type="date" value={draft.exit_date} disabled={locked} onChange={event => update({ exit_date: event.target.value })} />)}
     {field('fiscal-exit-time', draft.direction === '0' ? 'Hora entrada' : 'Hora saída', <input id="fiscal-exit-time" type="time" value={draft.exit_time} disabled={locked} onChange={event => update({ exit_time: event.target.value })} />)}
     {field('fiscal-crt', 'Código do regime tributário*', select('fiscal-crt', draft.crt, CRT_OPTIONS, value => update({ crt: value, nature_id: '', nature_description: '' })))}
-    {field('fiscal-purpose', 'Finalidade*', select('fiscal-purpose', draft.purpose, PURPOSE_OPTIONS, value => update({ purpose: value, credit_debit_type: '' }), { disabled: draft.model === '65' }))}
+    {field('fiscal-purpose', 'Finalidade*', select('fiscal-purpose', draft.purpose, PURPOSE_OPTIONS.filter(([value]) => !['5', '6'].includes(value) || reformVault?.credit_debit === true || draft.purpose === value), value => update({ purpose: value, credit_debit_type: '' }), { disabled: draft.model === '65' }))}
+    {['5', '6'].includes(draft.purpose) && reformVault?.credit_debit !== true && <p className="real-help">O seu cofre ainda não recebe nota de crédito nem nota de débito (reforma tributária). Escolha outra finalidade ou atualize o cofre e teste a conexão de novo.</p>}
     {['5', '6'].includes(draft.purpose) && field('fiscal-credit-type', 'Tipo de nota', text('fiscal-credit-type', draft.credit_debit_type, value => update({ credit_debit_type: value.replace(/\D/g, '') }), { max: 2, placeholder: '0 - Não se aplica', inputMode: 'numeric' }))}
     {field('fiscal-presence', 'Indicador de presença*', select('fiscal-presence', draft.presence, draft.model === '65' ? PRESENCE_OPTIONS.filter(([v]) => v === '1' || v === '4') : PRESENCE_OPTIONS, value => update({ presence: value })))}
     {manualDestination && field('fiscal-destination-op', 'Destino da Operação', select('fiscal-destination-op', draft.operation_destination, DESTINATION_OPTIONS, value => update({ operation_destination: value }), { empty: 'Pela UF do destinatário' }))}

@@ -4,6 +4,7 @@ import { raise } from "../../../engine/errors.ts";
 import type { RpcContext } from "../../../engine/registry.ts";
 import type { CommercialSettings, ConfigSaveInput } from "../../../commercial-nfe/contracts.ts";
 import { com1Authority, requireCom1Access } from "./access.ts";
+import { readVaultReformCapability, type VaultReformCapability } from "../../../emissor/reform-capability.ts";
 
 /** Resultado público conferido pelo servidor; não inclui URL com credenciais ou chave. */
 export interface CommercialConnectionCheck {
@@ -19,6 +20,8 @@ export interface CommercialConnectionCheck {
   company_complete: boolean;
   environments: ("homologacao" | "producao")[];
   series: { environment: "homologacao" | "producao"; series: number }[];
+  /** Reforma tributária: o que o contrato do cofre aceita (ausente em teste de conexão antigo). */
+  reform?: VaultReformCapability | null;
 }
 
 export const COM1_CONNECTION_HEADER = "x-erp-com1-connection";
@@ -30,10 +33,11 @@ export function readCommercialConnectionCheck(value: unknown): CommercialConnect
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   const check = value as Record<string, unknown>;
   if (Object.keys(check).some(key => !["fingerprint", "provider", "origin", "issuer_cnpj", "version", "checked_at", "compatible",
-    "company_matches", "company_complete", "environments", "series"].includes(key)) ||
+    "company_matches", "company_complete", "environments", "series", "reform"].includes(key)) ||
     ["fingerprint", "origin", "issuer_cnpj", "version", "checked_at"].some(key => typeof check[key] !== "string") ||
     check.provider !== "nfapi" || typeof check.compatible !== "boolean" ||
     !Array.isArray(check.environments) || !Array.isArray(check.series)) return undefined;
+  if (Object.hasOwn(check, "reform") && readVaultReformCapability(check.reform) === undefined) return undefined;
   return check as unknown as CommercialConnectionCheck;
 }
 
@@ -69,7 +73,7 @@ export const COMMERCIAL_CHECKLIST = Object.freeze([
   { code: "recipient", message: "Confira documento, endereço, município e condição de IE do cliente." },
   { code: "products", message: "Confira NCM, origem, unidade e demais dados dos produtos." },
   { code: "nature", message: "Revise natureza e regras tributárias de todos os itens." },
-  { code: "accountant", message: "O contador deve conferir a operação e os limites, inclusive a omissão de IBS/CBS/IS." },
+  { code: "accountant", message: "O contador deve conferir a operação e os limites, inclusive a classificação e os valores de IBS/CBS/IS (ou a falta deles, se o cofre ainda não os recebe)." },
   { code: "totals", message: "Confira pagamentos, parcelas e total fiscal." },
   { code: "transport", message: "Confira a modalidade e os dados de transporte." },
   { code: "effects", message: "Escolha as políticas de estoque e financeiro e confira seus responsáveis e pendências." },
@@ -155,7 +159,9 @@ export function saveCommercialSettings(ctx: RpcContext, input: ConfigSaveInput):
     after.connection_fingerprint = connection.fingerprint;
     after.connection_public = { provider: connection.provider, origin: url.origin, issuer_cnpj: connection.issuer_cnpj,
       version: connection.version, checked_at: connection.checked_at, compatible: connection.compatible,
-      environments: [...connection.environments], series: connection.series.map(series => ({ environment: series.environment, series: series.series })) };
+      environments: [...connection.environments], series: connection.series.map(series => ({ environment: series.environment, series: series.series })),
+      // Reforma tributária: só quando o teste de conexão leu o contrato (ausente, o preparo pede um teste novo).
+      ...(connection.reform !== undefined ? { reform: readVaultReformCapability(connection.reform) ?? null } : {}) };
   }
   for (const environment of ["homologacao", "producao"] as const) {
     const selection = after[environment === "homologacao" ? "series_homologacao" : "series_producao"];

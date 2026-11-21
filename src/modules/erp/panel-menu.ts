@@ -200,6 +200,14 @@ export const ERP_MANAGEMENT_ITEMS: readonly ErpManagementItem[] = [
     permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
   },
   {
+    // Reforma tributária (src/erp/reforma): alíquotas por ano, Simples, classificações e o relatório de IBS, CBS e IS.
+    id: "erp.tax-reform", module: "erp-fiscal", part: "fiscal",
+    ...ERP_MENU_GROUPS.fiscal, order: 197,
+    label: "Reforma tributária (IBS, CBS e IS)",
+    target: { kind: "ported", to: "/reforma-tributaria" },
+    permission: { kind: "erp", roles: ["admin","consulta","fiscal"] },
+  },
+  {
     id: "erp.pos", module: "erp-pdv", part: "pdv",
     primary: true,
     ...ERP_MENU_GROUPS.comercial, order: 200,
@@ -501,6 +509,8 @@ export const ORIGIN_MENU: readonly MenuGroupDefinition[] = [
       legacyItems["erp.consumer-invoices"],
       legacyItems["erp.bling-invoices"],
       legacyItems["erp.accountant"],
+      // Reforma tributária: IBS, CBS e IS (configuração, classificações e relatório).
+      legacyItems["erp.tax-reform"],
       legacyItems["erp.pos"],
       legacyItems["erp.sales-proposals"],
     ] },

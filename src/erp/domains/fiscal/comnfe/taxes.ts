@@ -8,6 +8,7 @@ import { allocateCents, invoiceTotals, lineTotalCents } from "../../../fagoo/pac
 // @ts-expect-error O contrato decimal compartilhado é JavaScript.
 import { centsOf, moneyOf, checkValue } from "../../../fagoo/packages/erp-domain/src/fiscal-invoice-dto.mjs";
 import { add, compareNum, mul, neg, num, round, shift, text as decimalText } from "../../catalog/pricing/money.ts";
+import { calculateReform, reformBaseFromItem, reformYearOf, type ReformCompanySettings, type ReformItemResult, type ReformSelectiveInput } from "../reform-calc.ts";
 
 type Obj = Record<string, unknown>;
 const obj = (value: unknown): Obj => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Obj : {};
@@ -66,6 +67,16 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
   const unsupported = (field: string, feature: string, index?: number) => block("fiscal_operation_unsupported", field,
     `O item ou a operação usa ${feature}, ainda não atendido nesta fatia. Revise a operação com o contador.`, index);
   const reform = (field: string, index?: number) => block("fiscal_reform_required", field, "Esta operação precisa de IBS/CBS/IS, ainda não calculados nesta fatia.", index);
+  // Reforma tributária: o que o cofre aceita (comnfe/source.ts, reform_calc).
+  // Sem a leitura do contrato (teste de conexão antigo), a classificação
+  // continua bloqueando, como antes; com o cofre que não aceita, a nota sai
+  // como hoje, sem o grupo, e o cálculo fica só informativo.
+  const reformSources = obj(taxSources.reform_calc);
+  const vaultKnown = reformSources.vault_known === true;
+  const vaultAccepts = vaultKnown && obj(reformSources.vault).ibs_cbs === true;
+  const vaultSelective = vaultAccepts && obj(reformSources.vault).selective === true;
+  const reformUnknown = (field: string, index?: number) => block("fiscal_reform_required", field,
+    "Este item tem classificação de IBS/CBS, mas o Wabotia ainda não sabe se o seu cofre recebe a reforma tributária. Teste a conexão do cofre e salve a configuração da NF-e (Fiscal › Emissor fiscal) e prepare a nota de novo.", index, "fiscal_settings");
   const amount = (value: unknown, field: string, scale = 2, digits = 13, index?: number): string | null => {
     // Zeros finais de quantidade comercial com seis casas não mudam seu valor.
     const raw = typeof value === "string" || typeof value === "number" ? String(value).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "") : value;
@@ -120,8 +131,11 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
     const gross = amount(saved.gross, `items.${index}.gross`, 2, 13, index), net = amount(saved.total, `items.${index}.total`, 2, 13, index);
     if (gross !== null && money(gross) !== line || net !== null && discount !== null && money(net) !== line - money(discount))
       block("fiscal_total_mismatch", `items.${index}.total`, "Pedido, parcelas e cálculo fiscal têm totais diferentes. Revise e salve o pedido.", index, "sales_orders");
-    if (meaningful(product.reform_class) || meaningful(obj(taxSources.reform_by_product)[string(saved.product_id)])) reform(`items.${index}.reform_class`, index);
+    const classified = meaningful(product.reform_class) || meaningful(obj(taxSources.reform_by_product)[string(saved.product_id)]);
+    if (classified && !vaultKnown) reformUnknown(`items.${index}.reform_class`, index);
     for (const source of [saved, product]) for (const [key, value] of Object.entries(source)) {
+      // A classificação do cadastro é tratada acima (e calculada abaixo); grupos digitados no item continuam recusados.
+      if (key === "reform_class" && source === product) continue;
       if (/^(ibs_?cbs|ibsCbs|ibs|cbs|is|impostoSeletivo|reform_required|reform_class)$/.test(key) && meaningful(value)) reform(`items.${index}.${key}`, index);
       if (["ii", "import", "importacao", "export", "exportacao", "fuel", "medicine", "weapon", "vehicle", "retentions", "issqn"].includes(key) && meaningful(value)) unsupported(`items.${index}.${key}`, key, index);
     }
@@ -340,6 +354,7 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
     if (present(icms.benefit_code)) details.codigoBeneficioFiscal = String(icms.benefit_code);
     itemTaxes.push(out); itemDetails.push(details);
   });
+  const reformResult = reformGroups({ snapshot, taxSources, mappedItems, computed, lineAmounts, itemTaxes, vaultKnown, vaultAccepts, vaultSelective, block });
   for (const key of Object.keys(allocations) as (keyof typeof allocations)[]) allocations[key] = computed.allocation[key].map(value => money(value).toString());
   const mismatch = (field: string) => block("fiscal_total_mismatch", field, "Pedido, parcelas e cálculo fiscal têm totais diferentes. Revise e salve o pedido.", undefined, "sales_orders");
   for (const [commercial, fiscal] of [["gross", "products"], ["total", "total"], ["freight", "freight"], ["other_expenses", "other_expenses"]])
@@ -351,9 +366,91 @@ export function calculatePreparationTaxes(sources: PreparationTaxSources): TaxPr
   result.invoice = json(calculated); result.total_cents = money(computed.totals.total).toString();
   result.calculation = json({ totals: computed.totals, lines: computed.lines, allocation: computed.allocation,
     items: mappedItems, rules: selections.map((selected, index) => ({ item_id: snapshot.items[index].id ?? null,
-      taxes: Object.fromEntries(Object.entries(selected).map(([tax, rule]) => [tax, { position: obj(rule).position, data: obj(rule).data }])) })) });
+      taxes: Object.fromEntries(Object.entries(selected).map(([tax, rule]) => [tax, { position: obj(rule).position, data: obj(rule).data }])) })),
+    ...(reformResult ? { reform: reformResult } : {}) });
   // Evita NaN/Infinity no JSON do cofre mesmo em uma fonte corrompida.
   const finite = (value: JsonValue): boolean => typeof value === "number" ? Number.isFinite(value) : value !== null && typeof value === "object" ? Object.values(value).every(finite) : true;
   if (!itemTaxes.every(finite)) block("fiscal_tax_data_missing", "items.impostos", "Confira os valores calculados das regras tributárias.");
   return result;
+}
+
+/** Número do contrato do cofre a partir do texto decimal exato do cálculo (até 4 casas: sem perda). */
+const contractNumber = (value: string): number => Number(value);
+
+function selectiveOf(value: unknown): ReformSelectiveInput | null {
+  const v = obj(value);
+  return present(v.cst) && present(v.cclasstrib) && present(v.rate) ? { cst: string(v.cst), cclasstrib: string(v.cclasstrib), rate: string(v.rate) } : null;
+}
+
+/** Grupo ibsCbs do item no contrato do cofre (PedidoNfe.itens[].impostos.ibsCbs). */
+function ibsCbsGroup(item: ReformItemResult): JsonObject | null {
+  if (!item.cst || !item.cclasstrib) return null;
+  const group: JsonObject = { cst: item.cst, classificacao: item.cclasstrib };
+  if (item.status !== "calculated" || !item.base || !item.cbs || !item.ibs_uf || !item.ibs_mun) return group;
+  const part = (p: NonNullable<ReformItemResult["cbs"]>): JsonObject => ({
+    aliquota: contractNumber(p.rate), valor: contractNumber(p.value),
+    ...(compareNum(num(p.reduction), num("0")) > 0 ? { reducao: { percentual: contractNumber(p.reduction), aliquotaEfetiva: contractNumber(p.effective_rate) } } : {}),
+  });
+  return { ...group, baseCalculo: contractNumber(item.base), ibsUf: part(item.ibs_uf), ibsMunicipio: part(item.ibs_mun), cbs: part(item.cbs) };
+}
+
+/**
+ * Reforma tributária no preparo da NF-e: calcula IBS, CBS e IS de cada item
+ * (reform-calc.ts) sobre a base de 2026 (valor do item menos ICMS, PIS e
+ * COFINS) e, só quando o cofre aceita, põe os grupos ibsCbs e
+ * impostoSeletivo nos impostos do item. Não muda o total da nota. Devolve o
+ * bloco calculation.reform, ou null quando a reforma não se aplica (sem
+ * classificação nem configuração: a nota fica exatamente como antes).
+ */
+function reformGroups(p: {
+  snapshot: CommercialSnapshot; taxSources: JsonObject; mappedItems: Obj[];
+  computed: { allocation: Record<string, string[]> }; lineAmounts: bigint[]; itemTaxes: JsonObject[];
+  vaultKnown: boolean; vaultAccepts: boolean; vaultSelective: boolean;
+  block: (code: string, field: string, message: string, index?: number, screen?: string) => void;
+}): JsonObject | null {
+  const { snapshot, taxSources } = p;
+  const reformSources = obj(taxSources.reform_calc);
+  const byProduct = obj(taxSources.reform_by_product);
+  const products = new Map(snapshot.products.map(product => [string(product.id ?? product.record_id), obj(product)]));
+  const classes = snapshot.items.map(saved => {
+    const id = string(saved.product_id), resolved = obj(byProduct[id]), own = obj(products.get(id)?.reform_class);
+    const source = present(resolved.cst) ? resolved : own;
+    return present(source.cst) && present(source.cclasstrib)
+      ? { cst: string(source.cst), cclasstrib: string(source.cclasstrib), source: present(source.source) ? string(source.source) : null } : null;
+  });
+  if (!present(taxSources.reform_calc) && classes.every(value => value === null)) return null;
+  const selective = obj(reformSources.selective), settings = obj(reformSources.settings), allocation = p.computed.allocation;
+  const year = typeof reformSources.year === "number" ? reformSources.year : reformYearOf(undefined);
+  const result = calculateReform(p.mappedItems.map((item, index) => {
+    const icms = obj(item.icms), saved = snapshot.items[index];
+    return {
+      item_id: present(saved.id) ? string(saved.id) : null, description: present(saved.description) ? string(saved.description) : null,
+      base: reformBaseFromItem({ gross: moneyOf(p.lineAmounts[index]), freight: allocation.freight?.[index], insurance: allocation.insurance?.[index],
+        other_expenses: allocation.other_expenses?.[index], discount: item.discount, icms: icms.value, fcp: icms.fcp_value,
+        difal_dest: icms.difal_dest_value, difal_fcp: icms.difal_fcp_value, pis: obj(item.pis).value, cofins: obj(item.cofins).value }),
+      classification: classes[index], selective: selectiveOf(selective[string(saved.product_id)]),
+    };
+  }), { year, crt: string(snapshot.company.crt) || null,
+    settings: { simples_regular: settings.simples_regular === true, rates: obj(settings.rates) as ReformCompanySettings["rates"] } });
+  const sent = p.vaultAccepts && result.regime !== "simples";
+  if (sent) result.items.forEach((item, index) => {
+    if (item.status === "class_mismatch")
+      return p.block("fiscal_reform_class_invalid", `items.${index}.reform_class`, `${item.message} Corrija a classificação de IBS/CBS do produto ou da natureza.`, index, "products");
+    if (item.status === "rates_unpublished")
+      return p.block("fiscal_reform_rates_missing", "reform.rates", String(item.message), undefined, "reform");
+    const group = ibsCbsGroup(item);
+    if (group) p.itemTaxes[index].ibsCbs = group;
+    if (item.selective && p.vaultSelective)
+      p.itemTaxes[index].impostoSeletivo = { cst: item.selective.cst, classificacao: item.selective.cclasstrib, baseCalculo: contractNumber(item.selective.base),
+        aliquota: contractNumber(item.selective.rate), valor: contractNumber(item.selective.value) };
+    else if (item.selective && compareNum(num(item.selective.value), num("0")) > 0)
+      p.block("fiscal_reform_selective_unsupported", `items.${index}.impostoSeletivo`, "O item tem Imposto Seletivo, mas o seu cofre ainda não recebe esse grupo. Atualize o cofre e teste a conexão de novo.", index, "fiscal_settings");
+  });
+  const vault = !p.vaultKnown ? "unknown" : p.vaultAccepts ? "accepts" : "refuses";
+  const message = vault === "refuses"
+    ? "O seu cofre ainda não recebe IBS, CBS e IS (reforma tributária): a nota sai como hoje, sem esse grupo. Os valores abaixo são só para conferência."
+    : vault === "unknown" ? "O Wabotia ainda não sabe se o seu cofre recebe a reforma tributária: teste a conexão do cofre e salve a configuração da NF-e."
+    : result.regime === "simples" ? "Empresa do Simples Nacional: a nota sai sem o grupo IBS/CBS."
+    : result.informative ? "Valores de IBS e CBS enviados na nota em caráter informativo (2026): não mudam o total a pagar." : null;
+  return json({ ...result, vault, sent, message });
 }

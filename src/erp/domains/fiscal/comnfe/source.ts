@@ -13,7 +13,8 @@ import { data as catalogData, productDetailData } from "../../catalog/internal.t
 import { contactRequireVisible } from "../../catalog/contact.ts";
 import { referenceKey } from "../../reference/rpc/erp_reference_search.ts";
 import { natureRecord } from "../natures.ts";
-import { resolveReformClass, natureClasses } from "../reform.ts";
+import { resolveReformClass, natureClasses, productSelective, reformSettingsRow } from "../reform.ts";
+import { todaySaoPaulo } from "../../../engine/time.ts";
 import { contactSnapshot, invoicePreferences } from "../rpc/erp_fiscal_invoice_support.ts";
 import { taxSettingsInput } from "../rpc/erp_fiscal_tax_settings.ts";
 import { com1Hash } from "./store.ts";
@@ -239,11 +240,25 @@ export function capturePreparationSources(ctx: RpcContext, input: PrepareInput, 
   const municipalityDataset = one(db, 'SELECT name,source,source_url,version,fetched_on,rows FROM "erp_reference__dataset" WHERE name=?', "municipios");
   recordSource("municipalities", "municipios", municipalityDataset?.version, ["code", "name", "uf"]);
   const choices = { ...input.choices };
+  // Reforma tributária (structural.ts, reforma-calculo): o ano, a configuração
+  // da empresa, o Imposto Seletivo dos produtos e o que o cofre aceita. Só
+  // entra quando há algo da reforma: sem classificação nem configuração, as
+  // fontes (e o fingerprint) ficam como antes.
+  const reformConfig = readCommercialSettings(ctx).connection_public;
+  const vaultReform = reformConfig && Object.hasOwn(reformConfig, "reform") ? reformConfig.reform : undefined;
+  const reformSaved = reformSettingsRow(db);
+  const selective: JsonObject = {};
+  for (const id of productIds) { const value = productSelective(db, id); if (value) selective[id] = json(value); }
+  const reformCalc: JsonObject | null = Object.values(reform).some(value => value !== null) || reformSaved || Object.keys(selective).length || vaultReform !== undefined
+    // Ano pelo relógio do motor (o mesmo das datas da emissão), no fuso de São Paulo.
+    ? { year: Number(todaySaoPaulo(Number((ctx.clock.latest > 0n ? ctx.clock.latest : ctx.clock.next()) / 1000n)).slice(0, 4)), settings: json({ simples_regular: reformSaved?.simples_regular ?? false, rates: reformSaved?.rates ?? {} }),
+      selective, vault: vaultReform === undefined ? null : json(vaultReform), vault_known: vaultReform !== undefined }
+    : null;
   const taxSources: JsonObject = { settings, difal_by_state: difalByState, preferences, product_groups: groups, reform_by_product: reform,
     reform_nature: natureClasses(db, input.choices.nature_id).map(entry => json(entry)), choices: json(choices),
     municipality_dataset: municipalityDataset ? json(municipalityDataset) : null,
     versions: { tax_settings: (taxRow?.version ?? 0) as JsonValue, nature: nature.version ?? null, preferences: preferenceVersions },
-    ...(scope === "os_parts" ? { scope: "os_parts" } : {}) };
+    ...(scope === "os_parts" ? { scope: "os_parts" } : {}), ...(reformCalc ? { reform_calc: reformCalc } : {}) };
   const snapshot: CommercialSnapshot = { document, items, company, recipient, products, nature, payments, transport, sources };
   const commercial = { document: omit(document, TECHNICAL_DOCUMENT_FIELDS), items: items.map(item => omit(item, ["lots"])) };
   const commercialHash = com1Hash(commercial);

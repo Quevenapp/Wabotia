@@ -72,8 +72,9 @@ describe("catálogo da casa de gestão", () => {
     // + 1 da Produção: Ordens de produção (Estoque).
     // + 1 da Expedição (Comercial › Logística).
     // + 1 da compra pela nota recebida: Notas recebidas (Estoque › Compras).
-    expect(linked).toHaveLength(56);
-    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(57);
+    // + 1 da reforma tributária: Reforma tributária (IBS, CBS e IS) (Vendas › Gestão, parte Fiscal).
+    expect(linked).toHaveLength(57);
+    expect(ERP_MANAGEMENT_ITEMS).toHaveLength(58);
     expect(ERP_MANAGEMENT_ITEMS).toHaveLength(linked.length + 1);
     expect(ERP_MANAGEMENT_ITEMS.find(item => item.id === "erp.effect-maintenance")).toMatchObject({
       module: "erp", part: "sistema", groupLabel: "Sistema", order: 440,
