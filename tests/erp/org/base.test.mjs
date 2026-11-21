@@ -312,7 +312,8 @@ for (const version of [9, 10]) test(`migração aditiva v${version}→11 preserv
     const upgraded = tableSnapshot(db);
     assert.equal(migrate(storage).status, "current");
     assert.deepEqual(tableSnapshot(db), upgraded);
-    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%' AND name NOT LIKE 'wb_bling_adoption_%'").get().n, 6);
+    // 6 da coleta (versão 11) + 2 do corte (15) + 6 da mão dupla (19).
+    assert.equal(db.prepare("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name LIKE 'wb_bling_%' AND name NOT LIKE 'wb_bling_adoption_%'").get().n, 14);
     assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
   } finally { db.close(); }
 });
